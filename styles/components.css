@@ -1,0 +1,790 @@
+/* Quiz maker component layouts. Theme and control primitives live in base.css. */
+
+/* Shared content structure */
+.qm-root .qm-toolbar,
+.qm-root .qm-row-actions,
+.qm-root .qm-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--qm-space-2, 8px);
+}
+.qm-root .qm-toolbar { justify-content: flex-end; }
+.qm-root .qm-row-actions { flex-shrink: 0; }
+.qm-root .qm-section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--qm-space-3, 12px);
+  margin-block: var(--qm-space-6, 24px) var(--qm-space-3, 12px);
+}
+.qm-root .qm-section-heading :is(h2, h3, p) { margin: 0; }
+.qm-root .qm-muted,
+.qm-root .qm-status { color: var(--qm-muted, var(--text-muted)); }
+.qm-root .qm-status {
+  min-block-size: 1.5em;
+  margin-block: var(--qm-space-2, 8px);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.qm-root .qm-empty {
+  display: grid;
+  justify-items: start;
+  gap: var(--qm-space-3, 12px);
+  padding: var(--qm-space-6, 24px);
+  border: 1px dashed var(--qm-border, var(--background-modifier-border));
+  border-radius: var(--qm-radius-md, 10px);
+  background: var(--qm-surface-alt, var(--background-secondary));
+}
+.qm-root .qm-empty :is(h3, p) { margin: 0; }
+.qm-root .qm-empty p {
+  max-inline-size: 60ch;
+  color: var(--qm-muted, var(--text-muted));
+  line-height: 1.6;
+}
+.qm-root .qm-error,
+.qm-root .qm-delete-confirm,
+.qm-root .qm-editor-confirm {
+  padding: var(--qm-space-3, 12px) var(--qm-space-4, 16px);
+  border-inline-start: 3px solid var(--qm-danger, var(--text-error));
+  border-radius: 0 var(--qm-radius-sm, 6px) var(--qm-radius-sm, 6px) 0;
+  background: var(--qm-surface-alt, var(--background-secondary));
+  color: var(--qm-text, var(--text-normal));
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.qm-root .qm-delete-confirm,
+.qm-root .qm-editor-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--qm-space-2, 8px);
+  margin-block-start: var(--qm-space-3, 12px);
+}
+.qm-root .qm-delete-confirm p,
+.qm-root .qm-editor-confirm p { flex: 1 1 20ch; margin: 0; }
+.qm-root .qm-field {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--qm-space-2, 8px);
+  min-inline-size: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.qm-root .qm-field > :is(input, select, textarea) { inline-size: 100%; }
+.qm-root .qm-field > :is(small, .qm-muted) { font-size: 12px; line-height: 1.55; }
+.qm-root .qm-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--qm-space-4, 16px);
+}
+.qm-root .qm-form-grid > .qm-full-width { grid-column: 1 / -1; }
+
+/* Library */
+.qm-root .qm-studio { min-inline-size: 0; }
+.qm-root .qm-studio-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--qm-space-4, 16px);
+  padding-block-end: var(--qm-space-4, 16px);
+  padding-inline-end: calc(var(--qm-control-height, 40px) + 12px);
+}
+.qm-root.qm-modal > .modal-title {
+  margin-inline-end: 0;
+  padding-inline-end: calc(var(--qm-control-height, 40px) + 12px);
+}
+.qm-root .qm-studio-header h1 {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.25;
+  font-weight: 650;
+  letter-spacing: -.025em;
+}
+.qm-root .qm-resume {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--qm-space-4, 16px);
+  padding: var(--qm-space-4, 16px) var(--qm-space-5, 20px);
+  border: 1px solid var(--qm-border, var(--background-modifier-border));
+  border-inline-start: 3px solid var(--qm-accent, var(--interactive-accent));
+  border-radius: var(--qm-radius-md, 10px);
+  background: var(--qm-surface-alt, var(--background-secondary));
+}
+.qm-root .qm-resume :is(h2, h3, p) { margin-block: 4px; }
+.qm-root .qm-resume > div { min-inline-size: 0; flex: 1 1 24ch; }
+.qm-root .qm-resume :is(h2, h3) { font-size: 16px; overflow-wrap: anywhere; }
+.qm-root .qm-library-tools {
+  display: flex;
+  align-items: end;
+  gap: var(--qm-space-3, 12px);
+  margin-block-end: var(--qm-space-3, 12px);
+}
+.qm-root .qm-library-tools > label { flex: 1; min-inline-size: 0; }
+.qm-root .qm-library-tools :is(input, select) { inline-size: 100%; }
+.qm-root :is(.qm-library, .qm-preset-list, .qm-history > ol) {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.qm-root .qm-library-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--qm-space-4, 16px);
+  padding-block: var(--qm-space-4, 16px);
+  border-block-start: 1px solid var(--qm-border, var(--background-modifier-border));
+}
+.qm-root .qm-library-details { flex: 1; min-inline-size: 0; }
+.qm-root .qm-library-details h3 {
+  margin: 0 0 5px;
+  font-size: 16px;
+  line-height: 1.5;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.qm-root .qm-library-details p { margin: 0; font-size: 13px; line-height: 1.6; }
+.qm-root .qm-library-details .qm-muted { font-variant-numeric: tabular-nums; }
+.qm-root .qm-more { position: relative; }
+.qm-root .qm-more > summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-block-size: var(--qm-control-height, 40px);
+  padding-inline: var(--qm-space-3, 12px);
+  border: 1px solid var(--qm-border, var(--background-modifier-border));
+  border-radius: var(--qm-radius-sm, 6px);
+  cursor: pointer;
+  font-size: 13px;
+  list-style: none;
+}
+.qm-root .qm-more > summary::-webkit-details-marker { display: none; }
+.qm-root .qm-more[open] > summary { background: var(--qm-surface-hover, var(--background-modifier-hover)); }
+.qm-root .qm-more > :not(summary) {
+  position: absolute;
+  inset-block-start: calc(100% + 6px);
+  inset-inline-end: 0;
+  z-index: 4;
+  display: grid;
+  gap: 4px;
+  min-inline-size: 184px;
+  max-inline-size: min(320px, calc(100vw - 40px));
+  padding: 6px;
+  border: 1px solid var(--qm-border, var(--background-modifier-border));
+  border-radius: var(--qm-radius-md, 10px);
+  background: var(--qm-surface, var(--background-primary));
+  box-shadow: 0 8px 28px rgb(0 0 0 / 12%);
+}
+.qm-root .qm-more :not(summary) > button {
+  justify-content: start;
+  inline-size: 100%;
+  text-align: start;
+}
+.qm-root .qm-rename-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--qm-space-2, 8px);
+  margin-block-start: 10px;
+}
+.qm-root .qm-rename-form input { flex: 1 1 20ch; min-inline-size: 0; }
+.qm-root .qm-studio-bottom {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(240px, 1fr);
+  align-items: start;
+  gap: var(--qm-space-7, 32px);
+  margin-block-start: var(--qm-space-6, 24px);
+}
+.qm-root .qm-studio-bottom :is(h2, h3) { margin-block-start: 0; }
+.qm-root .qm-preset-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.qm-root .qm-preset { min-inline-size: 0; }
+.qm-root .qm-preset.is-featured { grid-column: 1 / -1; }
+.qm-root .qm-preset > button {
+  appearance: none;
+  -webkit-appearance: none;
+  display: grid;
+  align-content: start;
+  justify-items: start;
+  gap: 6px;
+  inline-size: 100%;
+  block-size: 100%;
+  min-block-size: 88px;
+  padding: 14px 16px;
+  border: 1px solid var(--qm-control-border, var(--background-modifier-border));
+  border-radius: var(--qm-radius-md, 10px);
+  color: var(--qm-text, var(--text-normal));
+  background-color: var(--qm-surface, var(--background-secondary));
+  background-image: none;
+  box-shadow: none;
+  text-align: start;
+  white-space: normal;
+}
+.qm-root .qm-preset.is-featured > button {
+  border-inline-start: 3px solid var(--qm-accent, var(--interactive-accent));
+  background: var(--qm-surface-alt, var(--background-secondary));
+}
+.qm-root .qm-preset button :is(small, .qm-muted) { font-size: 12px; line-height: 1.55; }
+.qm-root .qm-history-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-block: 12px;
+  border-block-end: 1px solid var(--qm-border, var(--background-modifier-border));
+  font-size: 13px;
+  line-height: 1.6;
+}
+.qm-root .qm-history-row > :first-child { min-inline-size: 0; }
+.qm-root .qm-history-row :is(strong, time) { display: block; overflow-wrap: anywhere; }
+.qm-root .qm-history-row > :last-child { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+
+/* Generation */
+.qm-root .qm-generator-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, .75fr) minmax(0, 1.65fr);
+  align-items: start;
+  gap: var(--qm-space-6, 24px);
+}
+.qm-root :is(.qm-generator-sources, .qm-generator-fields) { min-inline-size: 0; }
+.qm-root .qm-generator-sources {
+  padding-inline-end: var(--qm-space-5, 20px);
+  border-inline-end: 1px solid var(--qm-border, var(--background-modifier-border));
+}
+.qm-root .qm-source-list { max-block-size: 300px; margin: 14px 0; padding: 0; overflow-y: auto; list-style: none; }
+.qm-root .qm-source-row {
+  display: flex;
+  align-items: start;
+  gap: 8px;
+  padding-block: 10px;
+  border-block-end: 1px solid var(--qm-border, var(--background-modifier-border));
+}
+.qm-root .qm-source-row > :first-child { min-inline-size: 0; flex: 1; overflow-wrap: anywhere; }
+.qm-root .qm-source-row button { flex-shrink: 0; }
+.qm-root .qm-source-row :is(p, small) { margin: 3px 0 0; color: var(--qm-muted, var(--text-muted)); font-size: 12px; }
+.qm-root .qm-method-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+  margin-block: 16px;
+}
+.qm-root .qm-method-list > label,
+.qm-root .qm-method-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-block-size: 44px;
+  min-inline-size: 0;
+  font-size: 13px;
+}
+.qm-root .qm-method-list input[type="number"] { inline-size: 72px; margin-inline-start: auto; }
+.qm-root .qm-generator-progress {
+  padding: 14px 16px;
+  margin-block: 16px;
+  border-inline-start: 3px solid var(--qm-accent, var(--interactive-accent));
+  background: var(--qm-surface-alt, var(--background-secondary));
+  font-size: 14px;
+  line-height: 1.6;
+}
+.qm-root .qm-generator-progress progress { display: block; inline-size: 100%; margin-block-start: 10px; }
+.qm-root :is(.qm-generator-actions, .qm-editor-footer, .qm-session-actions) {
+  position: sticky;
+  inset-block-end: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--qm-space-2, 8px);
+  margin-block-start: var(--qm-space-5, 20px);
+  padding-block: var(--qm-space-4, 16px) max(var(--qm-space-4, 16px), env(safe-area-inset-bottom));
+  border-block-start: 1px solid var(--qm-border, var(--background-modifier-border));
+  background: var(--qm-surface, var(--background-primary));
+}
+.qm-root .qm-generator-actions > p { flex: 1 1 24ch; margin: 0; font-size: 12px; line-height: 1.6; color: var(--qm-muted, var(--text-muted)); }
+
+/* Study setup and session */
+.qm-root .qm-session { min-inline-size: 0; }
+.qm-root .qm-session-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 20px;
+  margin-block-end: 20px;
+}
+.qm-root .qm-session-header :is(h1, h2) { margin: 0; font-size: 22px; line-height: 1.4; overflow-wrap: anywhere; }
+.qm-root .qm-session-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; font-size: 13px; }
+.qm-root .qm-timer { display: inline-flex; align-items: baseline; gap: 5px; font-variant-numeric: tabular-nums; }
+.qm-root .qm-timer strong { font-size: 18px; line-height: 1.3; font-weight: 650; }
+.qm-root .qm-timer.is-urgent { color: var(--qm-danger, var(--text-error)); }
+.qm-root .qm-session-setup { display: grid; gap: 20px; }
+.qm-root .qm-mode-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.qm-root .qm-mode-option {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  align-content: center;
+  min-block-size: 72px;
+  padding: 12px 14px;
+  text-align: start;
+  white-space: normal;
+}
+.qm-root .qm-mode-option > :last-child { color: var(--qm-muted, var(--text-muted)); font-size: 12px; font-weight: 400; line-height: 1.5; }
+.qm-root .qm-mode-option[aria-pressed="true"] { border-color: var(--qm-accent, var(--interactive-accent)); background: var(--qm-surface-alt, var(--background-secondary)); }
+.qm-root .qm-session-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.qm-root .qm-session-options > label { min-inline-size: 0; }
+.qm-root .qm-session-grid { display: grid; grid-template-columns: 196px minmax(0, 1fr); gap: 28px; align-items: start; }
+.qm-root .qm-session-nav { min-inline-size: 0; padding-inline-end: 20px; border-inline-end: 1px solid var(--qm-border, var(--background-modifier-border)); }
+.qm-root .qm-session-nav progress { inline-size: 100%; margin-block: 8px 16px; }
+.qm-root .qm-question-nav { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.qm-root .qm-question-nav button { min-inline-size: 0; min-block-size: 40px; padding: 4px; font-variant-numeric: tabular-nums; }
+.qm-root .qm-question-nav button[aria-current] { border-color: var(--qm-accent, var(--interactive-accent)); box-shadow: inset 0 0 0 1px var(--qm-accent, var(--interactive-accent)); }
+.qm-root .qm-question-nav button[data-answered="true"] { background: var(--qm-surface-alt, var(--background-secondary)); }
+.qm-root .qm-session-main { min-inline-size: 0; max-inline-size: 78ch; }
+.qm-root .qm-session-main > header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-block-end: 18px; }
+.qm-root .qm-session-main > header :is(h2, h3, p) { margin: 0; }
+.qm-root .qm-session-main > header button[aria-pressed="true"] { border-color: var(--qm-accent, var(--interactive-accent)); }
+.qm-root .qm-session-actions > :first-child { margin-inline-end: auto; }
+.qm-root .qm-session-paused { display: grid; justify-items: start; gap: 16px; padding-block: 40px; }
+.qm-root .qm-session-paused h2 { margin: 0; }
+.qm-root .qm-results-summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px 28px; margin-block: 12px 24px; font-variant-numeric: tabular-nums; }
+.qm-root .qm-results-summary strong { font-size: 26px; line-height: 1.25; font-weight: 650; }
+.qm-root .qm-results-summary p { margin: 4px 0; color: var(--qm-muted, var(--text-muted)); font-size: 13px; }
+.qm-root .qm-results-grid { display: grid; grid-template-columns: minmax(180px, .7fr) minmax(0, 1.3fr); gap: 24px; }
+.qm-root .qm-result-list { display: grid; align-content: start; gap: 6px; min-inline-size: 0; max-block-size: 520px; overflow-y: auto; }
+.qm-root .qm-result-list button { justify-content: start; min-block-size: 48px; padding: 10px 12px; text-align: start; white-space: normal; line-height: 1.5; }
+.qm-root .qm-result-list button[aria-current="true"],
+.qm-root .qm-result-list button[aria-pressed="true"] { border-color: var(--qm-accent, var(--interactive-accent)); background: var(--qm-surface-alt, var(--background-secondary)); }
+.qm-root .qm-result-detail { min-inline-size: 0; padding-inline-start: 20px; border-inline-start: 1px solid var(--qm-border, var(--background-modifier-border)); }
+.qm-root .qm-result-detail :is(h3, h4) { margin-block-start: 0; font-size: 17px; line-height: 1.6; }
+.qm-root .qm-result-detail :is(dt, dd) { margin: 0; line-height: 1.7; overflow-wrap: anywhere; }
+.qm-root .qm-result-detail dt { margin-block: 16px 5px; color: var(--qm-muted, var(--text-muted)); font-size: 12px; }
+
+/* Question controls */
+.qm-root .qm-question { min-inline-size: 0; line-height: 1.7; }
+.qm-root .qm-question-label { margin-block: 0 10px; color: var(--qm-muted, var(--text-muted)); font-size: 12px; line-height: 1.5; }
+.qm-root .qm-question-prompt { margin-block: 0 20px; font-size: 17px; font-weight: 600; line-height: 1.7; }
+.qm-root .qm-question-prompt > :first-child { margin-block-start: 0; }
+.qm-root .qm-question-prompt > :last-child { margin-block-end: 0; }
+.qm-root :is(.qm-options, .qm-blanks, .qm-matching) { min-inline-size: 0; margin: 0; padding: 0; border: 0; }
+.qm-root .qm-options { display: grid; gap: 10px; }
+.qm-root .qm-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-block-size: 52px;
+  min-inline-size: 0;
+  padding: 13px 15px;
+  border: 1px solid var(--qm-border, var(--background-modifier-border));
+  border-radius: var(--qm-radius-md, 10px);
+  background: var(--qm-surface, var(--background-primary));
+  cursor: pointer;
+  line-height: 1.65;
+}
+.qm-root .qm-choice:hover { background: var(--qm-surface-hover, var(--background-modifier-hover)); }
+.qm-root .qm-choice.is-selected,
+.qm-root .qm-choice[data-selected="true"] { border-color: var(--qm-accent, var(--interactive-accent)); background: var(--qm-surface-alt, var(--background-secondary)); }
+.qm-root .qm-choice:focus-within { outline: 2px solid var(--qm-focus, var(--interactive-accent)); outline-offset: 2px; }
+.qm-root .qm-choice > input { flex-shrink: 0; margin-block-start: 5px; }
+.qm-root :is(.qm-choice-marker, .qm-choice-letter) { flex: 0 0 22px; min-block-size: 22px; text-align: center; color: var(--qm-muted, var(--text-muted)); font-size: 12px; font-weight: 600; line-height: 1.8; }
+.qm-root :is(.qm-choice-text, .qm-choice-copy) { min-inline-size: 0; flex: 1; font-size: 15px; overflow-wrap: anywhere; }
+.qm-root :is(.qm-choice-text, .qm-choice-copy) :is(p, ul, ol) { margin-block: 0; }
+.qm-root .qm-blanks { display: grid; gap: 14px; }
+.qm-root .qm-matching { display: grid; gap: 10px; }
+.qm-root .qm-match-row { display: grid; grid-template-columns: minmax(110px, 1fr) minmax(0, 1.15fr); align-items: center; gap: 12px; padding-block: 5px; }
+.qm-root .qm-match-row > :first-child { min-inline-size: 0; overflow-wrap: anywhere; }
+.qm-root .qm-match-row select { inline-size: 100%; min-inline-size: 0; }
+.qm-root .qm-written { display: grid; gap: 10px; }
+.qm-root .qm-written textarea { inline-size: 100%; min-block-size: 160px; resize: vertical; font-family: inherit; font-size: 16px; line-height: 1.7; }
+.qm-root :is(.qm-hint, .qm-source) { margin-block: 18px 0; padding-block: 10px; border-block-start: 1px solid var(--qm-border, var(--background-modifier-border)); }
+.qm-root :is(.qm-hint, .qm-source) > summary { min-block-size: var(--qm-control-height, 40px); padding-block: 7px; cursor: pointer; font-size: 13px; font-weight: 600; }
+.qm-root .qm-reference { margin-block-start: 22px; padding: 16px 18px; border: 1px solid var(--qm-border, var(--background-modifier-border)); border-inline-start: 3px solid var(--qm-positive, var(--color-green)); border-radius: var(--qm-radius-sm, 6px); background: var(--qm-surface-alt, var(--background-secondary)); }
+.qm-root .qm-reference :is(h3, h4) { margin-block: 0 8px; font-size: 14px; }
+.qm-root .qm-reference-list { display: grid; gap: 8px; }
+.qm-root .qm-reference-list :is(p, ul, ol) { margin-block: 0; }
+.qm-root .qm-explanation { margin-block-start: 14px; font-size: 14px; line-height: 1.7; }
+.qm-root .qm-question :is(pre, table) { display: block; max-inline-size: 100%; overflow-x: auto; }
+.qm-root .qm-question pre { padding: 12px 14px; font-size: 13px; line-height: 1.65; }
+.qm-root .qm-question img { max-inline-size: 100%; block-size: auto; }
+.qm-root .qm-question :not(pre) > code { white-space: break-spaces; overflow-wrap: anywhere; }
+.qm-root .qm-question :is(ul, ol) { padding-inline-start: 24px; }
+.qm-root .qm-question :is(li, td, th) { overflow-wrap: anywhere; }
+.qm-root .qm-question fieldset + fieldset { margin-block-start: 20px; }
+
+/* Structured advanced methods */
+.qm-root .qm-advanced-context { margin-block: 16px; padding-inline-start: 14px; border-inline-start: 2px solid var(--qm-border, var(--background-modifier-border)); font-size: 15px; line-height: 1.7; }
+.qm-root .qm-branch-step { margin-block: 18px; }
+.qm-root .qm-branch-step :is(h3, h4) { font-size: 14px; margin-block: 0 10px; }
+.qm-root .qm-sequence { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.qm-root .qm-sequence-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; padding: 8px 10px; border: 1px solid var(--qm-border, var(--background-modifier-border)); border-radius: var(--qm-radius-sm, 6px); }
+.qm-root .qm-sequence-row > :first-child { min-inline-size: 0; overflow-wrap: anywhere; }
+.qm-root .qm-sequence-row button { min-inline-size: 40px; min-block-size: 40px; padding: 7px; }
+.qm-root .qm-category-row,
+.qm-root .qm-concept-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(150px, .85fr); align-items: center; gap: 12px; padding-block: 10px; border-block-end: 1px solid var(--qm-border, var(--background-modifier-border)); }
+.qm-root .qm-category-row > :first-child,
+.qm-root .qm-concept-row > :first-child { min-inline-size: 0; overflow-wrap: anywhere; }
+.qm-root .qm-concept-nodes { display: flex; flex-wrap: wrap; gap: 6px; margin-block: 12px; }
+.qm-root .qm-concept-nodes > span { padding: 4px 8px; border: 1px solid var(--qm-border, var(--background-modifier-border)); border-radius: var(--qm-radius-sm, 6px); font-size: 13px; }
+
+/* Question editor and JSON import */
+.qm-root .qm-editor-toolbar { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px; margin-block-end: 20px; }
+.qm-root .qm-editor-toolbar > :first-child { flex: 1 1 30ch; min-inline-size: 0; }
+.qm-root .qm-editor-toolbar input { inline-size: 100%; }
+.qm-root .qm-editor-layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 24px; align-items: start; }
+.qm-root .qm-editor-outline { display: grid; gap: 6px; max-block-size: 540px; overflow-y: auto; min-inline-size: 0; padding-inline-end: 12px; border-inline-end: 1px solid var(--qm-border, var(--background-modifier-border)); }
+.qm-root .qm-editor-question-link { justify-content: start; min-block-size: 48px; padding: 10px 12px; text-align: start; white-space: normal; line-height: 1.5; }
+.qm-root .qm-editor-question-link.is-active { border-color: var(--qm-accent, var(--interactive-accent)); background: var(--qm-surface-alt, var(--background-secondary)); }
+.qm-root .qm-editor-detail { min-inline-size: 0; }
+.qm-root .qm-editor-fields { display: grid; gap: 16px; }
+.qm-root .qm-editor-fields textarea { min-block-size: 100px; line-height: 1.65; resize: vertical; }
+.qm-root .qm-editor-options { display: grid; gap: 10px; }
+.qm-root .qm-editor-options > label { display: flex; align-items: start; gap: 10px; min-block-size: 44px; }
+.qm-root .qm-editor-options > label > :last-child { flex: 1; min-inline-size: 0; }
+.qm-root .qm-editor-pair,
+.qm-root .qm-editor-link { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)) auto; gap: 8px; align-items: end; }
+.qm-root .qm-editor-step { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--qm-border, var(--background-modifier-border)); border-radius: var(--qm-radius-md, 10px); }
+.qm-root .qm-editor-advanced { margin-block-start: 20px; border-block-start: 1px solid var(--qm-border, var(--background-modifier-border)); padding-block-start: 10px; }
+.qm-root .qm-editor-advanced > summary { min-block-size: var(--qm-control-height, 40px); padding-block: 8px; cursor: pointer; font-size: 13px; font-weight: 600; }
+.qm-root .qm-json-input { display: block; inline-size: 100%; min-block-size: 300px; margin-block: 12px; padding: 14px; resize: vertical; font-family: var(--font-monospace, monospace); font-size: 13px; line-height: 1.65; tab-size: 2; white-space: pre; overflow: auto; }
+.qm-root .qm-editor-footer .qm-editor-validation { flex: 1 1 24ch; margin: 0; font-size: 13px; line-height: 1.6; }
+.qm-root .qm-import { display: grid; gap: 16px; min-inline-size: 0; }
+.qm-root .qm-import-drop { display: grid; justify-items: start; gap: 10px; padding: 18px; border: 1px dashed var(--qm-border, var(--background-modifier-border)); border-radius: var(--qm-radius-md, 10px); background: var(--qm-surface-alt, var(--background-secondary)); }
+.qm-root .qm-import-drop input[type="file"] { max-inline-size: 100%; min-inline-size: 0; }
+
+/* Settings and small sidebar view */
+.qm-root .qm-settings-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-block-end: 18px; }
+.qm-root .qm-settings-tabs button[aria-pressed="true"] { border-color: var(--qm-accent, var(--interactive-accent)); background: var(--qm-surface-alt, var(--background-secondary)); }
+.qm-root .qm-settings .setting-item { align-items: center; gap: 18px; }
+.qm-root .qm-settings .setting-item-info { min-inline-size: 0; }
+.qm-root .qm-settings .setting-item-description { line-height: 1.6; }
+.qm-root .qm-settings .setting-item-control { flex-wrap: wrap; gap: 8px; min-inline-size: 0; }
+.qm-root .qm-settings .setting-item-control :is(input, select) { max-inline-size: 100%; }
+.qm-root .qm-mini { display: grid; gap: 14px; min-inline-size: 0; padding: 12px; }
+.qm-root .qm-mini-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.qm-root .qm-mini-header :is(h2, h3) { margin: 0; font-size: 16px; line-height: 1.5; overflow-wrap: anywhere; }
+.qm-root .qm-mini-progress { display: grid; gap: 6px; font-size: 12px; color: var(--qm-muted, var(--text-muted)); }
+.qm-root .qm-mini-progress progress { inline-size: 100%; }
+.qm-root .qm-mini-clock { font-size: 14px; font-variant-numeric: tabular-nums; }
+.qm-root .qm-mini-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.qm-root .qm-mini-actions > button { flex: 1 1 auto; min-block-size: var(--qm-control-height, 40px); }
+.qm-root .qm-mini-empty { display: grid; gap: 10px; font-size: 14px; line-height: 1.6; }
+.qm-root .qm-mini-question { min-inline-size: 0; }
+.qm-root .qm-mini .qm-question-prompt { font-size: 15px; }
+.qm-root .qm-mini .qm-choice { padding: 10px; gap: 8px; }
+.qm-root .qm-mini .qm-choice-marker { display: none; }
+.qm-root .qm-mini :is(.qm-match-row, .qm-category-row, .qm-concept-row) { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.qm-root .qm-mini .qm-reference { padding: 12px; }
+
+/* Only operated controls animate; there is no continuous background motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .qm-root:not([data-motion="reduced"]):not([data-qm-motion="reduced"]) :is(.qm-choice, .qm-preset > button, .qm-mode-option, .qm-editor-question-link) {
+    transition: border-color 140ms ease, background-color 140ms ease, transform 140ms ease;
+  }
+  .qm-root:not([data-motion="reduced"]):not([data-qm-motion="reduced"]) :is(.qm-choice, .qm-preset > button, .qm-mode-option):active { transform: translateY(1px); }
+}
+
+/* Tablet: reduce side rails before content becomes cramped. */
+@media (max-width: 900px) {
+  .qm-root .qm-studio-bottom { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .qm-root .qm-generator-layout { grid-template-columns: minmax(180px, .7fr) minmax(0, 1.3fr); gap: 20px; }
+  .qm-root .qm-method-list { grid-template-columns: minmax(0, 1fr); }
+  .qm-root .qm-session-grid { grid-template-columns: 164px minmax(0, 1fr); gap: 20px; }
+  .qm-root .qm-question-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .qm-root .qm-editor-layout { grid-template-columns: 180px minmax(0, 1fr); gap: 18px; }
+  .qm-root .qm-results-grid { grid-template-columns: minmax(160px, .7fr) minmax(0, 1.3fr); gap: 18px; }
+}
+
+/* Phone: show one task at a time and retain a clear primary action. */
+@media (max-width: 600px) {
+  .qm-root .qm-studio-header { gap: 14px; padding-block-end: 18px; padding-inline-end: 0; }
+  .qm-root .qm-studio-header > :first-child { max-inline-size: calc(100% - var(--qm-control-height, 44px) - 12px); }
+  .qm-root .qm-studio-header h1 { font-size: 22px; }
+  .qm-root .qm-studio-header .qm-toolbar { inline-size: 100%; justify-content: start; }
+  .qm-root .qm-studio-header .qm-toolbar > :first-child { flex: 1; }
+  .qm-root .qm-section-heading { margin-block-start: 22px; }
+  .qm-root .qm-library-tools { align-items: stretch; gap: 8px; }
+  .qm-root .qm-library-tools > select { inline-size: auto; max-inline-size: 42%; font-size: 13px; }
+  .qm-root .qm-library-row { display: grid; gap: 12px; padding-block: 16px; }
+  .qm-root .qm-library-row .qm-row-actions { display: flex; inline-size: 100%; }
+  .qm-root .qm-library-row .qm-row-actions > button { flex: 1; }
+  .qm-root .qm-library-row .qm-more { flex: 0 0 auto; }
+  .qm-root .qm-more > :not(summary) { max-inline-size: calc(100vw - 36px); }
+  .qm-root .qm-resume { gap: 12px; padding: 14px; }
+  .qm-root .qm-resume > div { flex-basis: 18ch; }
+  .qm-root .qm-preset-list { gap: 8px; }
+  .qm-root .qm-preset > button { min-block-size: 92px; padding: 12px; }
+  .qm-root .qm-preset.is-featured > button { min-block-size: 84px; }
+  .qm-root .qm-form-grid,
+  .qm-root .qm-generator-layout,
+  .qm-root .qm-session-grid,
+  .qm-root .qm-editor-layout,
+  .qm-root .qm-results-grid { grid-template-columns: minmax(0, 1fr); }
+  .qm-root .qm-generator-sources { padding-inline-end: 0; padding-block-end: 16px; border-inline-end: 0; border-block-end: 1px solid var(--qm-border, var(--background-modifier-border)); }
+  .qm-root .qm-source-list { max-block-size: 180px; }
+  .qm-root .qm-method-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; }
+  .qm-root .qm-method-list > label,
+  .qm-root .qm-method-row { flex-wrap: wrap; align-content: center; font-size: 12px; }
+  .qm-root .qm-method-list input[type="number"] { inline-size: 60px; }
+  .qm-root .qm-generator-actions { align-items: stretch; }
+  .qm-root .qm-generator-actions > p { flex-basis: 100%; }
+  .qm-root .qm-generator-actions > button:last-child { flex: 1; }
+  .qm-root .qm-session-header { align-items: start; gap: 10px; margin-block-end: 16px; }
+  .qm-root .qm-session-header :is(h1, h2) { font-size: 20px; }
+  .qm-root .qm-session-meta { gap: 10px; font-size: 12px; }
+  .qm-root .qm-mode-grid { gap: 8px; }
+  .qm-root .qm-mode-option { min-block-size: 76px; padding: 11px 12px; }
+  .qm-root .qm-session-options { gap: 14px; }
+  .qm-root .qm-session-nav { padding: 0 0 14px; border-inline-end: 0; border-block-end: 1px solid var(--qm-border, var(--background-modifier-border)); }
+  .qm-root .qm-session-nav progress { margin-block-end: 10px; }
+  .qm-root .qm-question-nav { display: flex; flex-wrap: wrap; gap: 6px; max-block-size: 150px; overflow-y: auto; padding: 2px; }
+  .qm-root .qm-question-nav button { flex: 0 0 44px; min-block-size: 44px; }
+  .qm-root .qm-session-actions { gap: 8px; padding-block-start: 12px; }
+  .qm-root .qm-session-actions > button { flex: 1 1 auto; min-block-size: 44px; }
+  .qm-root .qm-session-actions > :first-child { margin-inline-end: 0; }
+  .qm-root .qm-question-prompt { font-size: 16px; margin-block-end: 16px; }
+  .qm-root .qm-choice { min-block-size: 52px; padding: 12px; gap: 8px; }
+  .qm-root .qm-choice-marker { flex-basis: 18px; }
+  .qm-root .qm-choice-text { font-size: 15px; }
+  .qm-root .qm-match-row,
+  .qm-root .qm-category-row,
+  .qm-root .qm-concept-row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .qm-root .qm-sequence-row { padding: 8px; gap: 6px; }
+  .qm-root .qm-sequence-row button { min-inline-size: 44px; min-block-size: 44px; }
+  .qm-root .qm-reference { padding: 14px; }
+  .qm-root .qm-results-summary { gap: 12px 22px; margin-block-end: 20px; }
+  .qm-root .qm-results-summary strong { font-size: 24px; }
+  .qm-root .qm-result-list { max-block-size: 200px; }
+  .qm-root .qm-result-detail { padding: 16px 0 0; border-inline-start: 0; border-block-start: 1px solid var(--qm-border, var(--background-modifier-border)); }
+  .qm-root .qm-editor-outline { max-block-size: 160px; padding: 0 0 12px; border-inline-end: 0; border-block-end: 1px solid var(--qm-border, var(--background-modifier-border)); }
+  .qm-root .qm-editor-pair,
+  .qm-root .qm-editor-link { grid-template-columns: minmax(0, 1fr) auto; }
+  .qm-root .qm-editor-pair > :first-child,
+  .qm-root .qm-editor-link > :first-child { grid-column: 1 / -1; }
+  .qm-root .qm-json-input { min-block-size: 260px; font-size: 12px; }
+  .qm-root .qm-editor-footer { align-items: stretch; }
+  .qm-root .qm-editor-validation { flex-basis: 100%; }
+  .qm-root .qm-editor-footer > button { flex: 1; min-block-size: 44px; }
+  .qm-root .qm-settings .setting-item { align-items: stretch; flex-direction: column; gap: 10px; }
+  .qm-root .qm-settings .setting-item-control { justify-content: start; inline-size: 100%; }
+  .qm-root .qm-settings .setting-item-control :is(input:not([type="checkbox"]), select) { flex: 1; inline-size: 100%; min-inline-size: 0; }
+  .qm-root .qm-mini { padding: 10px; gap: 12px; }
+}
+
+@media (max-width: 380px) {
+  .qm-root .qm-method-list { grid-template-columns: minmax(0, 1fr); }
+  .qm-root .qm-mode-grid { grid-template-columns: minmax(0, 1fr); }
+  .qm-root .qm-session-options { grid-template-columns: minmax(0, 1fr); }
+  .qm-root .qm-library-tools { flex-wrap: wrap; }
+  .qm-root .qm-library-tools > select { max-inline-size: 100%; inline-size: 100%; }
+}
+
+
+/* Generator markup uses its own named columns and a single disclosure for extras. */
+.qm-root .qm-generator-columns {
+  display: grid;
+  grid-template-columns: minmax(220px, .75fr) minmax(0, 1.65fr);
+  align-items: start;
+  gap: var(--qm-space-6, 24px);
+}
+.qm-root .qm-generator-configuration { min-inline-size: 0; }
+.qm-root .qm-generator-sources .qm-toolbar { justify-content: start; }
+.qm-root .qm-generator-sources .qm-section-heading { margin-block-start: 0; }
+.qm-root .qm-empty-description { margin-block: 18px; color: var(--qm-muted, var(--text-muted)); font-size: 13px; line-height: 1.65; }
+.qm-root .qm-pack-description { font-size: 13px; line-height: 1.6; }
+.qm-root .qm-method-list { padding: 0; list-style: none; }
+.qm-root .qm-method-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 64px 40px;
+  align-items: center;
+  gap: 8px;
+}
+.qm-root .qm-method-row > label { min-inline-size: 0; line-height: 1.5; }
+.qm-root .qm-method-row > input[type="number"] { inline-size: 100%; margin: 0; }
+.qm-root .qm-method-row > button { min-inline-size: 40px; inline-size: 40px; padding: 6px; }
+.qm-root .qm-add-format { margin-block: 8px 20px; }
+.qm-root .qm-form-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-block: 18px; }
+.qm-root .qm-generator-options { margin-block-start: 16px; border-block-start: 1px solid var(--qm-border, var(--background-modifier-border)); }
+.qm-root .qm-generator-options > summary { min-block-size: 44px; padding-block: 12px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.qm-root .qm-generator-options > .qm-field { margin-block-end: 12px; }
+.qm-root .qm-check { display: flex; align-items: center; gap: 10px; min-block-size: var(--qm-control-height, 40px); font-size: 14px; }
+.qm-root .qm-check input { flex-shrink: 0; }
+.qm-root .qm-generator-model { display: grid; grid-template-columns: minmax(140px, .7fr) minmax(0, 1.3fr) auto; align-items: end; gap: 12px; margin-block-start: 24px; padding-block-start: 20px; border-block-start: 1px solid var(--qm-border, var(--background-modifier-border)); }
+.qm-root .qm-generator-footer { position: sticky; inset-block-end: 0; z-index: 2; display: grid; gap: 6px; margin-block-start: 20px; padding-block: 14px max(14px, env(safe-area-inset-bottom)); border-block-start: 1px solid var(--qm-border, var(--background-modifier-border)); background: var(--qm-surface, var(--background-primary)); }
+.qm-root .qm-network-note { margin: 0; font-size: 12px; line-height: 1.6; }
+.qm-root .qm-generator-footer .qm-status:empty { min-block-size: 0; margin: 0; }
+.qm-root .qm-footer-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-block-start: 6px; }
+
+/* Advanced formats share the same choice and form primitives. */
+.qm-root .qm-field-label { margin-block-end: 10px; font-size: 13px; font-weight: 600; line-height: 1.5; }
+.qm-root .qm-question-context { margin-block: 14px; padding-inline-start: 14px; border-inline-start: 2px solid var(--qm-border, var(--background-modifier-border)); font-size: 15px; line-height: 1.7; }
+.qm-root .qm-context-label { margin-block: 0 6px; color: var(--qm-muted, var(--text-muted)); font-size: 12px; line-height: 1.5; font-weight: 600; }
+.qm-root .qm-step-number { margin-block-end: 6px; color: var(--qm-muted, var(--text-muted)); font-size: 12px; }
+.qm-root .qm-order-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.qm-root .qm-order-item { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 9px 10px; border: 1px solid var(--qm-border, var(--background-modifier-border)); border-radius: var(--qm-radius-sm, 6px); }
+.qm-root .qm-order-position { color: var(--qm-muted, var(--text-muted)); font-size: 12px; font-variant-numeric: tabular-nums; }
+.qm-root .qm-order-copy { min-inline-size: 0; overflow-wrap: anywhere; }
+.qm-root .qm-order-copy p { margin: 0; }
+.qm-root .qm-order-actions { display: flex; gap: 4px; }
+.qm-root .qm-order-actions button { min-block-size: 40px; min-inline-size: 40px; padding: 6px; }
+.qm-root .qm-assignment-list { display: grid; gap: 2px; }
+.qm-root .qm-assignment-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(150px, .85fr); align-items: center; gap: 14px; padding-block: 12px; border-block-end: 1px solid var(--qm-border, var(--background-modifier-border)); }
+.qm-root .qm-assignment-item { min-inline-size: 0; overflow-wrap: anywhere; }
+.qm-root .qm-assignment-item p { margin: 0; }
+.qm-root .qm-two-stage { display: grid; gap: 24px; }
+.qm-root .qm-choice { border-color: var(--qm-control-border, var(--background-modifier-border)); }
+.qm-root .qm-choice.is-selected,
+.qm-root .qm-choice[data-selected="true"] { border-color: var(--qm-accent, var(--interactive-accent)); }
+.qm-root .qm-editor-question-link { border-color: transparent; background: transparent; }
+.qm-root .qm-mini :is(.qm-assignment-row, .qm-order-item) { min-inline-size: 0; }
+.qm-root .qm-mini .qm-assignment-row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.qm-root .qm-mini :is(.qm-choice-marker, .qm-choice-letter) { display: none; }
+.qm-root .qm-mini .qm-order-item { grid-template-columns: 16px minmax(0, 1fr); gap: 8px; }
+.qm-root .qm-mini .qm-order-actions { grid-column: 2; justify-content: flex-end; }
+
+@media (max-width: 900px) {
+  .qm-root .qm-generator-columns { grid-template-columns: minmax(180px, .7fr) minmax(0, 1.3fr); gap: 20px; }
+  .qm-root .qm-generator-model { grid-template-columns: minmax(120px, .7fr) minmax(0, 1.3fr); }
+  .qm-root .qm-generator-model > button { grid-column: 1 / -1; justify-self: end; }
+}
+@media (max-width: 600px) {
+  .qm-root .qm-generator-columns { grid-template-columns: minmax(0, 1fr); }
+  .qm-root .qm-generator .qm-method-list { grid-template-columns: minmax(0, 1fr); }
+  .qm-root .qm-generator .qm-method-row { grid-template-columns: minmax(0, 1fr) 64px 44px; font-size: 13px; }
+  .qm-root .qm-generator .qm-method-row > button { min-block-size: 44px; min-inline-size: 44px; inline-size: 44px; }
+  .qm-root .qm-generator-model { gap: 12px; margin-block-start: 20px; }
+  .qm-root .qm-generator-model > button { justify-self: stretch; }
+  .qm-root .qm-generator-footer .qm-footer-actions { justify-content: stretch; }
+  .qm-root .qm-generator-footer .qm-footer-actions > button { flex: 1; min-block-size: 44px; }
+  .qm-root .qm-assignment-row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .qm-root .qm-order-item { grid-template-columns: 18px minmax(0, 1fr); gap: 8px; }
+  .qm-root .qm-order-actions { grid-column: 2; justify-content: flex-end; }
+  .qm-root .qm-order-actions button { min-block-size: 44px; min-inline-size: 44px; }
+}
+@media (max-width: 380px) {
+  .qm-root .qm-form-row,
+  .qm-root .qm-generator-model { grid-template-columns: minmax(0, 1fr); }
+}
+@media (forced-colors: active) {
+  .qm-root .qm-choice[data-selected="true"] { border-color: Highlight; outline: 1px solid Highlight; }
+}
+
+/* Readable blocks embedded in notes use a narrower content measure than dialogs. */
+.qm-root.qm-note { max-inline-size: 76ch; margin-block: 24px; font-family: var(--qm-font-content, inherit); font-size: 16px; line-height: 1.65; }
+.qm-root.qm-note .qm-note-header { display: grid; gap: 8px; margin-block-end: 20px; }
+.qm-root.qm-note .qm-note-title { margin: 0; font-size: 19px; font-weight: 650; line-height: 1.5; }
+.qm-root.qm-note .qm-note-meta { margin: 0; color: var(--qm-muted, var(--text-muted)); font-family: var(--qm-font, inherit); font-size: 13px; line-height: 1.6; }
+.qm-root.qm-note .qm-note-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-block-start: 4px; }
+.qm-root.qm-note .qm-note-list { display: grid; gap: 16px; }
+.qm-root.qm-note .qm-note-question { min-inline-size: 0; padding: 18px 20px; border: 1px solid var(--qm-border, var(--background-modifier-border)); border-inline-start: 3px solid var(--qm-accent, var(--interactive-accent)); border-radius: var(--qm-radius-md, 10px); background: var(--qm-bg, var(--background-primary)); }
+.qm-root.qm-note .qm-note-number { display: block; margin-block-end: 8px; color: var(--qm-muted, var(--text-muted)); font-family: var(--qm-font, inherit); font-size: 12px; font-variant-numeric: tabular-nums; }
+.qm-root.qm-note .qm-note-prompt { font-weight: 600; line-height: 1.7; }
+.qm-root.qm-note :is(.qm-note-prompt, .qm-note-context, .qm-note-answer-line) > :first-child { margin-block-start: 0; }
+.qm-root.qm-note :is(.qm-note-prompt, .qm-note-context, .qm-note-answer-line) > :last-child { margin-block-end: 0; }
+.qm-root.qm-note .qm-note-context { margin-block-start: 14px; padding-inline-start: 14px; border-inline-start: 2px solid var(--qm-border, var(--background-modifier-border)); font-size: 15px; line-height: 1.7; }
+.qm-root.qm-note .qm-note-options { margin-block: 14px 0; padding-inline-start: 24px; }
+.qm-root.qm-note .qm-note-options li { margin-block: 8px; padding-inline-start: 4px; }
+.qm-root.qm-note .qm-note-options li::marker { color: var(--qm-muted, var(--text-muted)); font-size: 13px; }
+.qm-root.qm-note .qm-note-answer { margin-block-start: 18px; border: 1px solid var(--qm-border, var(--background-modifier-border)); border-inline-start: 3px solid var(--qm-positive, var(--color-green)); border-radius: var(--qm-radius-sm, 6px); background: var(--qm-surface-alt, var(--background-secondary)); }
+.qm-root.qm-note .qm-note-answer > summary { min-block-size: 44px; padding: 10px 14px; font-family: var(--qm-font, inherit); font-size: 14px; font-weight: 600; line-height: 1.6; cursor: pointer; list-style-position: inside; }
+.qm-root.qm-note .qm-note-answer > summary::marker { color: var(--qm-positive, var(--color-green)); }
+.qm-root.qm-note .qm-note-answer > summary:hover { background: var(--qm-surface-hover, var(--background-modifier-hover)); }
+.qm-root.qm-note .qm-note-answer[open] > summary { border-block-end: 1px solid var(--qm-border, var(--background-modifier-border)); }
+.qm-root.qm-note .qm-note-answer-body { display: grid; gap: 10px; padding: 14px; font-size: 15px; line-height: 1.75; }
+.qm-root.qm-note .qm-note-explanation { margin-block-start: 6px; }
+.qm-root.qm-note :is(.qm-note-hint, .qm-note-source, .qm-note-data) { margin-block-start: 14px; padding-block-start: 8px; border-block-start: 1px solid var(--qm-border, var(--background-modifier-border)); }
+.qm-root.qm-note :is(.qm-note-hint, .qm-note-source, .qm-note-data) > summary { min-block-size: 44px; padding-block: 10px; color: var(--qm-muted, var(--text-muted)); font-family: var(--qm-font, inherit); font-size: 13px; line-height: 1.6; cursor: pointer; }
+.qm-root.qm-note :is(pre, table) { display: block; max-inline-size: 100%; overflow-x: auto; }
+.qm-root.qm-note pre { padding: 12px 14px; font-size: 13px; line-height: 1.65; }
+.qm-root.qm-note :not(pre) > code { white-space: break-spaces; overflow-wrap: anywhere; }
+.qm-root.qm-note .qm-note-data pre { max-block-size: 320px; }
+.qm-root.qm-note .qm-note-more { margin-block-start: 16px; }
+.qm-root.qm-settings .setting-item { align-items: center; gap: 18px; }
+.qm-root.qm-settings .setting-item-info { min-inline-size: 0; }
+.qm-root.qm-settings .setting-item-description { line-height: 1.6; }
+.qm-root.qm-settings .setting-item-control { flex-wrap: wrap; gap: 8px; min-inline-size: 0; }
+.qm-root.qm-settings .setting-item-control :is(input, select) { max-inline-size: 100%; }
+.qm-root.qm-settings .qm-settings-status { margin-block: 12px; color: var(--qm-muted, var(--text-muted)); font-size: 13px; line-height: 1.6; }
+.qm-root .qm-settings-tabs [aria-selected="true"] { border-color: var(--qm-accent, var(--interactive-accent)); background: var(--qm-surface-alt, var(--background-secondary)); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .qm-root.qm-note:not([data-motion="reduced"]):not([data-qm-motion="reduced"]) .qm-note-answer[open] > .qm-note-answer-body { animation: qm-note-reveal 140ms ease-out; }
+}
+@keyframes qm-note-reveal {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (max-width: 600px) {
+  .qm-root.qm-note { margin-block: 18px; font-size: 15px; }
+  .qm-root.qm-note .qm-note-question { padding: 14px; }
+  .qm-root.qm-note .qm-note-title { font-size: 18px; }
+  .qm-root.qm-note .qm-note-answer-body { padding: 12px; }
+  .qm-root.qm-settings .setting-item { align-items: stretch; flex-direction: column; gap: 10px; }
+  .qm-root.qm-settings .setting-item-control { justify-content: start; inline-size: 100%; }
+  .qm-root.qm-settings .setting-item-control :is(input:not([type="checkbox"]), select) { flex: 1; inline-size: 100%; min-inline-size: 0; }
+}
+
+/* Library metadata and session state indicators use actual domain state. */
+.qm-root .qm-search { display: flex; align-items: center; gap: 8px; }
+.qm-root .qm-search > svg { flex-shrink: 0; color: var(--qm-muted, var(--text-muted)); }
+.qm-root .qm-library-tools > label:not(.qm-search) { flex: 0 1 180px; }
+.qm-root .qm-library-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; line-height: 1.6; }
+.qm-root .qm-pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-block: 16px 4px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.qm-root .qm-studio-bottom > .qm-presets:only-child { grid-column: 1 / -1; }
+.qm-root .qm-preset > button { position: relative; padding-inline-end: 38px; }
+.qm-root .qm-preset > button > svg:last-child { position: absolute; inset-inline-end: 14px; inset-block-start: 15px; inline-size: 16px; block-size: 16px; color: var(--qm-muted, var(--text-muted)); }
+.qm-root .qm-preset > button > span { color: var(--qm-muted, var(--text-muted)); font-size: 13px; font-weight: 400; line-height: 1.6; }
+.qm-root .qm-session-progress { display: flex; align-items: baseline; gap: 6px; font-variant-numeric: tabular-nums; }
+.qm-root .qm-session-progress > span { color: var(--qm-muted, var(--text-muted)); font-size: 12px; }
+.qm-root .qm-session-question-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin-block-end: 18px; }
+.qm-root .qm-question-position { margin: 0; color: var(--qm-muted, var(--text-muted)); font-size: 14px; font-weight: 500; line-height: 1.5; }
+.qm-root .qm-question-markers { display: flex; flex-wrap: wrap; gap: 6px; }
+.qm-root .qm-question-markers button[aria-pressed="true"] { border-color: var(--qm-accent, var(--interactive-accent)); background: var(--qm-surface-alt, var(--background-secondary)); }
+.qm-root .qm-question-nav button { position: relative; }
+.qm-root .qm-question-nav button.is-answered { background: var(--qm-surface-alt, var(--background-secondary)); }
+.qm-root .qm-question-nav button.is-flagged::after { content: ""; position: absolute; inset-block-start: 4px; inset-inline-end: 4px; inline-size: 5px; block-size: 5px; border-radius: 50%; background: var(--qm-warning, var(--text-warning)); }
+.qm-root .qm-grade { margin-block: 16px; padding: 10px 14px; border-inline-start: 3px solid var(--qm-border, var(--background-modifier-border)); background: var(--qm-surface-alt, var(--background-secondary)); font-size: 14px; line-height: 1.6; }
+.qm-root .qm-grade-correct { border-inline-start-color: var(--qm-positive, var(--color-green)); }
+.qm-root .qm-grade-incorrect { border-inline-start-color: var(--qm-danger, var(--text-error)); }
+.qm-root .qm-flashcard-ratings { display: flex; flex-wrap: wrap; gap: 8px; margin-block-start: 20px; }
+.qm-root .qm-flashcard-ratings button { flex: 1; min-inline-size: 72px; }
+.qm-root .qm-finish-confirmation { margin-block-start: 16px; padding: 16px; border: 1px solid var(--qm-warning, var(--text-warning)); border-radius: var(--qm-radius-md, 10px); background: var(--qm-surface-alt, var(--background-secondary)); }
+.qm-root .qm-finish-confirmation > p { margin: 0; font-size: 14px; line-height: 1.6; }
+.qm-root .qm-finish-confirmation .qm-session-actions { position: static; margin-block-start: 12px; padding: 0; border: 0; background: transparent; }
+.qm-root .qm-save-error { padding: 12px 14px; border-inline-start: 3px solid var(--qm-danger, var(--text-error)); background: var(--qm-surface-alt, var(--background-secondary)); font-size: 13px; line-height: 1.6; }
+.qm-root .qm-results-summary > div > span { display: block; margin-block-start: 5px; color: var(--qm-muted, var(--text-muted)); font-size: 13px; line-height: 1.6; }
+.qm-root .qm-results-summary dl { display: flex; flex-wrap: wrap; gap: 12px 22px; margin: 0; }
+.qm-root .qm-results-summary dt { margin: 0 0 5px; color: var(--qm-muted, var(--text-muted)); font-size: 12px; }
+.qm-root .qm-results-summary dd { margin: 0; font-size: 16px; font-weight: 600; }
+.qm-root .qm-result-list button { display: grid; grid-template-columns: 20px minmax(0, 1fr); align-content: start; gap: 3px 7px; }
+.qm-root .qm-result-list button > :first-child { color: var(--qm-muted, var(--text-muted)); font-size: 12px; font-variant-numeric: tabular-nums; }
+.qm-root .qm-result-status { grid-column: 2; color: var(--qm-muted, var(--text-muted)); font-size: 11px; font-weight: 400; }
+.qm-root .qm-help { color: var(--qm-muted, var(--text-muted)); font-size: 13px; line-height: 1.6; }
+
+@media (max-width: 600px) {
+  .qm-root .qm-library-tools > label:not(.qm-search) { flex: 0 1 42%; max-inline-size: 42%; }
+  .qm-root .qm-results-summary dl { gap: 12px 18px; }
+  .qm-root .qm-pagination button { min-block-size: 44px; }
+}
+@media (max-width: 380px) {
+  .qm-root .qm-library-tools > label:not(.qm-search) { flex-basis: 100%; max-inline-size: 100%; }
+}
+
+/* Native high-contrast and print keep state boundaries visible. */
+@media (forced-colors: active) {
+  .qm-root :is(.qm-choice.is-selected, .qm-mode-option[aria-pressed="true"], .qm-editor-question-link.is-active) { border-color: Highlight; outline: 1px solid Highlight; }
+  .qm-root .qm-reference { border-inline-start-color: CanvasText; }
+  .qm-root .qm-more > :not(summary) { box-shadow: none; border-color: CanvasText; }
+}
+@media print {
+  .qm-root :is(.qm-toolbar, .qm-row-actions, .qm-session-actions, .qm-editor-footer, .qm-generator-actions, .qm-session-nav) { display: none; }
+  .qm-root :is(.qm-session-grid, .qm-results-grid, .qm-studio-bottom) { display: block; }
+  .qm-root :is(.qm-result-list, .qm-editor-outline) { max-block-size: none; overflow: visible; }
+}

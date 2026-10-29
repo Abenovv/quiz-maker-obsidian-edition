@@ -1,0 +1,110 @@
+name: Check and release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quiz-maker-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Install pinned tools
+        run: npm ci
+      - name: Check types
+        run: npm run typecheck
+      - name: Check Obsidian guidelines
+        run: npm run lint
+      - name: Run regression tests
+        run: npm test
+      - name: Build release files
+        run: npm run build
+      - name: Verify deterministic build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp SHA256SUMS "$RUNNER_TEMP/quiz-maker-first-build.sha256"
+          npm run build
+          cmp "$RUNNER_TEMP/quiz-maker-first-build.sha256" SHA256SUMS
+      - name: Verify public source and release files
+        run: npm run verify:release
+
+  release:
+    needs: verify
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Check version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p 'JSON.parse(require("fs").readFileSync("manifest.json","utf8")).version')"
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+          if gh release view "$version" > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Release $version already exists; its files will remain unchanged."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-node@v7
+        if: steps.version.outputs.exists == 'false'
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Build checked source
+        if: steps.version.outputs.exists == 'false'
+        run: |
+          npm ci
+          npm run build
+          npm run verify:release
+      - name: Attest release provenance
+        if: steps.version.outputs.exists == 'false'
+        id: provenance
+        uses: actions/attest@v4
+        with:
+          subject-checksums: SHA256SUMS
+          create-storage-record: false
+      - name: Publish versioned files
+        if: steps.version.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_VERSION: ${{ steps.version.outputs.value }}
+          RELEASE_COMMIT: ${{ github.sha }}
+          ATTESTATION_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp "$ATTESTATION_BUNDLE" attestation.json
+          gh release create "$RELEASE_VERSION" main.js manifest.json styles.css SHA256SUMS attestation.json \
+            --target "$RELEASE_COMMIT" \
+            --title "Quiz maker $RELEASE_VERSION" \
+            --notes-file CHANGELOG.md \
+            --latest

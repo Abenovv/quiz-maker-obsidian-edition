@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="480" viewBox="0 0 1280 480" fill="none" role="img" aria-labelledby="title description">
+  <title id="title">Quiz maker</title>
+  <desc id="description">An original question-card mark with a folded corner and a check, beside the Quiz maker wordmark.</desc>
+  <style>
+    .background{fill:#171d20}.wordmark{fill:#edf3ef}.accent{stroke:#9bd5c1}.card{fill:#1f282b;stroke:#526660}.back{stroke:#526660}.rule{stroke:#384745}
+    @media(prefers-color-scheme:light){.background{fill:#f5f3ec}.wordmark{fill:#272b29}.accent{stroke:#246557}.card{fill:#fffefa;stroke:#bac9c0}.back{stroke:#bac9c0}.rule{stroke:#d7ded6}}
+  </style>
+  <rect class="background" width="1280" height="480" rx="16"/>
+  <path class="rule" d="M64 76h1152M64 404h1152" stroke-width="1"/>
+  <text class="wordmark" x="64" y="254" font-family="Arial, Helvetica, sans-serif" font-size="82" font-weight="700" letter-spacing="-3">Quiz maker</text>
+  <g transform="translate(874 124)">
+    <path class="back" d="m7 36-14 151a19 19 0 0 0 17 21l104 10" stroke-width="4" stroke-linecap="round"/>
+    <path class="card" d="M36 4h93l51 52v139a19 19 0 0 1-19 19H36a19 19 0 0 1-19-19V23A19 19 0 0 1 36 4Z" stroke-width="4" stroke-linejoin="round"/>
+    <path class="back" d="M129 4v36a16 16 0 0 0 16 16h35M47 66h52M47 91h34" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <path class="accent" d="m65 141 24 24 48-56" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

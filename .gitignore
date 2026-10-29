@@ -1,0 +1,42 @@
+# Local tools and generated output
+node_modules/
+main.js
+styles.css
+SHA256SUMS
+attestation.json
+*.map
+.test-run-*/
+.preview*/
+coverage/
+dist/
+build/
+*.tsbuildinfo
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Private Obsidian settings, libraries, and sessions
+data.json
+study.json
+study-data.json
+**/data.json
+**/study.json
+**/study-data.json
+.obsidian/
+test-vault/
+
+# Credentials and local environment
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+service-account*.json
+*.log
+
+# Local project notes
+CURRENT_STATE.md
+NEXT_TASKS.md
