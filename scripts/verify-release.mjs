@@ -22,6 +22,9 @@ assert.ok(manifest.description.endsWith("."));
 assert.ok(!manifest.fundingUrl, "No donation links are configured for this release.");
 const readme = readFileSync("README.md", "utf8");
 const license = readFileSync("LICENSE", "utf8");
+const releaseBadge = readFileSync("assets/badges/release.svg", "utf8");
+assert.ok(releaseBadge.includes("<title>Release " + manifest.version + "</title>"),
+  "Update the local release badge to match the manifest version.");
 assert.ok(/^MIT License\r?\n/.test(license), "Include the standard MIT license.");
 assert.ok(/Yerkebulan Abenov/.test(license), "Credit the new implementation's author in LICENSE.");
 assert.ok(/(?:network|hosted|provider)/i.test(readme), "Document network use before publishing.");

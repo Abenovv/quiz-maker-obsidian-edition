@@ -1,94 +1,119 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/banner.svg">
-  <img src="assets/banner.png" alt="Quiz maker" width="1280">
-</picture>
+<p align="center">
+  <img src="assets/app-icon.png" width="88" height="88" alt="Quiz maker icon">
+</p>
+<h1 align="center">Quiz maker</h1>
+<p align="center">Quizzes and flashcards from your Obsidian notes.</p>
 
-[![Release](https://img.shields.io/github/v/release/Abenovv/quiz-maker-obsidian-edition?label=release&style=flat-square)](https://github.com/Abenovv/quiz-maker-obsidian-edition/releases/latest)
-[![Build](https://github.com/Abenovv/quiz-maker-obsidian-edition/actions/workflows/release.yml/badge.svg)](https://github.com/Abenovv/quiz-maker-obsidian-edition/actions/workflows/release.yml)
-[![MIT license](https://img.shields.io/badge/license-MIT-54796d?style=flat-square)](LICENSE)
+<p align="center">
+  <a href="https://github.com/Abenovv/quiz-maker-obsidian-edition/releases/latest"><img src="assets/badges/release.svg" height="26" alt="Release 1.0.0"></a>
+  <a href="#install"><img src="assets/badges/platform.svg" height="26" alt="Obsidian 1.8.7 or newer"></a>
+  <a href="LICENSE"><img src="assets/badges/license.svg" height="26" alt="MIT license"></a>
+</p>
 
-Make quizzes from your notes. Start with a study pack, edit the questions, and practice in an interface that follows your Obsidian theme.
+<p align="center">
+  <a href="https://github.com/Abenovv/quiz-maker-obsidian-edition/releases/latest"><strong>Download</strong></a> ·
+  <a href="docs/guide.md">Guide</a> ·
+  <a href="CHANGELOG.md">What's new</a> ·
+  <a href="https://github.com/Abenovv/quiz-maker-obsidian-edition/issues">Report a bug</a>
+</p>
 
-[Download](https://github.com/Abenovv/quiz-maker-obsidian-edition/releases/latest) · [Guide](docs/guide.md) · [Release notes](CHANGELOG.md) · [Report a bug](https://github.com/Abenovv/quiz-maker-obsidian-edition/issues)
+![Blue quiz cards and an open book; original brand illustration](assets/hero.png)
 
-## From notes to practice
+Choose notes, pick a study pack, and adjust the questions. Practice with feedback, set a timer, or keep answers hidden until the end. You can also write questions or import JSON without an AI account.
 
-Choose notes or folders, select a study pack, then adjust its question mix. **Student pack** starts with ten questions: six multiple choice, two short answers, one matching question, and one prediction.
+**17 question formats · 7 study packs · 5 study modes**
 
-Other packs cover quick recall, exam prep, deeper understanding, language practice, coding practice, and interview prep. You can change their counts, difficulty, and timing before starting.
+AI is optional. Hosted providers may charge for usage and receive the notes you select. [Provider and privacy details](#models-cost-and-privacy).
 
-| Mode | How you study |
+## Inside Obsidian
+
+![Quiz maker practice and answer review in Obsidian](docs/images/obsidian-practice.png)
+
+<details>
+<summary>Library, study packs, and readable quiz notes</summary>
+
+![Quiz maker library and study packs in Obsidian](docs/images/obsidian-studio.png)
+
+![A saved quiz with collapsible answers in Obsidian](docs/images/obsidian-note.png)
+
+</details>
+
+Screenshots show the installed plugin in Obsidian with public demo questions.
+
+Try the same [JavaScript sample quiz](docs/examples/javascript-essentials.json) with **Quiz maker: Import quiz**. No API key is needed.
+
+## Choose a study pack
+
+**Student pack** starts with ten questions: six multiple choice, two short answers, one matching question, and one prediction. Other packs cover quick recall, exam prep, deeper understanding, language practice, coding practice, and interview prep. Adjust their question mix, difficulty, language, and timing before starting.
+
+| Mode | What happens |
 | --- | --- |
-| Practice | Answer, check your work, and read explanations. |
-| Timed practice | Set a limit for the whole quiz or each question. |
-| Exam | Keep answers hidden until you submit. |
+| Practice | Check answers as you go and read explanations. |
+| Timed practice | Limit the whole quiz or each question. |
+| Exam | Review answers after submission. |
 | Flashcards | Reveal answers and rate recall with Again, Good, or Easy. |
 | Review | Return to missed questions, bookmarks, or due cards. |
 
-Save questions as readable notes with collapsed answers. Structured quiz data stays with the note, so you can reopen it without losing advanced question fields. The library keeps quizzes, session history, and unfinished attempts.
+The mini view shares your active answers and timer. Save quizzes as readable notes with collapsed answers; structured data stays with the note so you can reopen advanced questions. The library keeps unfinished attempts and session history.
 
-## Questions you can change
+<details>
+<summary>Question formats and JSON</summary>
 
-Use seven familiar formats: true/false, single choice, multiple answers, fill in the blanks, matching, short answer, and long answer.
+Seven familiar formats: true/false, multiple choice, multiple answers, fill in the blanks, matching, short answer, and long answer.
 
-Ten more formats cover branching scenarios, sequencing, categorization, error correction, assertion and reason, prediction, evidence selection, answer and justification, concept maps, and what-if questions.
+Ten more: branching scenarios, sequencing, categorization, error correction, assertion and reason, prediction, evidence selection, answer and justification, concept maps, and what-if questions.
 
-Import a quiz, edit its questions, or create one yourself without an AI account. JSON imports accept older question arrays and versioned documents. You can also preview and import quizzes from a compatible library backup; existing quizzes are kept. Validation checks answer indexes, question structure, and size limits. It does not establish whether an answer is true.
+Edit questions in the form or JSON editor. Imports accept older question arrays, versioned quiz documents, and compatible library backups. Preview library imports before saving; existing quizzes are kept. Keys, session history, and review schedules are not migrated.
 
-Generation requests the selected formats and counts, checks the returned JSON, and records the provider, model, and creation time. Broken or incomplete output produces an error rather than a guessed answer.
+Validation checks structure, answer indexes, and size limits. Generation checks requested formats and counts and records the provider, model, and creation time. Broken output produces an error rather than a guessed answer. Check generated facts against your notes.
+
+</details>
 
 ## Install
 
-Requires **Obsidian 1.8.7 or newer**. This release is available from GitHub; it is not listed in Obsidian's community directory yet.
+Requires **Obsidian 1.8.7 or newer**. Available from GitHub; community-directory acceptance is pending.
 
 1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/Abenovv/quiz-maker-obsidian-edition/releases/latest).
-2. Create `.obsidian/plugins/quiz-maker/` inside your vault and put those three files there.
-3. Reload Obsidian and enable **Quiz maker** under **Settings → Community plugins**.
-4. Open **Quiz maker: Open studio** from the command palette.
+2. Put those three files in `.obsidian/plugins/quiz-maker/` inside your vault.
+3. Reload Obsidian and enable **Quiz maker** in **Settings → Community plugins**.
+4. Run **Quiz maker: Open studio** from the command palette.
 
-The automatic source archives are development snapshots, not installation packages. Release downloads include checksums for the three plugin files. See [release verification](docs/submission.md#license-and-release-evidence) for build-provenance checks.
-
-Quiz maker uses a separate `quiz-maker` plugin ID. It does not replace Quiz Generator or import its settings automatically. To bring over saved quizzes, use **Import** with a compatible library backup. API keys, session history, and review schedules are not migrated.
+Use the three release files, not the automatic source archives. [Checksums and build provenance](docs/submission.md#license-and-release-evidence) accompany the release. Quiz maker has its own plugin ID and settings; it does not replace Quiz Generator or import credentials automatically.
 
 ## Models, cost, and privacy
 
-Quiz maker is free under the MIT license. Hosted providers may require an account, an API key, and paid API usage. Imported quizzes, manual editing, and local Ollama offer alternatives.
+Quiz maker is free under the MIT license. **OpenAI, Google Gemini, Anthropic, Mistral, Cohere, Perplexity, and Ollama** are supported. Hosted services may require an account, an API key, and paid API usage. Refresh models to fetch those available to your account, or enter a model ID manually. Provider availability and charges can change.
 
-Supported providers are **OpenAI, Google Gemini, Anthropic, Mistral, Cohere, Perplexity, and Ollama**. Refresh the model list to fetch the text models available to your account, or enter a model ID manually. Availability and charges are controlled by the provider.
-
-Network use is limited to the provider you configure:
-
-- **Generation and regeneration:** selected note text and quiz instructions are sent to that provider's endpoint.
-- **Model discovery and connection tests:** model metadata is requested, with authentication where required, without sending note content.
-- **Ollama:** requests go to the configured Ollama server, normally on your own device. A custom endpoint receives the same request data.
-
-Provider keys are saved in local plugin settings in `data.json`. The password field masks them on screen; the local JSON file is not encrypted. Quizzes and session data use `study.json`. Keep both files private.
-
-The plugin has no telemetry, advertising, or self-updater. It reads notes inside the vault and JSON files you explicitly choose to import; it does not scan files outside the vault. It does not send note content when you install it, open settings, or study an imported quiz.
-
-## Appearance
-
-Choose **Obsidian**, **Paper**, **Midnight**, or **High contrast**. Controls support keyboard use and narrow screens. Motion follows your system preference or can be reduced. Optional answer-reveal sounds are generated locally and are off by default.
+Manual questions, imports, and local Ollama offer alternatives to hosted generation.
 
 <details>
-<summary>See the interface</summary>
+<summary>What leaves your vault and where data is saved</summary>
 
-Studio with sample quizzes:
+- **Generation and regeneration:** selected note text and quiz instructions go to the configured provider endpoint.
+- **Model discovery and connection tests:** request model metadata, with authentication where required, without sending note content.
+- **Ollama:** requests go to the configured server, normally on your device. A custom endpoint receives the same request data.
 
-![Quiz library and study packs](docs/images/studio.png)
+Provider keys are stored locally in `data.json`. The password field masks them on screen; the file is **not encrypted**. Quizzes and sessions use `study.json`. Keep both files private.
 
-Practice in the Paper appearance:
+The plugin has no telemetry, advertising, or self-updater. It reads vault notes and JSON files you explicitly select for import; it does not scan outside the vault. Installing the plugin, opening settings, and studying imported questions do not send note content.
 
-![Practice with answer review](docs/images/practice.png)
-
-Screenshots use public sample questions in the browser preview.
 </details>
 
-## Development
+<details>
+<summary>Appearance, accessibility, and sounds</summary>
 
-The source is TypeScript and React. Runtime networking uses Obsidian's API, and the build includes the code needed for desktop and mobile.
+Choose **Obsidian**, **Paper**, **Midnight**, or **High contrast**. Controls support keyboard use and narrow screens. Motion follows your system preference or can be reduced. Optional answer-reveal tones are generated locally and are off by default.
 
-Use **Node.js 24 or newer**:
+</details>
+
+## Contribute
+
+Reproducible bug reports, quiz examples, and improvements to question formats are welcome. [Open an issue](https://github.com/Abenovv/quiz-maker-obsidian-edition/issues) or submit a pull request.
+
+<details>
+<summary>Build and checks</summary>
+
+TypeScript and React; networking uses Obsidian's API. Use **Node.js 24 or newer**:
 
 ```sh
 npm ci
@@ -99,12 +124,14 @@ npm run build
 npm run verify:release
 ```
 
-Only `main.js`, `manifest.json`, and `styles.css` are needed to install the plugin. Local settings, study data, dependencies, and temporary build files are excluded from Git.
+[![Build status](https://github.com/Abenovv/quiz-maker-obsidian-edition/actions/workflows/release.yml/badge.svg)](https://github.com/Abenovv/quiz-maker-obsidian-edition/actions/workflows/release.yml)
 
-For directory publication requirements, see [submission notes](docs/submission.md).
+Source and tests are public. Only three files are needed for installation. Local settings, study data, dependencies, and temporary files are excluded from Git. [Community submission notes](docs/submission.md).
+
+</details>
 
 ## Credits and license
 
-Created and maintained by **Yerkebulan Abenov**. Edward Cui's [Quiz Generator](https://github.com/ECuiDev/obsidian-quiz-generator) inspired the notes-to-quiz workflow. Quiz maker is an independent implementation and is not an endorsed release from that project's author.
+Created and maintained by **Yerkebulan Abenov**. Edward Cui's [Quiz Generator](https://github.com/ECuiDev/obsidian-quiz-generator) inspired the notes-to-quiz workflow. Quiz maker is an independent implementation, not an endorsed release from that project's author.
 
-Licensed under [MIT](LICENSE). Bundled dependency notices are in [NOTICE.md](NOTICE.md).
+[MIT license](LICENSE) · [Dependency notices](NOTICE.md) · [Vector logo](assets/logo.svg) · [App icon](assets/app-icon.png)

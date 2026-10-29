@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "title": "JavaScript essentials",
+  "questions": [
+    {
+      "type": "multiple-choice",
+      "question": "Which declaration gives a variable block scope and allows reassignment?",
+      "options": ["const score = 5;", "let score = 5;", "var score = 5;"],
+      "answer": 1,
+      "explanation": "let is block-scoped and permits reassignment. const prevents reassignment; var is scoped to a function or the surrounding script."
+    },
+    {
+      "type": "true-false",
+      "question": "Declaring an object with const prevents changes to its properties.",
+      "answer": false,
+      "explanation": "const protects the binding. Object properties remain mutable unless you apply other restrictions."
+    },
+    {
+      "type": "multiple-choice",
+      "question": "What is the value of doubled?\n\n```js\nconst scores = [2, 4, 6];\nconst doubled = scores.map(score => score * 2);\n```",
+      "options": ["[2, 4, 6]", "[4, 8, 12]", "[2, 4, 6, 4, 8, 12]"],
+      "answer": 1,
+      "explanation": "map transforms every element into a new array. It does not change scores."
+    },
+    {
+      "type": "short-answer",
+      "question": "Why can an object's properties change when its binding uses const?",
+      "answer": "The binding and the object are separate. const prevents assigning a different value to the variable, but does not make the referenced object immutable."
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" fill="none" role="img" aria-label="Quiz maker">
+  <title>Quiz maker</title>
+  <rect width="128" height="128" rx="28" fill="#06152e"/>
+  <path d="m36 32-7 57a9 9 0 0 0 8 10l42 5" stroke="#4779c6" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M48 22h29l21 21v46a9 9 0 0 1-9 9H48a9 9 0 0 1-9-9V31a9 9 0 0 1 9-9Z" fill="#103a82" stroke="#65a9ff" stroke-width="5.5" stroke-linejoin="round"/>
+  <path d="M77 22v15a6 6 0 0 0 6 6h15" stroke="#65a9ff" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m52 70 11 11 22-25" stroke="#b8deff" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
