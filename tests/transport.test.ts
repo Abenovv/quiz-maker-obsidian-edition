@@ -77,6 +77,14 @@ test("Ollama requests a nonstreaming JSON response without requiring a key", asy
   assert.equal(fixture.body().format, "json");
 });
 
+test("Ollama documented API bases do not duplicate the API path", async () => {
+  const fixture = mock({ message: { content: quizText }, done: true });
+  await generateText(config("ollama", { baseUrl: "http://localhost:11434/api/" }), messages, undefined, fixture.http);
+  assert.equal(fixture.calls[0].url, "http://localhost:11434/api/chat");
+  assert.equal(resolveBaseUrl("ollama", "https://ollama.com/api"), "https://ollama.com");
+  assert.equal(resolveBaseUrl("openai", "https://proxy.example.test/api"), "https://proxy.example.test/api");
+});
+
 test("custom proxy paths are retained and default to compatible chat", async () => {
   const fixture = mock({ choices: [{ message: { content: quizText }, finish_reason: "stop" }] });
   await generateText(config("openai", { baseUrl: "https://proxy.example/api/v1/" }), messages, undefined, fixture.http);

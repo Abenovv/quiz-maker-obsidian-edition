@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DEFAULT_SETTINGS, normalizeEndpoint, normalizeSaveFolder, normalizeSettings } from "../src/settings";
+import { DEFAULT_SETTINGS, normalizeEndpoint, normalizeSaveFolder, normalizeSettings, filterModels, settingsSaveMessage } from "../src/settings";
 import { providers } from "../src/core/types";
 
 test("defaults are silent, provider-specific, and independently mutable", () => {
@@ -110,141 +110,229 @@ test("hostile object keys cannot become provider records or mutate default proto
   assert.equal(settings.providers.google.model, "safe");
   assert.equal(({} as Record<string, unknown>).polluted, undefined);
 });
-test("model controls reject invalid visible fields, cancel stale discovery, and preserve manual selections", async () => {
-  const { Setting } = await import("obsidian");
+type Control = {
+  inputEl: HTMLElement & { value: string; type: string };
+  selectEl: HTMLElement;
+  buttonEl: HTMLElement & { disabled: boolean };
+  change?: (value: string) => void;
+  click?: () => void;
+  setValue(value: string): Control;
+  setDisabled(value: boolean): Control;
+  setButtonText(value: string): Control;
+  onChange(callback: (value: string) => void): Control;
+  onClick(callback: () => void): Control;
+};
+
+function elements(root: HTMLElement): HTMLElement[] {
+  return Array.from(root.children).flatMap(child => [child as HTMLElement, ...elements(child as HTMLElement)]);
+}
+function activate(element: HTMLElement): void {
+  const callback = (element as HTMLElement & { onclick: (() => void) | null }).onclick;
+  if (!callback) throw new Error("The expected control has no click action.");
+  Reflect.apply(callback, element, [new Event("click")]);
+}
+function input(element: HTMLElement, value: string): void {
+  (element as HTMLInputElement).value = value;
+  const callback = (element as HTMLInputElement).oninput;
+  if (!callback) throw new Error("The expected control has no input action.");
+  Reflect.apply(callback, element, [new Event("input")]);
+}
+function press(element: HTMLElement, key: string): void {
+  const callback = element.onkeydown;
+  if (!callback) throw new Error("The expected control has no keyboard action.");
+  Reflect.apply(callback, element, [{ key, preventDefault() {}, stopPropagation() {} }]);
+}
+async function settle(): Promise<void> { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); }
+
+async function settingsHarness(options: {
+  list?: (provider: string, config: { apiKey: string; model: string; baseUrl: string }, options: { signal?: AbortSignal; refresh?: boolean }) => Promise<Array<{ id: string; name: string; provider: "google" }>>;
+  save?: () => Promise<void>;
+} = {}) {
+  const { Setting, App } = await import("obsidian");
   const { QuizMakerSettingsTab } = await import("../src/settings");
-  const { App } = await import("obsidian");
-  type Control = {
-    inputEl: HTMLElement & { value: string; type: string };
-    selectEl: HTMLElement;
-    buttonEl: HTMLElement & { disabled: boolean };
-    options: Map<string, string>;
-    change?: (value: string) => void;
-    click?: () => void;
-    setValue(value: string): Control;
-    setDisabled(value: boolean): Control;
-    setButtonText(value: string): Control;
-    addOption(value: string, label: string): Control;
-    onChange(callback: (value: string) => void): Control;
-    onClick(callback: () => void): Control;
-  };
   const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
   Object.defineProperty(globalThis, "window", { configurable: true, value: { setTimeout, clearTimeout } });
   const groups = new Map<string, Control[]>();
-  const settingElements = new Map<string, HTMLElement>();
-  const prototype = Setting.prototype as unknown as {
-    addText(callback: (control: Control) => unknown): Setting;
-  };
+  const prototype = Setting.prototype as unknown as { addText(callback: (control: Control) => unknown): Setting };
   const original = prototype.addText;
   prototype.addText = function (callback) {
-    const setting = this as unknown as { nameEl: HTMLElement; settingEl: HTMLElement };
+    const setting = this as unknown as { nameEl: HTMLElement };
     return original.call(this, control => {
-      control.options = new Map();
       control.setValue = value => { control.inputEl.value = value; return control; };
       control.setDisabled = value => { control.buttonEl.disabled = value; return control; };
       control.setButtonText = value => { control.buttonEl.textContent = value; return control; };
-      control.addOption = (value, label) => { control.options.set(value, label); return control; };
       control.onChange = change => { control.change = change; return control; };
       control.onClick = click => { control.click = click; return control; };
-      control.selectEl.replaceChildren = () => { control.options.clear(); };
       groups.set(setting.nameEl.textContent || "", [...(groups.get(setting.nameEl.textContent || "") || []), control]);
-      settingElements.set(setting.nameEl.textContent || "", setting.settingEl);
       return callback(control);
     });
   };
   const settings = normalizeSettings({ providers: { google: { apiKey: "fixture-key", model: "manual-model" } } });
-  let listCalls = 0;
-  let testCalls = 0;
-  let releaseList: ((value: Array<{ id: string; name: string; provider: "google" }>) => void) | undefined;
   const context = {
-    app: new App(), settings, models: {
-      clear() {},
-      list: async () => { listCalls++; return await new Promise(resolve => { releaseList = resolve; }); },
-      test: async () => { testCalls++; }
-    },
-    saveSettings: async () => {}, showNotice() {}
+    app: new App(), settings, pluginVersion: "1.2.0",
+    models: { clear() {}, list: options.list ?? (async () => []), test: async () => { throw new Error("Connection tests are not part of this interface."); } },
+    saveSettings: options.save ?? (async () => {}), showNotice() {}
   };
   const tab = new QuizMakerSettingsTab(context.app, context as never);
+  tab.display();
+  return {
+    tab, groups, settings,
+    section(name: string) {
+      const navigation = tab.containerEl.children[0] as unknown as { children: Array<{ textContent: string; onclick(): void }> };
+      navigation.children.find(child => child.textContent === name)?.onclick();
+    },
+    close() {
+      tab.hide();
+      prototype.addText = original;
+      if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+      else Reflect.deleteProperty(globalThis, "window");
+    }
+  };
+}
+
+test("model search matches names and IDs regardless of case or term order", () => {
+  const models = [
+    { id: "gemini-flash-v3", name: "Gemini Flash", provider: "google" as const },
+    { id: "gemini-pro-v3", name: "Gemini Pro", provider: "google" as const },
+    { id: "custom-reasoner", name: "Research model", provider: "google" as const }
+  ];
+  assert.deepEqual(filterModels(models, "FLASH gemini").map(model => model.id), ["gemini-flash-v3"]);
+  assert.deepEqual(filterModels(models, "reasoner").map(model => model.id), ["custom-reasoner"]);
+  assert.equal(filterModels(models, "not present").length, 0);
+  assert.equal(filterModels(models, "  ").length, 3);
+});
+
+test("model finder validates fields, searches locally, ignores cancelled replies, and preserves manual IDs", async () => {
+  const calls: Array<{ signal?: AbortSignal; refresh?: boolean }> = [];
+  let resolveList: ((models: Array<{ id: string; name: string; provider: "google" }>) => void) | undefined;
+  const harness = await settingsHarness({ list: async (_provider, _config, options) => {
+    calls.push(options);
+    return await new Promise(resolve => { resolveList = resolve; });
+  } });
+  const { tab, groups, settings } = harness;
   try {
-    tab.display();
-    assert.equal(tab.containerEl.dataset.motion, "system");
-    const nav = tab.containerEl.children[0] as unknown as { children: Array<{ textContent: string; onclick(): void }> };
-    nav.children.find(child => child.textContent === "Models")?.onclick();
+    harness.section("Models");
     const key = groups.get("API key")![0];
     const endpoint = groups.get("Endpoint")![0];
-    const manual = groups.get("Model ID")![0];
-    const available = groups.get("Available models")![0];
-    const buttons = groups.get("Connection")!;
-    const refresh = buttons.find(button => button.buttonEl.textContent === "Refresh models")!;
-    const connection = buttons.find(button => button.buttonEl.textContent === "Test connection")!;
-    const cancel = buttons.find(button => button.buttonEl.textContent === "Cancel")!;
+    const modelControls = groups.get("Model ID")!;
+    const manual = modelControls[0];
+    const find = modelControls.find(control => control.buttonEl.textContent === "Find models")!;
+    const cancel = modelControls.find(control => control.buttonEl.textContent === "Cancel")!;
     assert.equal(key.inputEl.type, "password");
     assert.equal(key.inputEl.getAttribute("value"), null);
-    assert.ok(key.inputEl.getAttribute("aria-describedby"));
-    assert.equal(settingElements.get("Available models")?.hidden, true);
-    assert.equal(settingElements.get("Endpoint")?.parentElement?.tagName, "DETAILS");
+    assert.equal(groups.has("Available models"), false, "there is no duplicate model dropdown");
+    assert.equal(groups.has("Connection"), false, "there is no redundant connection test");
     key.change!("invalid key");
-    assert.equal(refresh.buttonEl.disabled, true);
-    connection.click!();
-    await Promise.resolve();
-    assert.equal(testCalls, 0);
+    assert.equal(find.buttonEl.disabled, true);
+    find.click!();
+    assert.equal(calls.length, 0);
     key.change!("replacement-fixture");
     endpoint.change!("http://public.example/v1");
-    assert.equal(connection.buttonEl.disabled, true);
-    refresh.click!();
-    await Promise.resolve();
-    assert.equal(listCalls, 0);
+    assert.equal(find.buttonEl.disabled, true);
     endpoint.change!("https://gateway.example/v1");
-    assert.equal(refresh.buttonEl.disabled, false);
-    refresh.click!();
-    assert.equal(listCalls, 1);
-    assert.equal(refresh.buttonEl.disabled, true);
+    find.click!();
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].refresh, false, "opening the finder can reuse safe account-scoped cache");
     assert.equal(cancel.buttonEl.hidden, false);
     cancel.click!();
-    assert.equal(cancel.buttonEl.hidden, true);
-    assert.equal(refresh.buttonEl.disabled, false);
-    releaseList!([{ id: "cancelled-model", name: "Cancelled", provider: "google" }]);
-    await Promise.resolve();
-    await Promise.resolve();
-    assert.equal(available.options.has("cancelled-model"), false);
-    refresh.click!();
-    key.change!("new-fixture");
-    assert.equal(refresh.buttonEl.disabled, false);
-    releaseList!([{ id: "stale-model", name: "Stale", provider: "google" }]);
-    await Promise.resolve();
-    await Promise.resolve();
-    assert.equal(available.options.has("stale-model"), false);
-    assert.equal(settings.providers.google.model, "manual-model");
-    refresh.click!();
-    releaseList!([{ id: "discovered-model", name: "Discovered", provider: "google" }]);
-    await Promise.resolve();
-    await Promise.resolve();
-    manual.change!("custom-after-discovery");
-    assert.equal(settings.providers.google.model, "custom-after-discovery");
-    assert.equal(available.options.has("discovered-model"), true);
-    assert.equal(settingElements.get("Available models")?.hidden, false);
-    assert.equal(available.options.has("custom-after-discovery"), true);
+    assert.equal(calls[0].signal?.aborted, true);
+    resolveList!([{ id: "cancelled-model", name: "Cancelled", provider: "google" }]);
+    await settle();
+    assert.equal(elements(tab.containerEl).some(el => el.className === "qm-model-result"), false);
+    find.click!(); // Close the cancelled finder.
+    find.click!(); // Start again.
+    resolveList!(Array.from({ length: 24 }, (_, index) => ({ id: `model-${index}`, name: `Model ${index}`, provider: "google" as const })));
+    await settle();
+    assert.equal(elements(tab.containerEl).filter(el => el.className === "qm-model-result").length, 12, "large accounts have a bounded rendered list");
+    const search = elements(tab.containerEl).find(el => el.getAttribute("aria-label") === "Search models")!;
+    input(search, "MODEL-23");
+    assert.equal(calls.length, 2, "typing does not make provider requests");
+    const result = elements(tab.containerEl).filter(el => el.className === "qm-model-result");
+    assert.equal(result.length, 1);
+    press(search, "Enter");
+    assert.equal(settings.providers.google.model, "model-23");
+    assert.equal(manual.inputEl.value, "model-23");
+    assert.equal(find.buttonEl.textContent, "Find models");
+    assert.equal(elements(tab.containerEl).some(el => el.className === "qm-model-finder"), false);
     manual.change!("invalid model\nfixture");
-    assert.equal(settings.providers.google.model, "custom-after-discovery");
+    assert.equal(settings.providers.google.model, "model-23");
     assert.equal(manual.inputEl.getAttribute("aria-invalid"), "true");
-    manual.change!("valid-manual-model");
+    manual.change!("custom-after-discovery");
     assert.equal(manual.inputEl.getAttribute("aria-invalid"), null);
-    assert.equal(settings.providers.google.model, "valid-manual-model");
+    find.click!();
     key.change!("another-account-fixture");
-    assert.equal(available.options.has("discovered-model"), false);
-    assert.equal(settingElements.get("Available models")?.hidden, true);
-    assert.equal(settings.providers.google.model, "valid-manual-model");
-    key.change!("");
-    assert.equal(refresh.buttonEl.disabled, true);
-    connection.click!();
-    await Promise.resolve();
-    assert.equal(testCalls, 0);
-  } finally {
-    tab.hide();
-    prototype.addText = original;
-    if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
-    else Reflect.deleteProperty(globalThis, "window");
-  }
+    resolveList!([{ id: "stale-model", name: "Stale", provider: "google" }]);
+    await settle();
+    assert.equal(elements(tab.containerEl).some(el => el.className === "qm-model-result"), false);
+    assert.equal(settings.providers.google.model, "custom-after-discovery");
+    find.click!();
+    const pendingSearch = elements(tab.containerEl).find(el => el.getAttribute("aria-label") === "Search models")!;
+    press(pendingSearch, "Escape");
+    assert.equal(calls.at(-1)?.signal?.aborted, true);
+    assert.equal(find.buttonEl.textContent, "Find models");
+    resolveList!([{ id: "late-model", name: "Late", provider: "google" }]);
+    await settle();
+    assert.equal(elements(tab.containerEl).some(el => el.className === "qm-model-result"), false);
+  } finally { harness.close(); }
+});
+
+test("model metadata errors have an explicit retry without clearing the selected model", async () => {
+  let calls = 0;
+  const refreshFlags: Array<boolean | undefined> = [];
+  const harness = await settingsHarness({ list: async (_provider, _config, options) => {
+    refreshFlags.push(options.refresh);
+    if (++calls === 1) throw new Error("fixture-private-provider-error");
+    return [];
+  } });
+  try {
+    harness.section("Models");
+    const find = harness.groups.get("Model ID")!.find(control => control.buttonEl.textContent === "Find models")!;
+    find.click!();
+    await settle();
+    const status = elements(harness.tab.containerEl).find(el => el.className === "qm-model-status")!;
+    assert.equal(status.dataset.state, "error");
+    assert.doesNotMatch(status.textContent ?? "", /fixture-private/);
+    const retry = elements(harness.tab.containerEl).find(el => el.className === "qm-model-refresh")!;
+    assert.equal(retry.textContent, "Try again");
+    activate(retry);
+    await settle();
+    assert.deepEqual(refreshFlags, [false, true]);
+    assert.equal(status.dataset.state, "empty");
+    assert.equal(harness.settings.providers.google.model, "manual-model");
+  } finally { harness.close(); }
+});
+
+test("settings accept custom languages, expose the actual version, and show save retry only after a failed write", async () => {
+  let fail = true;
+  const harness = await settingsHarness({ save: async () => { if (fail) throw new Error("Quiz maker is not active. fixture-private"); } });
+  const flush = harness.tab as unknown as { flushSettings(): Promise<void> };
+  try {
+    assert.ok(elements(harness.tab.containerEl).some(el => el.className === "qm-settings-version" && el.textContent === "Quiz maker 1.2.0"));
+    assert.equal(elements(harness.tab.containerEl).some(el => el.textContent === "Retry saving"), false);
+    harness.section("Questions");
+    const language = harness.groups.get("Language")![0];
+    language.change!("Қазақша");
+    assert.equal(harness.settings.language, "Қазақша");
+    language.change!("Scottish Gaelic");
+    assert.equal(harness.settings.language, "Scottish Gaelic");
+    language.change!("x".repeat(81));
+    assert.equal(harness.settings.language, "Scottish Gaelic");
+    assert.equal(language.inputEl.getAttribute("aria-invalid"), "true");
+    await flush.flushSettings();
+    const status = elements(harness.tab.containerEl).find(el => el.className === "qm-settings-status")!;
+    assert.match(status.textContent ?? "", /Enable Quiz maker/);
+    assert.doesNotMatch(status.textContent ?? "", /fixture-private/);
+    assert.equal(elements(harness.tab.containerEl).filter(el => el.textContent === "Retry saving").length, 1);
+    fail = false;
+    await flush.flushSettings();
+    assert.equal(elements(harness.tab.containerEl).some(el => el.textContent === "Retry saving"), false);
+  } finally { harness.close(); }
+});
+
+test("settings save messages never repeat unknown error details", () => {
+  assert.equal(settingsSaveMessage(new Error("fixture-secret-message")), "Could not save settings. Your changes are kept here.");
+  assert.match(settingsSaveMessage(new Error("EACCES")), /permissions/);
+  assert.match(settingsSaveMessage(new Error("Settings could not be read. Restore the local settings file before saving changes.")), /Restore/);
 });
 
 test("a pending settings save is cleared from its original window after moving to a popout", async () => {
@@ -264,12 +352,15 @@ test("a pending settings save is cleared from its original window after moving t
   const popoutWindow = clock();
   let saves = 0;
   let failNextSave = false;
+  let throwNoticeOnce = true;
   const context = {
     app: new App(), settings: normalizeSettings(undefined), models: { clear() {} },
     saveSettings: async () => {
       saves++;
       if (failNextSave) { failNextSave = false; throw new Error("Simulated save failure"); }
-    }, showNotice() {}
+    }, showNotice() {
+      if (throwNoticeOnce) { throwNoticeOnce = false; throw new Error("Simulated notice failure"); }
+    }
   };
   const tab = new QuizMakerSettingsTab(context.app, context as never);
   const doc = tab.containerEl.ownerDocument;
@@ -294,6 +385,7 @@ test("a pending settings save is cleared from its original window after moving t
     controls.scheduleSave();
     await controls.flushSettings();
     assert.equal(saves, 2);
+    assert.equal(throwNoticeOnce, false, "a broken notice does not reject the save queue");
     await controls.flushSettings();
     assert.equal(saves, 3, "a failed save can be retried without changing the form");
   } finally {

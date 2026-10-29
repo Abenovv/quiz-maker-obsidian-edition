@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ModelService, recommendedModel } from "../src/ai/models";
+import { ModelService, modelDiscoveryMessage, recommendedModel } from "../src/ai/models";
+import { TransportError } from "../src/ai/transport";
 import type { HttpClient, HttpRequest, HttpResponse } from "../src/ai/transport";
 import type { Provider, ProviderSettings } from "../src/core/types";
 
-// Supply the browser clock/crypto boundary for fixture-only Node tests.
+// Supply the browser clock boundary for fixture-only Node tests.
 if (!("window" in globalThis)) Object.defineProperty(globalThis, "window", { value: globalThis, configurable: true });
 
 const settings = (baseUrl = ""): ProviderSettings => ({ apiKey: "fixture-only-credential", model: "", baseUrl });
@@ -112,7 +113,7 @@ test("invalidating a provider discards a pending account result", async () => {
   await rejected;
 });
 
-test("clearing all invalidates work still preparing its credential fingerprint", async () => {
+test("clearing all invalidates queued discovery before contacting a provider", async () => {
   let calls = 0;
   const service = new ModelService({ http: async () => { calls++; return ok({ data: [] }); } });
   const listing = service.list("openai", settings());
@@ -120,6 +121,32 @@ test("clearing all invalidates work still preparing its credential fingerprint",
   service.clear();
   await rejected;
   assert.equal(calls, 0);
+});
+
+test("Google discovery works when Web Crypto is unavailable", async () => {
+  const previous = Object.getOwnPropertyDescriptor(window, "crypto");
+  Object.defineProperty(window, "crypto", { configurable: true, get: () => { throw new Error("Crypto is unavailable in this fixture."); } });
+  try {
+    const service = new ModelService({ http: async () => ok({ models: [
+      { name: "models/gemini-live-fixture", supportedGenerationMethods: ["generateContent"] }
+    ] }) });
+    assert.equal((await service.list("google", settings()))[0].id, "gemini-live-fixture");
+  } finally {
+    if (previous) Object.defineProperty(window, "crypto", previous);
+    else Reflect.deleteProperty(window, "crypto");
+  }
+});
+
+test("changing accounts immediately isolates queued discovery and cached results", async () => {
+  const service = new ModelService({ http: async request => ok({ data: [
+    { id: request.headers?.Authorization === "Bearer fixture-account-two" ? "second-account" : "first-account" }
+  ] }) });
+  const first = service.list("openai", settings());
+  const rejected = assert.rejects(first, /cancelled/i);
+  const secondConfig = { ...settings(), apiKey: "fixture-account-two" };
+  assert.equal((await service.list("openai", secondConfig))[0].id, "second-account");
+  await rejected;
+  assert.equal((await service.list("openai", secondConfig))[0].id, "second-account");
 });
 
 test("changing credentials cannot return or cache the previous account's models", async () => {
@@ -194,6 +221,61 @@ test("Ollama inspects missing capability metadata with bounded parallel requests
   } });
   assert.deepEqual((await service.list("ollama", { ...settings(), apiKey: "" })).map(model => model.id), ["chat-local"]);
   assert.equal(details, 2);
+});
+
+test("Ollama completion capabilities take priority over arbitrary local model names", async () => {
+  const service = new ModelService({ http: async () => ok({ models: [
+    { name: "audio-study-helper:latest", capabilities: ["completion"] },
+    { name: "ordinary-looking-model:latest", capabilities: ["embedding"] },
+    { name: "image-notes:custom", capabilities: ["completion", "vision"] }
+  ] }) });
+  assert.deepEqual((await service.list("ollama", { ...settings(), apiKey: "" })).map(model => model.id).sort(),
+    ["audio-study-helper:latest", "image-notes:custom"]);
+});
+
+test("Ollama accepts the documented /api base while preserving a proxy prefix", async () => {
+  const requests: HttpRequest[] = [];
+  const service = new ModelService({ http: async request => {
+    requests.push(request);
+    return ok(request.method === "POST" ? { capabilities: ["completion"] } : { models: [{ name: "local-chat" }] });
+  } });
+  await service.list("ollama", { ...settings("http://192.168.1.2:11434/proxy/api/"), apiKey: "" });
+  assert.deepEqual(requests.map(request => new URL(request.url).pathname), ["/proxy/api/tags", "/proxy/api/show"]);
+});
+
+test("Google excludes image and live-only models while retaining newly named text models", async () => {
+  const service = new ModelService({ http: async () => ok({ models: [
+    { name: "models/gemini-next-generation", supportedGenerationMethods: ["generateContent"], inputTokenLimit: 2_000 },
+    { name: "models/gemini-next-image-preview", supportedGenerationMethods: ["generateContent"] },
+    { name: "models/gemini-next-live", supportedGenerationMethods: ["bidiGenerateContent"] },
+    { name: "models/gemini-next-embedding", supportedGenerationMethods: ["embedContent"] }
+  ] }) });
+  assert.deepEqual((await service.list("google", settings())).map(model => model.id), ["gemini-next-generation"]);
+});
+
+test("unsupported discovery methods keep manual model entry available without retrying", async () => {
+  let calls = 0;
+  const service = new ModelService({ http: async () => { calls++; return { status: 405, headers: {}, json: {} }; } });
+  await assert.rejects(service.list("openai", settings()), error => error instanceof Error && /model ID manually/.test(error.message));
+  assert.equal(calls, 1);
+});
+
+test("discovery UI messages never expose raw exception or provider text", () => {
+  const privateText = "fixture-secret https://private.example.test?key=fixture";
+  assert.equal(modelDiscoveryMessage(new Error(privateText)), "Could not load models. Try again or enter a model ID manually.");
+  assert.match(modelDiscoveryMessage(new TransportError("auth", privateText, 401)), /API key and account permissions/);
+  assert.match(modelDiscoveryMessage(new TransportError("unavailable", privateText, 405)), /model ID manually/);
+  assert.match(modelDiscoveryMessage(new TransportError("timeout", privateText)), /took too long/);
+  for (const code of ["offline", "invalid-response", "configuration", "payload", "cancelled", "refusal", "truncated"] as const) {
+    assert.ok(!modelDiscoveryMessage(new TransportError(code, privateText)).includes(privateText));
+  }
+});
+
+test("rate-limit UI guidance honors a bounded Retry-After without exposing provider text", () => {
+  assert.match(modelDiscoveryMessage(new TransportError("quota", "private", 429, 1)), /1 second before/);
+  assert.match(modelDiscoveryMessage(new TransportError("quota", "private", 429, 2.2)), /3 seconds before/);
+  assert.match(modelDiscoveryMessage(new TransportError("quota", "private", 429, 999_999)), /86400 seconds before/);
+  assert.match(modelDiscoveryMessage(new TransportError("quota", "private", 429, NaN)), /account limits/);
 });
 
 test("connection tests use non-generative metadata endpoints for every provider", async () => {

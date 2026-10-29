@@ -61,6 +61,14 @@ class ElementRecord extends EventTarget {
   ownerDocument = { createElement: (tag: string) => new ElementRecord(tag), createTextNode: (text: string) => Object.assign(new ElementRecord("#text"), { textContent: text }) };
   constructor(tag = "div") { super(); this.tagName = tag.toUpperCase(); }
   appendChild<T extends ElementRecord>(child: T): T { child.parentElement = this; this.children.push(child); return child; }
+  insertBefore<T extends ElementRecord>(child: T, reference: ElementRecord | null): T {
+    if (reference !== null && !this.children.includes(reference)) throw new Error("Reference is not a child of this element.");
+    if (child === reference) return child;
+    child.remove();
+    child.parentElement = this;
+    this.children.splice(reference === null ? this.children.length : this.children.indexOf(reference), 0, child);
+    return child;
+  }
   append(...values: Array<ElementRecord | string>): void { values.forEach(value => this.appendChild(typeof value === "string" ? Object.assign(new ElementRecord("#text"), { textContent: value }) : value)); }
   replaceChildren(...children: ElementRecord[]): void { this.empty(); this.append(...children); }
   empty(): void { this.children.forEach(child => { child.parentElement = null; }); this.children = []; this.textContent = ""; }

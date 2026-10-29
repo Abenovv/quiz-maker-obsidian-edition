@@ -5,7 +5,7 @@
 <p align="center">Quizzes and flashcards from your Obsidian notes.</p>
 
 <p align="center">
-  <a href="https://github.com/Abenovv/quiz-maker-obsidian-edition/releases/latest"><img src="assets/badges/release.svg" height="26" alt="Release 1.1.0"></a>
+  <a href="https://github.com/Abenovv/quiz-maker-obsidian-edition/releases/latest"><img src="assets/badges/release.svg" height="26" alt="Release 1.2.0"></a>
   <a href="#install"><img src="assets/badges/platform.svg" height="26" alt="Obsidian 1.8.7 or newer"></a>
   <a href="LICENSE"><img src="assets/badges/license.svg" height="26" alt="MIT license"></a>
 </p>
@@ -86,7 +86,7 @@ Use the three release files, not the automatic source archives. [Checksums and b
 
 ## Models, cost, and privacy
 
-Quiz maker is free under the MIT license. **OpenAI, Google Gemini, Anthropic, Mistral, Cohere, Perplexity, and Ollama** are supported. Hosted services may require an account, an API key, and paid API usage. Refresh models to fetch those available to your account, or enter a model ID manually. Provider availability and charges can change.
+Quiz maker is free under the MIT license. **OpenAI, Google Gemini, Anthropic, Mistral, Cohere, Perplexity, and Ollama** are supported. Hosted services may require an account, an API key, and paid API usage. Choose **Find models** in settings to load and search those available to your account, or enter a model ID manually. Provider availability and charges can change.
 
 Manual questions, imports, and local Ollama offer alternatives to hosted generation.
 
@@ -94,7 +94,7 @@ Manual questions, imports, and local Ollama offer alternatives to hosted generat
 <summary>What leaves your vault and where data is saved</summary>
 
 - **Generation and regeneration:** selected note text and quiz instructions go to the configured provider endpoint.
-- **Model discovery and connection tests:** request model metadata, with authentication where required, without sending note content.
+- **Model discovery:** requests model metadata, with authentication where required, without sending note content or generating questions.
 - **Ollama:** requests go to the configured server, normally on your device. A custom endpoint receives the same request data.
 
 Provider keys are stored locally in `data.json`. The password field masks them on screen; the file is **not encrypted**. Quizzes and sessions use `study.json`. Keep both files private.

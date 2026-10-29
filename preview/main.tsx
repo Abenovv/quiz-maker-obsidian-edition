@@ -4,6 +4,8 @@ import QuizMakerPlugin from "../src/main";
 import { createQuiz, parseQuiz, questionTypeLabels } from "../src/core/schema";
 import { questionTypes, type GenerationRequest, type Question, type QuestionType, type SessionConfig, type Theme } from "../src/core/types";
 import { GenerationService } from "../src/ai/generation";
+import { TransportError } from "../src/ai/transport";
+import manifest from "../manifest.json";
 import { createSession } from "../src/session/engine";
 import { createWelcomeQuiz, presets } from "../src/presets";
 import { renderReadableQuiz } from "../src/notes";
@@ -17,13 +19,14 @@ import { previewQuiz, publicQuestions, type PreviewFixture } from "./fixtures";
 
 installDomExtensions();
 const app = makePreviewApp();
-const plugin = new QuizMakerPlugin(app as never, { id: "quiz-maker", name: "Quiz maker", version: "1.0.0", minAppVersion: "1.7.2", description: "Public interface preview.", author: "Quiz maker", dir: ".obsidian/plugins/quiz-maker" } as never);
+const plugin = new QuizMakerPlugin(app as never, { ...manifest, dir: ".obsidian/plugins/quiz-maker" } as never);
 const canvas = document.getElementById("preview-canvas")!;
 const controls = document.getElementById("preview-controls")!;
 let root: Root | undefined;
 let noteScope: Component | undefined;
 let fixture: PreviewFixture = "standard";
 let modelFailure = false;
+let modelRateLimited = false;
 let responseFailure = false;
 let storageFailure = false;
 
@@ -98,6 +101,8 @@ async function wait(signal: AbortSignal | undefined, milliseconds: number): Prom
 async function initialize(): Promise<void> {
   const write = app.vault.adapter.write.bind(app.vault.adapter);
   app.vault.adapter.write = async (path: string, value: string) => { if (storageFailure) throw new Error("Simulated preview storage failure"); await write(path, value); };
+  const saveData = plugin.saveData.bind(plugin);
+  plugin.saveData = async (value: unknown) => { if (storageFailure) throw new Error("Simulated settings write failure"); await saveData(value); };
   await plugin.onload();
   plugin.settings.provider = "ollama";
   plugin.settings.providers.ollama.model = "preview-local-model";
@@ -114,7 +119,16 @@ async function initialize(): Promise<void> {
   // Only the transport is simulated; validation, prompts, cancellation and provenance use the actual service.
   plugin.generation.dispose(); plugin.generation = generation;
   Object.assign(plugin, { models: {
-    async list(provider: string, _config: unknown, options?: { signal?: AbortSignal }) { await wait(options?.signal, 220); if (modelFailure) throw new Error("Preview connection is unavailable. Retry when the simulated error is off."); return [{ id: "preview-local-model", name: "Public preview model", provider }]; },
+    async list(provider: string, _config: unknown, options?: { signal?: AbortSignal }) {
+      await wait(options?.signal, 220);
+      if (modelFailure) throw new TransportError("offline", "Simulated offline provider.");
+      if (modelRateLimited) throw new TransportError("quota", "Simulated request limit.", 429, 30);
+      return [
+        { id: "preview-local-model", name: "Public preview model", provider, contextWindow: 32768 },
+        { id: "preview-reasoning-model", name: "Public reasoning model", provider, contextWindow: 65536 },
+        { id: "preview-compact-model", name: "Public compact model", provider, contextWindow: 8192 }
+      ];
+    },
     async test(_provider: string, _config: unknown, signal?: AbortSignal) { await wait(signal, 220); if (modelFailure) throw new Error("Preview connection is unavailable. Retry when the simulated error is off."); },
     clear() {}
   } });
@@ -123,7 +137,7 @@ async function initialize(): Promise<void> {
   select("preview-theme", "Theme", { obsidian: "Obsidian dark", light: "Obsidian light", paper: "Paper", midnight: "Midnight", contrast: "High contrast" }, value => { updateTheme(value === "light" ? "obsidian" : value as Theme); if (value === "light") { document.body.classList.add("theme-light"); document.body.classList.remove("theme-dark"); } });
   select("preview-fixture", "Questions", { standard: "Original seven", advanced: "Advanced ten", all: "All 17 formats", long: "Long text and code" }, value => { fixture = value as PreviewFixture; showGallery(); });
   const presetSelect = select("preview-preset", "Study pack", Object.fromEntries(presets.map(preset => [preset.id, preset.name])), () => undefined);
-  select("preview-network", "Simulated response", { normal: "Normal", models: "Connection error", json: "Incomplete JSON", storage: "Storage error" }, value => { modelFailure = value === "models"; responseFailure = value === "json"; storageFailure = value === "storage"; });
+  select("preview-network", "Simulated response", { normal: "Normal", models: "Connection error", quota: "Rate limit", json: "Incomplete JSON", storage: "Storage error" }, value => { modelFailure = value === "models"; modelRateLimited = value === "quota"; responseFailure = value === "json"; storageFailure = value === "storage"; });
   button("preview-studio", "Studio", () => plugin.openStudio());
   button("preview-generator", "Generate", () => plugin.openGenerator(presetSelect.value));
   button("preview-session", "Study", () => plugin.startQuiz(currentQuiz()));

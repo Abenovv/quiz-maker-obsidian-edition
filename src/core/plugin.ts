@@ -1,5 +1,6 @@
 import { addIcon, normalizePath, Notice, Plugin, TFile } from "obsidian";
 import icon from "../../assets/icon.svg";
+import { version } from "../../manifest.json";
 import { GenerationService } from "../ai/generation";
 import { ModelService } from "../ai/models";
 import { installFeedback, refreshFeedback } from "../feedback";
@@ -26,25 +27,33 @@ export default class QuizMakerPlugin extends Plugin implements PluginContext {
   private settingsUnavailable = false;
   private cleanupFeedback: (() => void) | undefined;
   private settingsWriteQueue: Promise<void> = Promise.resolve();
+  private appearanceRefreshFailed = false;
+
+  get pluginVersion(): string { return version; }
 
   async onload(): Promise<void> {
     const boot = ++this.bootVersion;
     try {
-      this.settings = normalizeSettings(await this.loadData());
+      const settings = normalizeSettings(await this.loadData());
+      if (boot !== this.bootVersion) return;
+      this.settings = settings;
+      this.settingsUnavailable = false;
     } catch {
+      if (boot !== this.bootVersion) return;
       this.settingsUnavailable = true;
       this.showNotice("Quiz maker could not read its settings. The existing file was kept unchanged.");
     }
     if (boot !== this.bootVersion) return;
 
     const directory = this.manifest.dir ?? normalizePath(this.app.vault.configDir + "/plugins/" + this.manifest.id);
-    this.store = new QuizStore(this.app.vault.adapter, normalizePath(directory + "/study.json"), {
+    const store = new QuizStore(this.app.vault.adapter, normalizePath(directory + "/study.json"), {
       onError: message => this.showNotice(message)
     });
+    this.store = store;
     this.models = new ModelService();
     this.generation = new GenerationService(() => this.settings);
-    await this.store.load();
-    if (boot !== this.bootVersion) { await this.store.dispose(); return; }
+    await store.load();
+    if (boot !== this.bootVersion) { await store.dispose(); return; }
     this.ready = true;
 
     const paths = icon.match(/<svg\b[^>]*>([\s\S]*?)<\/svg>/i)?.[1].replace(/<title>[\s\S]*?<\/title>/gi, "") ?? "";
@@ -106,13 +115,22 @@ export default class QuizMakerPlugin extends Plugin implements PluginContext {
     });
     this.settingsWriteQueue = write;
     await write;
-    if (this.ready) {
-      refreshFeedback(this);
-      refreshContextModals(this);
+    if (!this.ready || boot !== this.bootVersion) return;
+    let refreshFailed = false;
+    try { refreshFeedback(this); } catch { refreshFailed = true; }
+    try { refreshContextModals(this); } catch { refreshFailed = true; }
+    try {
       for (const leaf of this.app.workspace.getLeavesOfType(MINI_VIEW_TYPE)) {
-        if (leaf.view instanceof MiniQuizView) leaf.view.refreshAppearance();
+        if (leaf.view instanceof MiniQuizView) {
+          try { leaf.view.refreshAppearance(); } catch { refreshFailed = true; }
+        }
       }
+    } catch { refreshFailed = true; }
+    if (refreshFailed && !this.appearanceRefreshFailed) {
+      try { this.showNotice("Settings saved. Reopen any quiz views that did not update."); }
+      catch { /* Notification failure must not misreport a completed settings write. */ }
     }
+    this.appearanceRefreshFailed = refreshFailed;
   }
 
   openStudio(): void { if (this.ready) openStudio(this); }

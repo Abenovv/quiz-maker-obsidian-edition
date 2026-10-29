@@ -213,6 +213,7 @@ export interface QuestionViewProps {
 }
 export interface PluginContext {
   app: App;
+  readonly pluginVersion?: string;
   settings: Settings;
   store: QuizStorePort;
   models: ModelServicePort;

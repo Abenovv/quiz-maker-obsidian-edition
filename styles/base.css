@@ -142,6 +142,9 @@
 .qm-root *::before,
 .qm-root *::after { box-sizing: border-box; }
 
+/* Keep semantic visibility stronger than the host's button/layout rules. */
+.qm-root[hidden], .qm-root [hidden] { display: none !important; }
+
 .qm-root.qm-modal {
   display: flex;
   flex-direction: column;
@@ -294,6 +297,8 @@
   -webkit-appearance: auto !important;
   background-image: none !important;
   background-repeat: no-repeat;
+  background-color: var(--qm-surface) !important;
+  color: var(--qm-text);
   padding-inline-end: 28px;
 }
 

@@ -1,5 +1,19 @@
 # Release notes
 
+## 1.2.0
+
+Fix model discovery failures and simplify provider setup.
+
+- Fix model lookup failing before it contacts the provider in some Obsidian environments.
+- Accept Ollama server addresses with or without an `/api` suffix for discovery and generation.
+- Keep completion-capable Ollama models with custom names that broad keyword filters previously excluded.
+- Use one **Find models** action with searchable results and a manual **Model ID** field.
+- Cancel outdated lookups when connection details change, and show more specific discovery errors.
+- Report successful settings saves correctly even if an open view cannot refresh.
+- Offer language suggestions while keeping custom language entry, and show the loaded plugin version in settings.
+
+Model discovery reads metadata only; it does not send note text or generate questions. Provider keys remain in local settings and are excluded from release files.
+
 ## 1.1.0
 
 The study interface now follows Quiz maker's blue identity, with clearer controls and less visual clutter.

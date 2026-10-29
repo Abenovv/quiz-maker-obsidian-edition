@@ -3,6 +3,7 @@ import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 
 import { questionTypeLabels } from "../core/schema";
 import { providers, questionTypes, type Difficulty, type GenerationConnection, type GenerationRequest, type ModelInfo, type PluginContext, type Provider, type Quiz, type RequestedMethod, type SessionConfig } from "../core/types";
 import { MAX_GENERATED_QUESTIONS, MAX_GENERATION_SOURCES, MAX_SOURCE_CHARACTERS } from "../ai/generation";
+import { modelDiscoveryMessage } from "../ai/models";
 import { DEFAULT_PRESET_ID, findPreset, presets } from "../presets";
 import { Icon, InlineError, errorMessage, openReactModal } from "./shared";
 import { mergeSelectedNotes, notesInFolder, readSelectedNotes } from "./generator/sources";
@@ -82,7 +83,7 @@ function Generator({ context, close, presetId }: { context: PluginContext; close
       const available = await context.models.list(provider, context.settings.providers[provider], { signal: controller.signal, refresh });
       if (alive.current && !controller.signal.aborted) setModels(available);
     } catch (failure) {
-      if (alive.current && !controller.signal.aborted) setModelsError(errorMessage(failure, "Model list unavailable. Enter a model ID."));
+      if (alive.current && !controller.signal.aborted) setModelsError(modelDiscoveryMessage(failure));
     } finally {
       if (alive.current && discovery.current === controller) setModelsBusy(false);
     }
@@ -273,7 +274,7 @@ function Generator({ context, close, presetId }: { context: PluginContext; close
     <section className="qm-generator-model" aria-label="Generation model">
       <label className="qm-field">Provider<select value={provider} disabled={busy} onChange={event => { const next = event.currentTarget.value as Provider; setProvider(next); setModel(context.settings.providers[next].model); setModelsError(""); }}>{providers.map(item => <option value={item} key={item}>{providerNames[item]}</option>)}</select></label>
       <label className="qm-field qm-model-field">Model<input list={modelListId} value={model} maxLength={200} disabled={busy} autoComplete="off" spellCheck={false} placeholder="Select or enter a model ID" onChange={event => setModel(event.currentTarget.value)}/><datalist id={modelListId}>{models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</datalist></label>
-      <button type="button" disabled={busy || modelsBusy} onClick={() => { void refreshModels(true); }}><Icon name="refresh"/>{modelsBusy ? "Refreshing…" : "Refresh models"}</button>
+      <button type="button" disabled={busy || modelsBusy} onClick={() => { void refreshModels(true); }}><Icon name="search"/>{modelsBusy ? "Finding…" : "Find models"}</button>
     </section>
     <InlineError>{modelsError}</InlineError>
     <footer className="qm-generator-footer">

@@ -1,8 +1,9 @@
 import { PluginSettingTab, Setting, type App, type ButtonComponent, type DropdownComponent, type Plugin, type TextComponent } from "obsidian";
 import { providers, type ModelInfo, type PluginContext, type Provider, type Settings } from "./core/types";
 import { presets } from "./presets";
-import { refreshFeedback, testSound } from "./feedback";
+import { testSound } from "./feedback";
 import { DEFAULT_BASE_URLS, resolveBaseUrl } from "./ai/transport";
+import { modelDiscoveryMessage } from "./ai/models";
 
 export const providerNames: Record<Provider, string> = {
   openai: "OpenAI", google: "Google Gemini", anthropic: "Anthropic", mistral: "Mistral",
@@ -75,7 +76,7 @@ export function normalizeSettings(value: unknown): Settings {
 const languages = [
   "English", "Deutsch", "Español", "Français", "Русский", "中文", "Português", "한국어", "日本語",
   "العربية", "Dansk", "Norsk", "Nederlands", "Italiano", "Polski", "हिन्दी", "Tiếng Việt",
-  "Українська", "Svenska", "فارسی", "Ελληνικά", "Bahasa Indonesia"
+  "Українська", "Svenska", "فارسی", "Ελληνικά", "Bahasa Indonesia", "Қазақша", "Türkçe"
 ];
 const sections = ["General", "Models", "Questions", "Saving"] as const;
 type Section = typeof sections[number];
@@ -86,13 +87,21 @@ function labelDropdown(select: DropdownComponent, label: string): DropdownCompon
   return select;
 }
 
-function connectionMessage(error: unknown): string {
-  const text = error instanceof Error ? error.message : "";
-  if (/401|403|auth|api key|unauthori[sz]ed/i.test(text)) return "Check your API key and the models enabled for this account.";
-  if (/429|quota|rate.?limit/i.test(text)) return "The provider is limiting requests. Wait briefly or check your account quota.";
-  if (/timeout|timed out/i.test(text)) return "The server did not respond in time. Check the endpoint and try again.";
-  if (/network|offline|fetch|connect/i.test(text)) return "Could not reach the server. Check your connection and endpoint.";
-  return "Could not complete the request. Check the endpoint and try again.";
+export function filterModels(models: readonly ModelInfo[], query: string): ModelInfo[] {
+  const terms = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  return models.filter(model => {
+    const text = (model.name + " " + model.id).toLowerCase();
+    return terms.every(term => text.includes(term));
+  });
+}
+
+export function settingsSaveMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  if (/not active|inactive|enable.+before/i.test(message)) return "Enable Quiz maker in Community plugins, then reopen Settings.";
+  if (/settings could not be read|restore.+settings/i.test(message)) return "Restore the local settings file before saving changes.";
+  if (/ENOSPC|disk full|not enough space/i.test(message)) return "Could not save. Free some space, then retry.";
+  if (/EACCES|EPERM|permission/i.test(message)) return "Could not save. Check the vault folder's write permissions, then retry.";
+  return "Could not save settings. Your changes are kept here.";
 }
 
 // Support Obsidian 1.8.7; the declarative settings API requires 1.13.0.
@@ -110,6 +119,8 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
   private visible = false;
   private saveFailed = false;
   private saveStatus: HTMLElement | undefined;
+  private saveFeedback: HTMLElement | undefined;
+  private saveMessage = "";
   private saveRetry: HTMLButtonElement | undefined;
   private modelCancel: ButtonComponent | undefined;
   private modelStatus: HTMLElement | undefined;
@@ -164,15 +175,13 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
     else if (this.section === "Models") this.renderModels(panel);
     else if (this.section === "Questions") this.renderQuestions(panel);
     else this.renderSaving(panel);
-    this.saveStatus = this.containerEl.createEl("p");
+    this.saveFeedback = this.containerEl.createDiv({ cls: "qm-settings-save" });
+    this.saveStatus = this.saveFeedback.createEl("p");
     this.saveStatus.className = "qm-settings-status";
     this.saveStatus.setAttribute("role", "status");
-    if (this.saveFailed) this.saveStatus.textContent = "Could not save settings. Your changes are kept here.";
-    this.saveRetry = this.containerEl.createEl("button");
-    this.saveRetry.type = "button";
-    this.saveRetry.textContent = "Retry saving";
-    this.saveRetry.hidden = !this.saveFailed;
-    this.saveRetry.onclick = () => { void this.flushSettings(); };
+    this.saveRetry = undefined;
+    this.updateSaveFeedback();
+    if (this.context.pluginVersion) this.containerEl.createEl("p", { cls: "qm-settings-version", text: "Quiz maker " + this.context.pluginVersion });
   }
 
   hide(): void {
@@ -216,19 +225,34 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
       this.dirty = false;
       try {
         await this.context.saveSettings();
-        refreshFeedback(this.context);
         this.saveFailed = false;
-        if (this.saveStatus) this.saveStatus.textContent = "";
-        if (this.saveRetry) this.saveRetry.hidden = true;
-      } catch {
+        this.saveMessage = "";
+        this.updateSaveFeedback();
+      } catch (error) {
         this.dirty = true;
         this.saveFailed = true;
-        if (this.saveStatus) this.saveStatus.textContent = "Could not save settings. Your changes are kept here.";
-        if (this.saveRetry) this.saveRetry.hidden = false;
-        if (!this.visible) this.context.showNotice("Quiz maker settings could not be saved. Reopen Settings to retry.");
+        this.saveMessage = settingsSaveMessage(error);
+        this.updateSaveFeedback();
+        if (!this.visible) {
+          try { this.context.showNotice(this.saveMessage); } catch { /* A closed window must not prevent a later retry. */ }
+        }
       }
     });
     return this.saveQueue;
+  }
+
+  private updateSaveFeedback(): void {
+    if (this.saveStatus) {
+      this.saveStatus.textContent = this.saveFailed ? this.saveMessage : "";
+      this.saveStatus.dataset.state = this.saveFailed ? "error" : "idle";
+    }
+    if (!this.saveFailed) {
+      this.saveRetry?.remove();
+      this.saveRetry = undefined;
+    } else if (!this.saveRetry && this.saveFeedback) {
+      this.saveRetry = this.saveFeedback.createEl("button", { text: "Retry saving", attr: { type: "button" } });
+      this.saveRetry.onclick = () => { void this.flushSettings(); };
+    }
   }
 
   private cancelModelTask(): void {
@@ -257,7 +281,6 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
       .setValue(this.context.settings.motion).onChange(value => {
         this.context.settings.motion = value === "reduced" ? "reduced" : "system";
         this.containerEl.dataset.motion = this.context.settings.motion;
-        refreshFeedback(this.context);
         this.scheduleSave();
       }));
     new Setting(panel).setName("Feedback").setHeading();
@@ -277,7 +300,6 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
   }
 
   private renderModels(panel: HTMLElement): void {
-    new Setting(panel).setName("Generation").setHeading();
     new Setting(panel).setName("Provider").addDropdown(select => labelDropdown(select, "Provider").addOptions(providerNames)
       .setValue(this.context.settings.provider).onChange(value => {
         this.context.settings.provider = value as Provider;
@@ -286,111 +308,185 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
       }));
     const provider = this.context.settings.provider;
     const config = this.context.settings.providers[provider];
+    const version = this.renderVersion;
     let invalidKey = false;
     let invalidEndpoint = false;
-    let endpointError = "";
     let keyError: HTMLElement | undefined;
-    let endpointErrorEl: HTMLElement | undefined;
-    let modelErrorEl: HTMLElement | undefined;
-    let updateControls = (): void => {};
-    let resetModels = (): void => {};
-    const status = panel.createEl("p");
-    status.id = this.id + "-model-status";
-    status.className = "qm-settings-status";
-    status.setAttribute("role", "status");
+    let endpointError: HTMLElement | undefined;
+    let modelError: HTMLElement | undefined;
+    let manual: TextComponent;
+    let find: ButtonComponent;
+    let finder: HTMLElement | undefined;
+    let search: HTMLInputElement | undefined;
+    let results: HTMLElement | undefined;
+    let refresh: HTMLButtonElement | undefined;
+    let availableModels: ModelInfo[] = [];
+    let account: { apiKey: string; baseUrl: string } | undefined;
+    const status = panel.createEl("p", { cls: "qm-model-status", attr: { id: this.id + "-model-status", role: "status" } });
     this.modelStatus = status;
-    const showFieldError = (): void => {
-      if (keyError) keyError.textContent = invalidKey ? "Remove spaces and line breaks from the key." : "";
-      if (endpointErrorEl) endpointErrorEl.textContent = endpointError;
-    };
     const fieldError = (host: HTMLElement, name: string): HTMLElement => host.createEl("p", {
       cls: "qm-settings-field-error", attr: { id: this.id + "-" + name + "-error", role: "alert" }
     });
+    const clearFinder = (): void => {
+      availableModels = [];
+      account = undefined;
+      finder?.remove();
+      finder = undefined;
+      search = undefined;
+      results = undefined;
+      refresh = undefined;
+      find?.setButtonText("Find models");
+    };
+    const currentAccount = (): boolean => version === this.renderVersion && provider === this.context.settings.provider
+      && account?.apiKey === config.apiKey && account.baseUrl === config.baseUrl;
+    const updateControls = (): void => {
+      const needsKey = provider !== "ollama" && !config.apiKey;
+      find?.setDisabled(invalidKey || invalidEndpoint || needsKey || this.task !== undefined);
+      if (refresh) refresh.disabled = invalidKey || invalidEndpoint || needsKey || this.task !== undefined;
+      if (needsKey && !invalidKey) {
+        status.dataset.state = "idle";
+        status.textContent = "Add an API key to find models.";
+      } else if (status.textContent === "Add an API key to find models.") status.textContent = "";
+    };
+    const dismissFinder = (): void => {
+      this.cancelModelTask();
+      clearFinder();
+      status.dataset.state = "idle";
+      status.textContent = "";
+      updateControls();
+      find.buttonEl.focus();
+    };
+    const closeFinderFromKey = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); dismissFinder(); }
+    };
+    const chooseModel = (model: ModelInfo): void => {
+      if (!currentAccount()) return;
+      config.model = model.id;
+      manual.setValue(model.id);
+      manual.inputEl.removeAttribute("aria-invalid");
+      if (modelError) modelError.textContent = "";
+      clearFinder();
+      status.dataset.state = "ready";
+      status.textContent = "Model selected.";
+      this.scheduleSave();
+      manual.inputEl.focus();
+    };
+    const renderResults = (): void => {
+      if (!results || !search || !currentAccount()) return;
+      results.replaceChildren();
+      const matches = filterModels(availableModels, search.value);
+      const shown = matches.slice(0, 12);
+      status.dataset.state = matches.length ? "ready" : "empty";
+      status.textContent = !availableModels.length ? "No text models returned. You can enter a model ID manually."
+        : !matches.length ? "No matches. Try a shorter name or a model ID."
+        : matches.length > shown.length ? `Showing ${shown.length} of ${matches.length} models. Search to narrow the list.`
+        : `${matches.length} ${matches.length === 1 ? "model" : "models"}`;
+      const buttons: HTMLButtonElement[] = [];
+      for (const model of shown) {
+        const item = results.createEl("li");
+        const button = item.createEl("button", { cls: "qm-model-result", attr: { type: "button", "aria-pressed": String(model.id === config.model) } });
+        button.createEl("strong", { cls: "qm-model-name", text: model.name });
+        if (model.name !== model.id) button.createEl("small", { cls: "qm-model-id", text: model.id });
+        button.onclick = () => chooseModel(model);
+        button.onkeydown = event => {
+          const index = buttons.indexOf(button);
+          const target = event.key === "ArrowDown" ? buttons[(index + 1) % buttons.length]
+            : event.key === "ArrowUp" ? buttons[(index + buttons.length - 1) % buttons.length]
+            : event.key === "Home" ? buttons[0] : event.key === "End" ? buttons[buttons.length - 1] : undefined;
+          if (target) { event.preventDefault(); target.focus(); }
+          if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); search?.focus(); }
+        };
+        buttons.push(button);
+      }
+      search.onkeydown = event => {
+        if (event.key === "ArrowDown" && buttons.length) { event.preventDefault(); buttons[0].focus(); }
+        else if (event.key === "Enter" && shown.length) { event.preventDefault(); chooseModel(shown[0]); }
+        else closeFinderFromKey(event);
+      };
+    };
+    const ensureFinder = (): void => {
+      if (finder) return;
+      find.setButtonText("Close finder");
+      finder = panel.createEl("section", { cls: "qm-model-finder", attr: { "aria-label": "Find a model" } });
+      const controls = finder.createDiv({ cls: "qm-model-search" });
+      search = controls.createEl("input", { attr: { type: "search", "aria-label": "Search models", placeholder: "Name or model ID", maxlength: "200" } });
+      search.spellcheck = false;
+      search.autocomplete = "off";
+      search.oninput = () => renderResults();
+      search.onkeydown = closeFinderFromKey;
+      refresh = controls.createEl("button", { cls: "qm-model-refresh", text: "Refresh", attr: { type: "button", "aria-label": "Refresh model list" } });
+      refresh.onclick = () => { void discover(true); };
+      results = finder.createEl("ul", { cls: "qm-model-results", attr: { "aria-label": "Available models" } });
+      panel.insertBefore(finder, status);
+    };
+    const discover = async (fresh = false): Promise<void> => {
+      if (invalidKey || invalidEndpoint || provider !== "ollama" && !config.apiKey || this.task) return;
+      this.cancelModelTask();
+      const controller = new AbortController();
+      this.task = controller;
+      const snapshot = { ...config };
+      ensureFinder();
+      availableModels = [];
+      account = undefined;
+      if (results) results.replaceChildren();
+      if (this.modelCancel) this.modelCancel.buttonEl.hidden = false;
+      status.setAttribute("aria-busy", "true");
+      status.dataset.state = "loading";
+      status.textContent = "Finding models…";
+      updateControls();
+      try {
+        const models = await this.context.models.list(provider, snapshot, { signal: controller.signal, refresh: fresh });
+        if (controller.signal.aborted || version !== this.renderVersion || config.apiKey !== snapshot.apiKey || config.baseUrl !== snapshot.baseUrl) return;
+        availableModels = models;
+        account = { apiKey: snapshot.apiKey, baseUrl: snapshot.baseUrl };
+        if (refresh) refresh.textContent = "Refresh";
+        renderResults();
+        search?.focus();
+      } catch (error) {
+        if (!controller.signal.aborted && version === this.renderVersion) {
+          status.dataset.state = "error";
+          status.textContent = modelDiscoveryMessage(error);
+          if (refresh) refresh.textContent = "Try again";
+        }
+      } finally {
+        if (this.task === controller) {
+          this.task = undefined;
+          if (this.modelCancel) this.modelCancel.buttonEl.hidden = true;
+          status.removeAttribute("aria-busy");
+          updateControls();
+        }
+      }
+    };
     if (provider !== "ollama") {
-      const keySetting = new Setting(panel).setName("API key").setDesc("Saved in local, unencrypted plugin settings. Excluded from quiz exports.")
+      const keySetting = new Setting(panel).setName("API key").setDesc("Stored in local, unencrypted settings. Keep the file private.")
         .addText(input => {
           input.setValue(config.apiKey);
           input.inputEl.type = "password";
           input.inputEl.autocomplete = "off";
           input.inputEl.spellcheck = false;
-          input.inputEl.setAttribute("autocapitalize", "off");
           input.inputEl.maxLength = 4096;
+          input.inputEl.setAttribute("autocapitalize", "off");
           input.inputEl.setAttribute("aria-label", providerNames[provider] + " API key");
           input.inputEl.setAttribute("aria-describedby", this.id + "-key-error");
           input.onChange(value => {
             const key = value.trim();
-            if ((/\s/.test(key) || hasControlCharacter(key))) {
-              this.cancelModelTask();
-              resetModels();
-              invalidKey = true;
-              input.inputEl.setAttribute("aria-invalid", "true");
-              showFieldError();
-              updateControls();
-              return;
-            }
-            invalidKey = false;
-            input.inputEl.removeAttribute("aria-invalid");
             this.cancelModelTask();
-            this.context.models.clear(provider);
-            config.apiKey = key;
-            resetModels();
-            showFieldError();
-            this.scheduleSave();
+            clearFinder();
+            invalidKey = /\s/.test(key) || hasControlCharacter(key);
+            if (invalidKey) input.inputEl.setAttribute("aria-invalid", "true");
+            else {
+              input.inputEl.removeAttribute("aria-invalid");
+              this.context.models.clear(provider);
+              config.apiKey = key;
+              this.scheduleSave();
+            }
+            if (keyError) keyError.textContent = invalidKey ? "Remove spaces and line breaks from the key." : "";
             updateControls();
           });
         });
       keyError = fieldError(keySetting.settingEl, "key");
     }
-    const advanced = panel.createEl("details", { cls: "qm-settings-advanced" });
-    advanced.open = provider === "ollama" || config.baseUrl !== endpoints[provider];
-    advanced.createEl("summary", { text: "Advanced connection" });
-    const endpointSetting = new Setting(advanced).setName("Endpoint")
-      .setDesc(provider === "ollama" ? "On a phone, use your Ollama server's local network address." : "Change this only when using a proxy or a different server.")
-      .addText(input => {
-        input.inputEl.setAttribute("aria-label", "Endpoint");
-        input.inputEl.setAttribute("aria-describedby", this.id + "-endpoint-error");
-        input.inputEl.maxLength = 2048;
-        input.inputEl.spellcheck = false;
-        input.inputEl.autocomplete = "off";
-        input.inputEl.setAttribute("autocapitalize", "off");
-        input.setValue(config.baseUrl).setPlaceholder(endpoints[provider]).onChange(value => {
-          try {
-            const baseUrl = normalizeEndpoint(value);
-            invalidEndpoint = false;
-            endpointError = "";
-            this.cancelModelTask();
-            this.context.models.clear(provider);
-            config.baseUrl = baseUrl;
-            resetModels();
-            input.inputEl.removeAttribute("aria-invalid");
-            showFieldError();
-            this.scheduleSave();
-          } catch (error) {
-            this.cancelModelTask();
-            resetModels();
-            invalidEndpoint = true;
-            input.inputEl.setAttribute("aria-invalid", "true");
-            endpointError = error instanceof Error ? error.message : "Check this endpoint.";
-            showFieldError();
-          }
-          updateControls();
-        });
-      });
-    endpointErrorEl = fieldError(endpointSetting.settingEl, "endpoint");
-    let dropdown: DropdownComponent;
-    let manual: TextComponent;
-    let availableModels: ModelInfo[] = [];
-    const fillModels = (models = availableModels): void => {
-      availableModels = models;
-      const selected = config.model;
-      dropdown.selectEl.replaceChildren();
-      dropdown.addOption("", "Choose a model");
-      if (selected && !models.some(model => model.id === selected)) dropdown.addOption(selected, selected);
-      for (const model of models) dropdown.addOption(model.id, model.name === model.id ? model.id : model.name + " · " + model.id);
-      dropdown.setValue(selected);
-      modelSelection.settingEl.hidden = models.length === 0;
-    };
-    const modelInput = new Setting(panel).setName("Model ID").setDesc("Enter a model ID, or refresh to choose from your account.")
+    const modelSetting = new Setting(panel).setName("Model ID").setDesc("Enter an ID or find models. Your notes are not sent.").setClass("qm-model-setting")
       .addText(input => {
         manual = input;
         input.setValue(config.model).setPlaceholder("Model ID");
@@ -402,106 +498,95 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
         input.inputEl.setAttribute("aria-describedby", this.id + "-model-error");
         input.onChange(value => {
           const id = value.trim();
-          if (id.length > 200 || /\s/.test(id) || hasControlCharacter(value)) {
-            input.inputEl.setAttribute("aria-invalid", "true");
-            if (modelErrorEl) modelErrorEl.textContent = "Use a model ID without spaces or line breaks.";
-            return;
+          const invalid = id.length > 200 || /\s/.test(id) || hasControlCharacter(value);
+          if (invalid) input.inputEl.setAttribute("aria-invalid", "true");
+          else {
+            input.inputEl.removeAttribute("aria-invalid");
+            config.model = id;
+            this.scheduleSave();
+            renderResults();
           }
-          input.inputEl.removeAttribute("aria-invalid");
-          if (modelErrorEl) modelErrorEl.textContent = "";
-          config.model = id;
-          fillModels();
-          this.scheduleSave();
+          if (modelError) modelError.textContent = invalid ? "Use a model ID without spaces or line breaks." : "";
         });
-      });
-    modelErrorEl = fieldError(modelInput.settingEl, "model");
-    const modelSelection = new Setting(panel).setName("Available models").setClass("qm-settings-model-list");
-    modelSelection.addDropdown(select => {
-      dropdown = select;
-      select.selectEl.setAttribute("aria-label", "Available models");
-      fillModels([]);
-      select.onChange(value => {
-        config.model = value;
-        manual.setValue(value);
-        manual.inputEl.removeAttribute("aria-invalid");
-        if (modelErrorEl) modelErrorEl.textContent = "";
-        this.scheduleSave();
-      });
-    });
-    resetModels = () => fillModels([]);
-    let refresh: ButtonComponent;
-    let test: ButtonComponent;
-    const run = async (kind: "list" | "test"): Promise<void> => {
-      if (invalidKey || invalidEndpoint || provider !== "ollama" && !config.apiKey) {
-        status.textContent = "Fix the highlighted fields before connecting.";
-        return;
-      }
-      this.cancelModelTask();
-      const controller = new AbortController();
-      this.task = controller;
-      const version = this.renderVersion;
-      const snapshot = { ...config };
-      refresh.setDisabled(true);
-      test.setDisabled(true);
-      if (this.modelCancel) this.modelCancel.buttonEl.hidden = false;
-      status.setAttribute("aria-busy", "true");
-      status.textContent = kind === "list" ? "Loading models…" : "Checking connection…";
-      try {
-        if (kind === "list") {
-          const models = await this.context.models.list(provider, snapshot, { signal: controller.signal, refresh: true });
-          if (controller.signal.aborted || version !== this.renderVersion) return;
-          fillModels(models);
-          status.textContent = models.length ? `${models.length} ${models.length === 1 ? "model available" : "models available"}.` : "No text models returned. Enter a model ID manually.";
-        } else {
-          await this.context.models.test(provider, snapshot, controller.signal);
-          if (controller.signal.aborted || version !== this.renderVersion) return;
-          status.textContent = "Connected.";
-        }
-      } catch (error) {
-        if (!controller.signal.aborted && version === this.renderVersion) status.textContent = connectionMessage(error);
-      } finally {
-        if (this.task === controller) {
-          this.task = undefined;
-          updateControls();
-          if (this.modelCancel) this.modelCancel.buttonEl.hidden = true;
-          status.removeAttribute("aria-busy");
-        }
-      }
-    };
-    new Setting(panel).setName("Connection").setDesc("Checks models without sending note content.").setClass("qm-settings-actions")
-      .addButton(button => { refresh = button; button.setButtonText("Refresh models").setCta().onClick(() => { void run("list"); }); })
-      .addButton(button => { test = button; button.setButtonText("Test connection").onClick(() => { void run("test"); }); })
+      })
+      .addButton(button => {
+        find = button;
+        button.setButtonText("Find models").setCta().onClick(() => {
+          if (finder) { dismissFinder(); manual.inputEl.focus(); }
+          else void discover();
+        });
+      })
       .addButton(button => {
         this.modelCancel = button;
         button.setButtonText("Cancel").onClick(() => {
           this.cancelModelTask();
-          status.removeAttribute("aria-busy");
+          status.dataset.state = "idle";
           status.textContent = "Cancelled.";
           updateControls();
         });
         button.buttonEl.hidden = true;
       });
-    this.modelControls = [refresh!, test!];
-    const keyPrompt = "Add an API key to load models.";
-    updateControls = () => {
-      const needsKey = provider !== "ollama" && !config.apiKey;
-      this.modelControls.forEach(button => { button.setDisabled(invalidKey || invalidEndpoint || needsKey || this.task !== undefined); });
-      if (needsKey && !invalidKey) status.textContent = keyPrompt;
-      else if (status.textContent === keyPrompt) status.textContent = "";
-    };
+    modelError = fieldError(modelSetting.settingEl, "model");
+    this.modelControls = [find!];
+    const advanced = panel.createEl("details", { cls: "qm-settings-advanced" });
+    advanced.open = provider === "ollama" || config.baseUrl !== endpoints[provider];
+    advanced.createEl("summary", { text: "Advanced connection" });
+    const endpointSetting = new Setting(advanced).setName("Endpoint")
+      .setDesc(provider === "ollama" ? "On a phone, use your Ollama server's local network address." : "Change this only for a proxy or a different server.")
+      .addText(input => {
+        input.inputEl.setAttribute("aria-label", "Endpoint");
+        input.inputEl.setAttribute("aria-describedby", this.id + "-endpoint-error");
+        input.inputEl.maxLength = 2048;
+        input.inputEl.spellcheck = false;
+        input.inputEl.autocomplete = "off";
+        input.inputEl.setAttribute("autocapitalize", "off");
+        input.setValue(config.baseUrl).setPlaceholder(endpoints[provider]).onChange(value => {
+          this.cancelModelTask();
+          clearFinder();
+          try {
+            config.baseUrl = normalizeEndpoint(value);
+            invalidEndpoint = false;
+            this.context.models.clear(provider);
+            input.inputEl.removeAttribute("aria-invalid");
+            if (endpointError) endpointError.textContent = "";
+            this.scheduleSave();
+          } catch (error) {
+            invalidEndpoint = true;
+            input.inputEl.setAttribute("aria-invalid", "true");
+            if (endpointError) endpointError.textContent = error instanceof Error ? error.message : "Check this endpoint.";
+          }
+          updateControls();
+        });
+      });
+    endpointError = fieldError(endpointSetting.settingEl, "endpoint");
+    panel.insertBefore(status, advanced);
     updateControls();
-    panel.appendChild(status);
-    panel.appendChild(advanced);
   }
 
   private renderQuestions(panel: HTMLElement): void {
-    new Setting(panel).setName("Defaults").setHeading();
-    new Setting(panel).setName("Language").addDropdown(select => {
-      labelDropdown(select, "Language");
-      if (!languages.includes(this.context.settings.language)) select.addOption(this.context.settings.language, this.context.settings.language);
-      for (const language of languages) select.addOption(language, language);
-      select.setValue(this.context.settings.language).onChange(value => { this.context.settings.language = value; this.scheduleSave(); });
+    const suggestions = panel.createEl("datalist", { attr: { id: this.id + "-languages" } });
+    for (const language of languages) suggestions.createEl("option", { attr: { value: language } });
+    let languageStatus: HTMLElement;
+    const languageSetting = new Setting(panel).setName("Language").addText(input => {
+      input.setValue(this.context.settings.language).setPlaceholder("Language");
+      input.inputEl.maxLength = 80;
+      input.inputEl.setAttribute("aria-label", "Language");
+      input.inputEl.setAttribute("aria-describedby", this.id + "-language-error");
+      input.inputEl.setAttribute("list", suggestions.id);
+      input.onChange(value => {
+        const language = value.trim();
+        if (!language || language.length > 80 || hasControlCharacter(value)) {
+          input.inputEl.setAttribute("aria-invalid", "true");
+          languageStatus.textContent = "Enter a language using 80 characters or fewer.";
+          return;
+        }
+        input.inputEl.removeAttribute("aria-invalid");
+        languageStatus.textContent = "";
+        this.context.settings.language = language;
+        this.scheduleSave();
+      });
     });
+    languageStatus = languageSetting.settingEl.createEl("p", { cls: "qm-settings-field-error", attr: { id: this.id + "-language-error", role: "alert" } });
     new Setting(panel).setName("Study pack").addDropdown(select => {
       labelDropdown(select, "Study pack");
       if (!presets.some(preset => preset.id === this.context.settings.defaultPreset)) select.addOption(this.context.settings.defaultPreset, this.context.settings.defaultPreset);

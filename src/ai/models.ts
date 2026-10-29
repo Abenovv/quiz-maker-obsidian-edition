@@ -13,8 +13,8 @@ const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:/@+-]{0,199}$/;
 type RecordValue = Record<string, unknown>;
 interface DiscoveredModel extends ModelInfo { releasedAt?: number }
 interface CacheEntry {
-  signature: string;
-  revision: number;
+  base: string;
+  accountKey: string;
   expiresAt: number;
   models?: ModelInfo[];
   pending?: Promise<ModelInfo[]>;
@@ -60,7 +60,9 @@ function releasedAt(model: RecordValue): number | undefined {
 function modelInfo(provider: Provider, model: RecordValue, now = Date.now()): DiscoveredModel | undefined {
   let id = string(model.id) ?? string(model.model) ?? string(model.name);
   if (provider === "google") id = id?.replace(/^models\//, "");
-  if (!id || !ID_PATTERN.test(id) || NON_TEXT_MODEL.test(id) || IMAGE_OUTPUT_MODEL.test(id)) return undefined;
+  if (!id || !ID_PATTERN.test(id)) return undefined;
+  // Local models can have arbitrary names. Their completion capability is checked below.
+  if (provider !== "ollama" && (NON_TEXT_MODEL.test(id) || IMAGE_OUTPUT_MODEL.test(id))) return undefined;
   if (/^(?:AIza[0-9A-Za-z_-]{20,}|sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})$/.test(id)) return undefined;
   if (model.archived === true || model.is_deprecated === true || model.lifecycle === "retired" || model.lifecycle === "deprecated") return undefined;
   const shutdown = typeof model.shutdown_date === "string" ? Date.parse(model.shutdown_date) : NaN;
@@ -120,7 +122,33 @@ export function recommendedModel(_provider: Provider, models: readonly ModelInfo
   return current.trim() || models[0]?.id || "";
 }
 
-/** Model lists remain in memory; neither credentials nor fingerprints are written to disk. */
+/** UI copy is selected by code, never from a provider body or arbitrary exception. */
+export function modelDiscoveryMessage(error: unknown): string {
+  if (!(error instanceof TransportError)) return "Could not load models. Try again or enter a model ID manually.";
+  switch (error.code) {
+    case "auth": return "The provider rejected access. Check your API key and account permissions.";
+    case "quota": {
+      const seconds = error.retryAfterSeconds;
+      if (typeof seconds === "number" && Number.isFinite(seconds) && seconds > 0) {
+        const delay = Math.min(86_400, Math.ceil(seconds));
+        return `The provider's request limit was reached. Wait at least ${delay} ${delay === 1 ? "second" : "seconds"} before trying again.`;
+      }
+      return "The provider's request or spending limit was reached. Wait before trying again, or check your account limits.";
+    }
+    case "timeout": return "Model discovery took too long. Try again or enter a model ID manually.";
+    case "offline": return "Could not reach the provider. Check your connection and API base URL.";
+    case "configuration": return "Check your provider key and API base URL, or enter a model ID manually.";
+    case "invalid-response": return "The provider returned an unreadable model list. Try again or enter a model ID manually.";
+    case "payload": return "The provider's model list is too large. Enter a model ID manually.";
+    case "cancelled": return "Model search cancelled.";
+    case "unavailable": return error.status === 404 || error.status === 405
+      ? "This endpoint does not provide model discovery. Enter a model ID manually."
+      : "The provider is unavailable. Try again later or enter a model ID manually.";
+    default: return "Could not load models. Try again or enter a model ID manually.";
+  }
+}
+
+/** Discovery caches remain in memory and are never written to disk. */
 export class ModelService implements ModelServicePort {
   private readonly http: HttpClient;
   private readonly now: () => number;
@@ -128,7 +156,6 @@ export class ModelService implements ModelServicePort {
   private readonly discoveryTimeoutMs: number;
   private readonly cache = new Map<Provider, CacheEntry>();
   private readonly revisions = new Map<Provider, number>();
-  private preparation = Promise.resolve();
 
   constructor(options: ModelServiceOptions = {}) {
     this.http = options.http ?? defaultHttpClient;
@@ -144,30 +171,23 @@ export class ModelService implements ModelServicePort {
     const base = resolveBaseUrl(provider, config.baseUrl);
     const key = config.apiKey.trim();
     if (provider !== "ollama" && !key) throw new TransportError("configuration", "Add your provider key before refreshing models.");
-    // Serialize preparation so a slow credential fingerprint cannot replace a newer account.
-    let signature = "";
-    const preparation = this.preparation.then(async () => {
-      assertActive(options.signal);
-      if (!window.crypto?.subtle) throw new TransportError("unavailable", "Secure model caching is unavailable. Restart Obsidian and try again.");
-      const digest = await window.crypto.subtle.digest("SHA-256", new TextEncoder().encode(base + "\u0000" + key));
-      signature = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
-    });
-    this.preparation = preparation.then(() => undefined, () => undefined);
-    await preparation;
+    const headers = providerHeaders(provider, key);
+    // Give unload/cancellation a chance before contacting a provider. Cache identity is
+    // an exact, memory-only snapshot; discovery does not require Web Crypto support.
+    await Promise.resolve();
     assertActive(options.signal);
     if ((this.revisions.get(provider) ?? 0) !== revision) throw cancelled();
     let entry = this.cache.get(provider);
-    if (entry?.signature !== signature) {
-      entry?.controller.abort();
+    if (entry && (entry.base !== base || entry.accountKey !== key)) {
+      entry.controller.abort();
       entry = undefined;
       this.cache.delete(provider);
     }
     if (entry?.models && !options.refresh && entry.expiresAt > this.now()) return entry.models.map(model => ({ ...model }));
     if (!entry?.pending) {
-      entry = { signature, revision, expiresAt: 0, controller: new AbortController(), consumers: new Set() };
+      entry = { base, accountKey: key, expiresAt: 0, controller: new AbortController(), consumers: new Set() };
       this.cache.set(provider, entry);
       const current = entry;
-      const headers = providerHeaders(provider, key);
       let timedOut = false;
       const owner = window;
       const deadline = owner.setTimeout(() => { timedOut = true; current.controller.abort(); }, this.discoveryTimeoutMs);
@@ -255,8 +275,8 @@ export class ModelService implements ModelServicePort {
       let response: unknown;
       try { response = await this.request({ url: pageUrl(provider, base, cursor), headers, signal }); }
       catch (error) {
-        if (error instanceof TransportError && error.status === 404) {
-          throw new TransportError("unavailable", "This endpoint does not provide model discovery. Enter the model ID manually.", 404);
+        if (error instanceof TransportError && (error.status === 404 || error.status === 405)) {
+          throw new TransportError("unavailable", "This endpoint does not provide model discovery. Enter the model ID manually.", error.status);
         }
         throw error;
       }

@@ -28,6 +28,8 @@ Packs are editable starting points. They do not change your provider, API key, o
 
 Change the question mix, difficulty, hints, or explanations before generating. You can also change the study mode and timer when starting a session.
 
+Set the default question language under **Questions → Language** in settings. Choose a suggestion or enter your own language.
+
 ## Answer and review
 
 Practice lets you reveal feedback as you work. In Exam, hints and reference answers remain hidden until submission, and the timer cannot be paused. Closing an exam does not stop its deadline.
@@ -84,15 +86,22 @@ Library backups can be up to **32 MiB** and contain up to **200 quizzes**. Only 
 
 ## Models and generation errors
 
-Refresh models in settings to fetch the text models available to your provider account. Keep a manual model ID if your server does not expose a compatible model list.
+In the **Models** settings:
+
+1. Choose your provider and enter its API key when required.
+2. Select **Find models** to load the models available to that account or server.
+3. Search the results and choose a model, or enter its exact **Model ID** manually.
+
+Model discovery requests metadata only. It does not send note content or generate questions. A manual model ID remains usable if discovery fails or your server does not offer a compatible model list.
 
 | Situation | What to check |
 | --- | --- |
 | Authentication fails | Confirm the provider, endpoint, and API key. |
-| A model is unavailable | Refresh the list or choose a model enabled for your account. |
+| A model is unavailable | Use **Find models** or enter a model ID enabled for your account. |
+| Model listing is unsupported | A server may return 404 or 405 for discovery. Enter the exact **Model ID** manually. |
 | Usage or rate limit reached | Check the provider's usage page and retry when its limit permits. |
 | Response is incomplete or invalid | Request fewer questions or less source material, then try again. |
-| A local model cannot be reached | Check that Ollama is running and that its configured address is reachable. |
+| A local model cannot be reached | Check that Ollama is running and its address is reachable. Addresses with or without an `/api` suffix are accepted. |
 | Study data cannot be saved | Keep the current quiz open, inspect the storage error, and retry or export before closing. |
 
 Cancel stops the local generation workflow. A provider may already be processing the request, so cancellation does not guarantee that its usage charge is avoided.
@@ -105,4 +114,4 @@ Choose Obsidian, Paper, Midnight, or High contrast in Appearance. Each uses a bl
 
 Sound is optional and off by default. Motion can follow your system setting or stay reduced.
 
-When reporting a problem, include the plugin version, Obsidian version, device, and a small example with private content removed. Do not attach API keys, local settings, or study-history files.
+When reporting a problem, include the plugin version shown at the bottom of settings, Obsidian version, device, and a small example with private content removed. Do not attach API keys, local settings, or study-history files.
