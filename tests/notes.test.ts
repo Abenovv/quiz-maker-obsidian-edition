@@ -1,14 +1,66 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { TFile, TFolder } from "obsidian";
+import { App, TFile, TFolder } from "obsidian";
 import type { PluginContext, QuestionType } from "../src/core/types";
 import { createQuestion, createQuiz, parseQuiz, questionTypes } from "../src/core/schema";
 import { referenceAnswer } from "../src/session/grading";
-import { encodeNoteData, findNoteBlocks, makeQuizReadable, noteFolderPath, parseNote, questionAsCallout, questionAsFlashcard, quizForNote, readNoteQuizzes, renderReadableQuiz, saveQuizNote } from "../src/notes";
+import { encodeNoteData, findNoteBlocks, makeQuizNoteReadable, makeQuizReadable, noteFolderPath, openQuizFromNote, parseNote, questionAsCallout, questionAsFlashcard, quizForNote, readNoteQuizzes, renderReadableQuiz, saveQuizNote } from "../src/notes";
 
 const sample = (type: QuestionType = "multiple-choice") => createQuiz([createQuestion(type)], {
   id: "sample", title: "Reading the sky", sources: ["Science/Orbit.md"],
   createdAt: "2026-10-01T12:00:00.000Z", updatedAt: "2026-10-02T12:00:00.000Z"
+});
+
+test("the shared note opener combines quizzes without rewriting the source note", async () => {
+  const app = new App();
+  const first = sample();
+  const second = { ...sample("prediction"), id: "another-public-quiz", sources: ["Science/Weather.md"] };
+  const content = renderReadableQuiz(first) + "\n\n" + renderReadableQuiz(second);
+  const file = await app.vault.create("Review.md", content);
+  await app.workspace.getLeaf().openFile(file);
+  let opened: Parameters<PluginContext["startQuiz"]> | undefined;
+  const notices: string[] = [];
+  const context = {
+    app,
+    startQuiz: (...args: Parameters<PluginContext["startQuiz"]>) => { opened = args; },
+    showNotice: (message: string) => { notices.push(message); }
+  } as unknown as PluginContext;
+  await openQuizFromNote(context);
+  assert.equal(opened?.[0].title, "Review");
+  assert.equal(opened?.[0].questions.length, 2);
+  assert.deepEqual(opened?.[0].sources, ["Science/Orbit.md", "Science/Weather.md"]);
+  assert.equal(await app.vault.read(file), content);
+  assert.deepEqual(notices, []);
+});
+
+test("the shared readable action converts quiz blocks and preserves invalid blocks", async () => {
+  const app = new App();
+  const invalid = "```quiz-json\n{broken public fixture}\n```";
+  const file = await app.vault.create("Review.md", "```quiz-json\n" + JSON.stringify(sample()) + "\n```\n\n" + invalid);
+  await app.workspace.getLeaf().openFile(file);
+  const notices: string[] = [];
+  const context = { app, showNotice: (message: string) => { notices.push(message); } } as unknown as PluginContext;
+  await makeQuizNoteReadable(context);
+  const content = await app.vault.read(file);
+  assert.match(content, /> \[!question\|qm-quiz\]/);
+  assert.ok(content.includes(invalid));
+  assert.equal(readNoteQuizzes(content).length, 1);
+  assert.deepEqual(notices, ["Converted 1 quiz.", "Invalid blocks were kept unchanged."]);
+});
+
+test("shared note actions explain a missing Markdown note without reading or writing", async () => {
+  const app = new App();
+  let reads = 0;
+  let writes = 0;
+  app.vault.cachedRead = async () => { reads++; throw new Error("Unexpected public fixture read"); };
+  app.vault.process = async () => { writes++; throw new Error("Unexpected public fixture write"); };
+  const notices: string[] = [];
+  const context = { app, showNotice: (message: string) => { notices.push(message); } } as unknown as PluginContext;
+  await openQuizFromNote(context);
+  await makeQuizNoteReadable(context);
+  assert.equal(reads, 0);
+  assert.equal(writes, 0);
+  assert.deepEqual(notices, ["Open a Markdown quiz note first.", "Open a Markdown quiz note first."]);
 });
 
 for (const type of questionTypes) test("readable and lossless note: " + type, () => {

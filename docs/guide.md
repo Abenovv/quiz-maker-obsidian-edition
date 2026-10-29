@@ -2,19 +2,23 @@
 
 ## Create your first quiz
 
-1. Open **Quiz maker: Open studio** from the command palette.
-2. Choose **Generate**, then select notes or folders.
-3. Start with **Student pack** or another pack and check the question counts.
-4. Choose a model in the plugin settings if you have not configured one.
+1. Run **Quiz maker: Open** from the command palette.
+2. Choose **Create quiz → From notes**, then review the source list. An open Markdown note starts selected; add or remove notes as needed.
+3. Choose **Student pack** or another pack. Expand **Question mix** to change formats and counts, or **More options** for language, difficulty, hints, and explanations.
+4. Expand **Model** if you need to choose a provider or model ID.
 5. Generate, review the questions, and start a study session.
 
-To try the interface without a provider account, use the sample quiz, create questions in the editor, or import JSON.
+Opening the generator does not request models. Use **Find models** when you want to load the provider's list.
+
+To work without a provider account, use **Create quiz → Write questions** or **Create quiz → Import JSON**. The public [sample quiz](examples/javascript-essentials.json) is ready to import.
+
+The command palette shows **Quiz maker: Open** by default. To use individual actions and their existing hotkeys, enable **General → More options → Extra commands** in Quiz maker settings.
 
 Selected notes are sent only when you generate or regenerate questions. Choosing a folder includes its selected note contents, so check the source list first.
 
 ## Study packs
 
-Packs are editable starting points. They do not change your provider, API key, or selected notes.
+Expand **Study packs** in the library to choose a starting point. Packs are editable and do not change your provider, API key, or selected notes. **Recent sessions** holds your study history.
 
 | Pack | Questions | Starting mode |
 | --- | ---: | --- |
@@ -28,9 +32,11 @@ Packs are editable starting points. They do not change your provider, API key, o
 
 Change the question mix, difficulty, hints, or explanations before generating. You can also change the study mode and timer when starting a session.
 
-Set the default question language under **Questions → Language** in settings. Choose a suggestion or enter your own language.
+Set the default question language under **Quizzes → Language** in settings. Choose a suggestion or enter your own language. The same tab holds the default study pack, notes folder, and saved-note format.
 
 ## Answer and review
+
+Choose **Study** beside a quiz to start. Use its actions menu for **Edit questions**, reviews, renaming, JSON export, and deletion. In the editor, save the quiz or save and study; JSON export is also available in its **JSON** view.
 
 Practice lets you reveal feedback as you work. In Exam, hints and reference answers remain hidden until submission, and the timer cannot be paused. Closing an exam does not stop its deadline.
 
@@ -38,19 +44,19 @@ Flag a question to revisit it during the attempt. Bookmark a question to keep it
 
 Flashcards use **Again**, **Good**, and **Easy** ratings to schedule later review. Ratings are not marked as objectively correct or incorrect.
 
-Run **Quiz maker: Open mini view** to continue the active session in a compact panel. It shares the same answers and timer as the full study view. Answer a practice question before choosing **Check**; exam answers stay hidden until submission.
+During an active session, open Quiz maker and choose **Tools → Open mini view** to continue in a compact panel. It shares the same answers and timer as the full study view. Answer a practice question before choosing **Check**; exam answers stay hidden until submission.
 
 ## Save a readable note
 
 Save a quiz to keep its questions in your configured vault folder. The default question-callout format gives each question a collapsed answer, while hidden structured data preserves its format, source references, and session defaults. Settings also offer a spaced-repetition note format with `?` separators.
 
-The visible questions remain readable when Quiz maker is disabled. To reopen the active note, run **Quiz maker: Open quiz from note**. Editing visible callout text does not update the hidden quiz data; use the quiz editor when changing a saved quiz.
+The visible questions remain readable when Quiz maker is disabled. With a saved quiz note open, choose **Quiz maker: Open → Tools → Open quiz from current note** to reopen it. Editing visible callout text does not update the hidden quiz data; use the quiz editor when changing a saved quiz.
 
-Older `quiz-json` blocks render as readable questions. **Make quiz readable** converts quiz blocks in the active note while preserving surrounding content. Source editing can still display the original JSON until you convert it.
+Older `quiz-json` blocks render as readable questions. In Quiz maker, **Tools → Make current note readable** converts quiz blocks in the active note while preserving surrounding content. Source editing can still display the original JSON until you convert it.
 
 ## Import and edit JSON
 
-Use Import to paste JSON or choose a file. Imports accept up to **500 questions** and **2 MiB** per document.
+Choose **Create quiz → Import JSON** to paste JSON or select a file. Imports accept up to **500 questions** and **2 MiB** per document.
 
 This minimal question array is accepted and converted to the current document format:
 

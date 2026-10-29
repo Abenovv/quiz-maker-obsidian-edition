@@ -402,6 +402,45 @@ async function renderSavedQuiz(context: PluginContext, quiz: Quiz, target: HTMLE
   await show();
 }
 
+export async function openQuizFromNote(context: PluginContext, file = context.app.workspace.getActiveFile()): Promise<void> {
+  if (!(file instanceof TFile) || file.extension !== "md") {
+    context.showNotice("Open a Markdown quiz note first.");
+    return;
+  }
+  try {
+    if (file.stat.size > MAX_NOTE_BYTES) { context.showNotice("This note exceeds 16 MiB. Open a smaller quiz note."); return; }
+    const result = parseNote(await context.app.vault.cachedRead(file), file.path);
+    if (result.errors.length) context.showNotice(result.errors[0]);
+    if (!result.quizzes.length) { context.showNotice("This note has no readable quiz questions."); return; }
+    const quiz = result.quizzes.length === 1 ? result.quizzes[0] : createQuiz(result.quizzes.flatMap(item => item.questions), {
+      title: file.basename.slice(0, 200),
+      sources: [...new Set(result.quizzes.flatMap(item => item.sources))],
+      provenance: { kind: "import" }
+    });
+    context.startQuiz(quiz, quiz.runConfig);
+  } catch { context.showNotice("The quiz note could not be opened. Check its questions and try again."); }
+}
+
+export async function makeQuizNoteReadable(context: PluginContext, file = context.app.workspace.getActiveFile()): Promise<void> {
+  if (!(file instanceof TFile) || file.extension !== "md") {
+    context.showNotice("Open a Markdown quiz note first.");
+    return;
+  }
+  try {
+    if (file.stat.size > MAX_NOTE_BYTES) { context.showNotice("This note exceeds 16 MiB. Convert a smaller quiz note."); return; }
+    let converted = 0;
+    let errors = 0;
+    await context.app.vault.process(file, markdown => {
+      const result = makeQuizReadable(markdown);
+      converted = result.converted;
+      errors = result.errors;
+      return result.content;
+    });
+    context.showNotice(converted ? "Converted " + converted + (converted === 1 ? " quiz." : " quizzes.") : "No quiz JSON blocks to convert.");
+    if (errors) context.showNotice("Invalid blocks were kept unchanged.");
+  } catch { context.showNotice("This note could not be updated. Its original content was kept."); }
+}
+
 export function registerNoteFeatures(plugin: NotePlugin): void {
   plugin.registerMarkdownCodeBlockProcessor("quiz-json", async (source, target, renderContext) => {
     const child = new MarkdownRenderChild(target);
@@ -420,22 +459,10 @@ export function registerNoteFeatures(plugin: NotePlugin): void {
     id: "open-quiz-from-note",
     name: "Open quiz from note",
     checkCallback: checking => {
+      if (!plugin.settings.extraCommands) return false;
       const file = plugin.app.workspace.getActiveFile();
       if (!(file instanceof TFile) || file.extension !== "md") return false;
-      if (!checking) void (async () => {
-        try {
-          if (file.stat.size > MAX_NOTE_BYTES) { plugin.showNotice("This note exceeds 16 MiB. Open a smaller quiz note."); return; }
-          const result = parseNote(await plugin.app.vault.cachedRead(file), file.path);
-          if (result.errors.length) plugin.showNotice(result.errors[0]);
-          if (!result.quizzes.length) { plugin.showNotice("This note has no readable quiz questions."); return; }
-          const quiz = result.quizzes.length === 1 ? result.quizzes[0] : createQuiz(result.quizzes.flatMap(item => item.questions), {
-            title: file.basename.slice(0, 200),
-            sources: [...new Set(result.quizzes.flatMap(item => item.sources))],
-            provenance: { kind: "import" }
-          });
-          plugin.startQuiz(quiz, quiz.runConfig);
-        } catch { plugin.showNotice("The quiz note could not be opened. Check its questions and try again."); }
-      })();
+      if (!checking) void openQuizFromNote(plugin, file);
       return true;
     }
   });
@@ -443,23 +470,10 @@ export function registerNoteFeatures(plugin: NotePlugin): void {
     id: "make-quiz-readable",
     name: "Make quiz readable",
     checkCallback: checking => {
+      if (!plugin.settings.extraCommands) return false;
       const file = plugin.app.workspace.getActiveFile();
       if (!(file instanceof TFile) || file.extension !== "md") return false;
-      if (!checking) void (async () => {
-        try {
-          if (file.stat.size > MAX_NOTE_BYTES) { plugin.showNotice("This note exceeds 16 MiB. Convert a smaller quiz note."); return; }
-          let converted = 0;
-          let errors = 0;
-          await plugin.app.vault.process(file, markdown => {
-            const result = makeQuizReadable(markdown);
-            converted = result.converted;
-            errors = result.errors;
-            return result.content;
-          });
-          plugin.showNotice(converted ? "Converted " + converted + (converted === 1 ? " quiz." : " quizzes.") : "No quiz JSON blocks to convert.");
-          if (errors) plugin.showNotice("Invalid blocks were kept unchanged.");
-        } catch { plugin.showNotice("This note could not be updated. Its original content was kept."); }
-      })();
+      if (!checking) void makeQuizNoteReadable(plugin, file);
       return true;
     }
   });

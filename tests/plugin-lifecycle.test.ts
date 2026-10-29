@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { App, Modal, type PluginManifest } from "obsidian";
+import { App, Modal, type Command, type PluginManifest } from "obsidian";
 import QuizMakerPlugin from "../src/core/plugin";
 import type { Settings } from "../src/core/types";
 import { installFeedback } from "../src/feedback";
 import { version } from "../manifest.json";
+import { createQuestion, createQuiz } from "../src/core/schema";
+import { renderReadableQuiz } from "../src/notes";
+import { createSession } from "../src/session/engine";
 
 function deferred() {
   let resolve!: () => void;
@@ -106,6 +109,63 @@ function feedbackDocument(): Document {
     querySelectorAll: () => []
   }) as unknown as Document;
 }
+
+test("one default command keeps every former command available through a live opt-in", async () => {
+  const originalDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+  Object.defineProperty(globalThis, "document", { configurable: true, value: feedbackDocument() });
+  const app = new App();
+  const plugin = fixture(app);
+  const quiz = createQuiz([createQuestion("true-false")], { title: "Public quiz fixture" });
+  const note = await app.vault.create("Review.md", renderReadableQuiz(quiz));
+  const json = await app.vault.create("Review.json", JSON.stringify(quiz));
+  let actions = 0;
+  let reads = 0;
+  const cachedRead = app.vault.cachedRead.bind(app.vault);
+  app.vault.cachedRead = async file => { reads++; return cachedRead(file); };
+  plugin.openStudio = () => { actions++; };
+  plugin.openGenerator = () => { actions++; };
+  plugin.openEditor = () => { actions++; };
+  plugin.openMini = () => { actions++; };
+  plugin.startQuiz = () => { actions++; };
+  try {
+    await plugin.onload();
+    await app.workspace.getLeaf().openFile(note);
+    const commands = Reflect.get(plugin, "commands") as Command[];
+    const visible = () => commands.filter(command => !command.checkCallback || command.checkCallback(true));
+    assert.deepEqual(visible().map(command => [command.id, command.name]), [["open-studio", "Open"]]);
+    const formerIds = ["generate-quiz", "new-quiz", "import-quiz", "open-mini-view", "resume-quiz", "open-active-json", "open-quiz-from-note", "make-quiz-readable"];
+    assert.deepEqual(commands.filter(command => command.id !== "open-studio").map(command => command.id).sort(), formerIds.sort());
+    plugin.settings.extraCommands = true;
+    assert.deepEqual(visible().map(command => command.id).sort(), ["open-studio", "generate-quiz", "new-quiz", "import-quiz", "open-mini-view", "open-quiz-from-note", "make-quiz-readable"].sort());
+    plugin.store.getActiveSession = () => createSession(quiz);
+    assert.ok(visible().some(command => command.id === "resume-quiz"));
+    await app.workspace.getLeaf().openFile(json);
+    assert.ok(visible().some(command => command.id === "open-active-json"));
+    assert.ok(!visible().some(command => command.id === "open-quiz-from-note"));
+    assert.equal(actions, 0, "checking command visibility must never invoke its action");
+    assert.equal(reads, 0, "checking command visibility must never read note contents");
+    await app.workspace.getLeaf().openFile(note);
+    assert.equal(commands.find(command => command.id === "open-quiz-from-note")?.checkCallback?.(false), true);
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.equal(actions, 1);
+    assert.equal(reads, 1);
+    plugin.settings.extraCommands = false;
+    assert.deepEqual(visible().map(command => command.id), ["open-studio"]);
+    assert.equal(commands.find(command => command.id === "new-quiz")?.checkCallback?.(false), false);
+    assert.equal(actions, 1, "disabled command actions must remain unavailable to old hotkeys");
+    plugin.openCurrentQuiz();
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.equal(actions, 2, "the hub note action remains available with extra commands hidden");
+    await app.workspace.getLeaf().openFile(json);
+    plugin.openCurrentQuiz();
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.equal(actions, 3, "the hub also opens active JSON quizzes");
+  } finally {
+    plugin.onunload();
+    if (originalDocument) Object.defineProperty(globalThis, "document", originalDocument);
+    else Reflect.deleteProperty(globalThis, "document");
+  }
+});
 
 test("a view refresh failure does not misreport a saved setting or repeat its notice", async () => {
   const plugin = fixture();

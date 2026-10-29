@@ -7,6 +7,7 @@ test("defaults are silent, provider-specific, and independently mutable", () => 
   const first = normalizeSettings(undefined);
   const second = normalizeSettings(null);
   assert.equal(first.soundEnabled, false);
+  assert.equal(first.extraCommands, false);
   assert.equal(first.motion, "system");
   assert.equal(first.theme, "midnight");
   assert.equal(first.defaultPreset, "student-pack");
@@ -27,6 +28,14 @@ test("fresh installs use Midnight while every saved appearance remains a choice"
   assert.equal(normalizeSettings(undefined).theme, "midnight");
   for (const theme of ["obsidian", "paper", "midnight", "contrast"] as const) {
     assert.equal(normalizeSettings({ theme }).theme, theme);
+  }
+});
+
+test("extra commands are opt-in and only an explicit saved boolean enables them", () => {
+  assert.equal(normalizeSettings(undefined).extraCommands, false);
+  assert.equal(normalizeSettings({ extraCommands: true }).extraCommands, true);
+  for (const extraCommands of [false, "true", 1, null, {}]) {
+    assert.equal(normalizeSettings({ extraCommands }).extraCommands, false);
   }
 });
 
@@ -112,14 +121,15 @@ test("hostile object keys cannot become provider records or mutate default proto
 });
 type Control = {
   inputEl: HTMLElement & { value: string; type: string };
+  toggleEl: HTMLElement;
   selectEl: HTMLElement;
   buttonEl: HTMLElement & { disabled: boolean };
-  change?: (value: string) => void;
+  change?: (value: string | boolean) => void;
   click?: () => void;
-  setValue(value: string): Control;
+  setValue(value: string | boolean): Control;
   setDisabled(value: boolean): Control;
   setButtonText(value: string): Control;
-  onChange(callback: (value: string) => void): Control;
+  onChange(callback: (value: string | boolean) => void): Control;
   onClick(callback: () => void): Control;
 };
 
@@ -158,7 +168,7 @@ async function settingsHarness(options: {
   prototype.addText = function (callback) {
     const setting = this as unknown as { nameEl: HTMLElement };
     return original.call(this, control => {
-      control.setValue = value => { control.inputEl.value = value; return control; };
+      control.setValue = value => { control.inputEl.value = String(value); return control; };
       control.setDisabled = value => { control.buttonEl.disabled = value; return control; };
       control.setButtonText = value => { control.buttonEl.textContent = value; return control; };
       control.onChange = change => { control.change = change; return control; };
@@ -189,6 +199,49 @@ async function settingsHarness(options: {
     }
   };
 }
+
+test("three settings tabs keep quiz defaults together and keyboard navigation wraps correctly", async () => {
+  const harness = await settingsHarness();
+  try {
+    const tabs = () => Array.from(harness.tab.containerEl.children[0].children) as HTMLElement[];
+    const selected = () => tabs().find(tab => tab.getAttribute("aria-selected") === "true")?.textContent;
+    assert.deepEqual(tabs().map(tab => tab.textContent), ["General", "Models", "Quizzes"]);
+    press(tabs()[0], "End");
+    assert.equal(selected(), "Quizzes");
+    for (const name of ["Language", "Study pack", "Format", "Notes folder"]) assert.ok(harness.groups.has(name), name + " remains available");
+    press(tabs()[2], "ArrowRight");
+    assert.equal(selected(), "General");
+    press(tabs()[0], "ArrowLeft");
+    assert.equal(selected(), "Quizzes");
+    press(tabs()[2], "Home");
+    assert.equal(selected(), "General");
+    press(tabs()[0], "ArrowRight");
+    assert.equal(selected(), "Models");
+  } finally { harness.close(); }
+});
+
+test("extra commands stay behind More options and update the live setting before saving", async () => {
+  let saves = 0;
+  const harness = await settingsHarness({ save: async () => { saves++; } });
+  const flush = harness.tab as unknown as { flushSettings(): Promise<void> };
+  try {
+    const more = elements(harness.tab.containerEl).find(element => element.tagName === "DETAILS"
+      && Array.from(element.children).some(child => child.textContent === "More options")) as HTMLDetailsElement;
+    assert.ok(more);
+    assert.equal(Boolean(more.open), false);
+    const toggle = harness.groups.get("Extra commands")![0];
+    assert.equal(toggle.toggleEl.getAttribute("aria-label"), "Extra commands");
+    assert.equal(harness.settings.extraCommands, false);
+    toggle.change!(true);
+    assert.equal(harness.settings.extraCommands, true);
+    await flush.flushSettings();
+    assert.equal(saves, 1);
+    toggle.change!(false);
+    assert.equal(harness.settings.extraCommands, false);
+    await flush.flushSettings();
+    assert.equal(saves, 2);
+  } finally { harness.close(); }
+});
 
 test("model search matches names and IDs regardless of case or term order", () => {
   const models = [
@@ -309,7 +362,7 @@ test("settings accept custom languages, expose the actual version, and show save
   try {
     assert.ok(elements(harness.tab.containerEl).some(el => el.className === "qm-settings-version" && el.textContent === "Quiz maker 1.2.0"));
     assert.equal(elements(harness.tab.containerEl).some(el => el.textContent === "Retry saving"), false);
-    harness.section("Questions");
+    harness.section("Quizzes");
     const language = harness.groups.get("Language")![0];
     language.change!("Қазақша");
     assert.equal(harness.settings.language, "Қазақша");
@@ -319,7 +372,7 @@ test("settings accept custom languages, expose the actual version, and show save
     assert.equal(harness.settings.language, "Scottish Gaelic");
     assert.equal(language.inputEl.getAttribute("aria-invalid"), "true");
     await flush.flushSettings();
-    const status = elements(harness.tab.containerEl).find(el => el.className === "qm-settings-status")!;
+    const status = elements(harness.tab.containerEl).find(el => el.className === "qm-settings-status" && el.dataset.state === "error")!;
     assert.match(status.textContent ?? "", /Enable Quiz maker/);
     assert.doesNotMatch(status.textContent ?? "", /fixture-private/);
     assert.equal(elements(harness.tab.containerEl).filter(el => el.textContent === "Retry saving").length, 1);

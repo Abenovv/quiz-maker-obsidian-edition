@@ -15,7 +15,7 @@ const endpoints = DEFAULT_BASE_URLS;
 export const DEFAULT_SETTINGS: Settings = {
   provider: "google",
   providers: Object.fromEntries(providers.map(provider => [provider, { apiKey: "", model: "", baseUrl: endpoints[provider] }])) as Settings["providers"],
-  theme: "midnight", soundEnabled: false, motion: "system", language: "English",
+  theme: "midnight", soundEnabled: false, extraCommands: false, motion: "system", language: "English",
   saveFolder: "Quizzes", defaultPreset: "student-pack", saveFormat: "callouts"
 };
 
@@ -61,6 +61,7 @@ export function normalizeSettings(value: unknown): Settings {
     provider: providers.includes(input.provider as Provider) ? input.provider as Provider : DEFAULT_SETTINGS.provider,
     theme: ["obsidian", "paper", "midnight", "contrast"].includes(input.theme as string) ? input.theme as Settings["theme"] : DEFAULT_SETTINGS.theme,
     soundEnabled: input.soundEnabled === true,
+    extraCommands: input.extraCommands === true,
     motion: input.motion === "reduced" ? "reduced" : "system",
     language: boundedText(input.language, 80) || DEFAULT_SETTINGS.language,
     defaultPreset: boundedText(input.defaultPreset, 80) || DEFAULT_SETTINGS.defaultPreset,
@@ -78,7 +79,7 @@ const languages = [
   "العربية", "Dansk", "Norsk", "Nederlands", "Italiano", "Polski", "हिन्दी", "Tiếng Việt",
   "Українська", "Svenska", "فارسی", "Ελληνικά", "Bahasa Indonesia", "Қазақша", "Türkçe"
 ];
-const sections = ["General", "Models", "Questions", "Saving"] as const;
+const sections = ["General", "Models", "Quizzes"] as const;
 type Section = typeof sections[number];
 let settingsId = 0;
 
@@ -173,8 +174,10 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
     panel.className = "qm-settings-panel";
     if (this.section === "General") this.renderGeneral(panel);
     else if (this.section === "Models") this.renderModels(panel);
-    else if (this.section === "Questions") this.renderQuestions(panel);
-    else this.renderSaving(panel);
+    else {
+      this.renderQuestions(panel);
+      this.renderSaving(panel);
+    }
     this.saveFeedback = this.containerEl.createDiv({ cls: "qm-settings-save" });
     this.saveStatus = this.saveFeedback.createEl("p");
     this.saveStatus.className = "qm-settings-status";
@@ -297,6 +300,17 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
           if (!played) this.context.showNotice("Sound is unavailable in this window.");
         });
       }));
+    const advanced = panel.createEl("details", { cls: "qm-settings-advanced" });
+    advanced.createEl("summary", { text: "More options" });
+    new Setting(advanced).setName("Extra commands")
+      .setDesc("Show individual actions in the command palette and enable their hotkeys.")
+      .addToggle(toggle => {
+        toggle.toggleEl.setAttribute("aria-label", "Extra commands");
+        toggle.setValue(this.context.settings.extraCommands).onChange(value => {
+          this.context.settings.extraCommands = value;
+          this.scheduleSave();
+        });
+      });
   }
 
   private renderModels(panel: HTMLElement): void {
@@ -564,6 +578,7 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
   }
 
   private renderQuestions(panel: HTMLElement): void {
+    new Setting(panel).setName("Defaults").setHeading();
     const suggestions = panel.createEl("datalist", { attr: { id: this.id + "-languages" } });
     for (const language of languages) suggestions.createEl("option", { attr: { value: language } });
     let languageStatus: HTMLElement;
@@ -596,7 +611,7 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
   }
 
   private renderSaving(panel: HTMLElement): void {
-    new Setting(panel).setName("Saved quizzes").setHeading();
+    new Setting(panel).setName("Saved notes").setHeading();
     new Setting(panel).setName("Format").addDropdown(select => labelDropdown(select, "Format")
       .addOptions({ callouts: "Question callouts", "spaced-repetition": "Spaced repetition" })
       .setValue(this.context.settings.saveFormat).onChange(value => {

@@ -331,8 +331,7 @@ function QuizEditor({ context, initial, control, close }: { context: PluginConte
     <footer className="qm-editor-footer">
       <span className="qm-editor-validation" role="status" aria-live="polite">{status || (pending ? "Checking JSON…" : valid ? `${valid.questions.length} ${valid.questions.length === 1 ? "question" : "questions"}${dirty ? " · Unsaved changes" : ""}` : "Fix the errors before saving.")}</span>
       {busy === "regenerate" && <button type="button" data-qm-cancel-regenerate onClick={() => abort.current?.abort()}>Cancel regeneration</button>}
-      <button type="button" disabled={Boolean(busy)} onClick={() => { if (dirty) setConfirmClose(true); else close(); }}>Close</button>
-      <button type="button" disabled={!valid || Boolean(busy)} onClick={() => { if (valid) { try { exportQuiz(valid, context); } catch (issue) { setError(errorMessage(issue)); } } }}>Export JSON</button>
+      {mode === "json" && <button type="button" disabled={!valid || Boolean(busy)} onClick={() => { if (valid) { try { exportQuiz(valid, context); } catch (issue) { setError(errorMessage(issue)); } } }}>Export JSON</button>}
       <button type="button" disabled={!valid || Boolean(busy)} onClick={() => { void save(true); }}>Save and study</button>
       <button type="button" className="mod-cta" disabled={!valid || Boolean(busy)} onClick={() => { void save(); }}>{busy === "save" ? "Saving…" : "Save quiz"}</button>
     </footer>

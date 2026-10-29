@@ -402,7 +402,7 @@
     border-radius: 0;
   }
   .qm-root.qm-modal.qm-modal-compact { width: 100%; }
-  .qm-root.qm-modal .modal-close-button { width: 44px; height: 44px; inset-inline-end: 8px; }
+  .qm-root.qm-modal .modal-close-button { width: 44px; height: 44px; inset-inline-end: 24px; }
   .qm-root h1 { font-size: 24px; }
   .qm-root h2 { font-size: 20px; }
   .qm-root input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),

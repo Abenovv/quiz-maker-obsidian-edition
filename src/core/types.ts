@@ -54,6 +54,7 @@ export interface Settings {
   saveFolder: string;
   saveFormat: "callouts" | "spaced-repetition";
   defaultPreset: string;
+  extraCommands: boolean;
 }
 export type StudyMode = "practice" | "timed-practice" | "exam" | "flashcards" | "review";
 export type TimerMode = "none" | "whole-quiz" | "per-question";
@@ -220,6 +221,9 @@ export interface PluginContext {
   generation: GenerationServicePort;
   saveSettings(): Promise<void>;
   openStudio(): void;
+  openCurrentQuiz?(): void;
+  makeCurrentQuizReadable?(): void;
+  openMini?(): void;
   openGenerator(presetId?: string): void;
   openEditor(quiz?: Quiz): void;
   startQuiz(quiz: Quiz, config?: SessionConfig, resume?: Session): void;

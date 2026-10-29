@@ -25,13 +25,13 @@ Native button appearance is reset within the plugin. Grid buttons explicitly str
 
 ## Layout
 
-The studio uses divided library rows and short study packs. Keep primary creation actions in the header, secondary actions quiet, and the current session easy to resume. Avoid a separate box for every label or status.
+The studio uses divided library rows. One Create quiz control reveals three choices: generate from notes, write questions, or import JSON. Current-note and conversion actions stay in Tools. Study packs and recent sessions open on request. Keep the current session easy to resume and avoid a separate box for every label or status.
 
 Session setup uses a mode selector with one description. Timing stays beside it; shuffle and pause settings sit in a disclosure. During practice, question navigation opens on demand. The question has a readable content column and the footer separates navigation from answering. Reference answers use a small semantic border rather than a nested stack of cards.
 
 The mini view shares the same session and controls at 280px. Its navigation uses two compact labelled buttons and a pause icon. Results, finishing, and error recovery stay in the same panel. Native settings use container queries so fields stack inside a narrow settings pane even when the overall window is wide.
 
-The model setting keeps one editable ID and opens an inline finder on request. Search and refresh share a row; results use a bounded list with one clear selected state. Long IDs wrap within their option. Keep status and errors next to the finder, show only useful metadata, and avoid a second connection test or another model dropdown. At narrow settings widths, the list is shorter and navigation tabs form two balanced rows when needed.
+Settings use three tabs: General, Models, and Quizzes. Keep these in one balanced row, including narrow panes. Less-used command shortcuts sit in More options. The model setting keeps one editable ID and opens an inline finder on request. Search and refresh share a row; results use a bounded list with one clear selected state. Long IDs wrap within their option. Keep status and errors next to the finder, show only useful metadata, and avoid a second connection test or another model dropdown. At narrow settings widths, the list is shorter.
 
 At 600px and below, dialogs use the available width and respect safe areas. At 380px and below, packs form one column and footer groups wrap. Inputs use 16px text on narrow screens to avoid mobile browser zoom. Long text and JSON must not widen their container.
 

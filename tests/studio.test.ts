@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { Quiz, SessionSummary } from "../src/core/types";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { TFile, TFolder } from "obsidian";
+import type { PluginContext, Quiz, SessionSummary } from "../src/core/types";
 import { createWelcomeQuiz } from "../src/presets";
 import { createSession, summarizeSession } from "../src/session/engine";
 import { filterLibrary, libraryEntries, libraryPage, reviewSource, scoreLabel } from "../src/ui/studioData";
+import { Studio } from "../src/ui/StudioModal";
 
 function quiz(id = "sample"): Quiz {
   return { ...createWelcomeQuiz(new Date("2026-01-01T00:00:00Z")), id, title: "Orbital mechanics", description: "Recall and application", sources: ["Astronomy/Week 2.md"] };
@@ -80,4 +84,66 @@ test("library pages stay bounded and recover when deleting the last item on a pa
   assert.equal(libraryPage(items, 0, 1_000).items.length, 91);
   assert.equal(libraryPage(items, -1).page, 0);
   assert.equal(libraryPage([], 99).start, 0);
+});
+
+function studioMarkup(file: unknown, documents: Quiz[] = [], history: SessionSummary[] = [], withTools = true): string {
+  const noop = (): void => undefined;
+  const context = {
+    app: { workspace: { getActiveFile: () => file } },
+    store: {
+      listQuizzes: () => documents,
+      getBookmarks: () => [],
+      getHistory: () => history,
+      getReviews: () => [],
+      getActiveSession: () => undefined,
+      getRecoveryText: () => undefined
+    },
+    ...(withTools ? { openCurrentQuiz: noop, makeCurrentQuizReadable: noop, openMini: noop } : {})
+  } as unknown as PluginContext;
+  return renderToStaticMarkup(createElement(Studio, { context, close: noop }));
+}
+
+test("studio groups creation into one closed disclosure without losing its three paths", () => {
+  const html = studioMarkup(null);
+  const header = html.slice(html.indexOf("<header"), html.indexOf("</header>"));
+  assert.equal(header.match(/Create quiz/g)?.length, 1);
+  assert.match(header, /From notes/);
+  assert.match(header, /Write questions/);
+  assert.match(header, /Import JSON/);
+  assert.doesNotMatch(header, />Generate<|>New quiz<|>Import</);
+  const disclosure = header.match(/<details[^>]*class="qm-studio-create"[^>]*>/)?.[0];
+  assert.ok(disclosure);
+  assert.doesNotMatch(disclosure, /\sopen(?:=|\s|>)/);
+  assert.doesNotMatch(header, /role="menu"|aria-haspopup="menu"/);
+});
+
+test("current-note tools require a native supported file and keep JSON conversion hidden", () => {
+  const markdown = studioMarkup(new TFile("Lessons/Recall.md"));
+  assert.match(markdown, /Open quiz from current note/);
+  assert.match(markdown, /Make current note readable/);
+  assert.match(markdown, /Open mini view/);
+  const json = studioMarkup(new TFile("Public quiz.json"));
+  assert.match(json, /Open quiz from current note/);
+  assert.doesNotMatch(json, /Make current note readable/);
+  for (const file of [null, new TFile("Image.png"), new TFolder("Lessons"), { extension: "md" }]) {
+    const html = studioMarkup(file);
+    assert.doesNotMatch(html, /Open quiz from current note|Make current note readable/);
+    assert.match(html, /Open mini view/);
+  }
+  assert.doesNotMatch(studioMarkup(new TFile("Recall.md"), [], [], false), /qm-studio-tools/);
+});
+
+test("all seven study packs and existing history remain reachable behind quiet disclosures", () => {
+  const document = quiz();
+  const history = [result(document, 2_000)];
+  const html = studioMarkup(null, [document], history);
+  for (const name of ["Student pack", "Quick recall", "Exam prep", "Deep understanding", "Language practice", "Coding practice", "Interview prep"]) assert.match(html, new RegExp(name));
+  const packs = html.match(/<details[^>]*class="qm-studio-disclosure qm-presets"[^>]*>/)?.[0];
+  const recent = html.match(/<details[^>]*class="qm-studio-disclosure qm-history"[^>]*>/)?.[0];
+  assert.ok(packs);
+  assert.ok(recent);
+  assert.doesNotMatch(packs, /\sopen(?:=|\s|>)/);
+  assert.doesNotMatch(recent, /\sopen(?:=|\s|>)/);
+  assert.match(html, /Recent sessions/);
+  assert.match(studioMarkup(null, [], history), /class="qm-studio-disclosure qm-history" open=""/);
 });

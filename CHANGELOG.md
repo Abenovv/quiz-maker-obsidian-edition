@@ -1,5 +1,18 @@
 # Release notes
 
+## 1.2.1
+
+Open Quiz maker through one command, then choose the action you need.
+
+- Show **Quiz maker: Open** as the single default palette command. Enable **Extra commands** in General settings to use individual actions and their existing hotkeys.
+- Group creation under **Create quiz** and note actions under **Tools**. Keep study packs and recent sessions collapsed until needed.
+- Combine defaults and saved-note options under **Quizzes**, alongside **General** and **Models** settings.
+- Preselect the active Markdown note when creating from notes. Model discovery still starts only when requested.
+- Keep the question mix, additional options, and configured model behind disclosures while retaining all seventeen question formats.
+- Keep library rows focused on **Study**, with editing in the actions menu. Simplify editor actions and keep export in JSON view or the library menu.
+
+Existing provider settings, quizzes, and study history stay in their local files. The release contains only the installable plugin files and verification material.
+
 ## 1.2.0
 
 Fix model discovery failures and simplify provider setup.

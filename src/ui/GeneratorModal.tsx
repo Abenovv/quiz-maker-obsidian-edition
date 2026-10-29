@@ -28,12 +28,15 @@ function localEndpoint(provider: Provider, baseUrl: string): boolean {
   catch { return false; }
 }
 
-function Generator({ context, close, presetId }: { context: PluginContext; close(this: void): void; presetId?: string }): ReactNode {
+export function Generator({ context, close, presetId }: { context: PluginContext; close(this: void): void; presetId?: string }): ReactNode {
   const initial = useRef(findPreset(presetId ?? context.settings.defaultPreset) ?? findPreset(DEFAULT_PRESET_ID)!).current;
   const [packId, setPackId] = useState(initial.id);
   const [methods, setMethods] = useState<RequestedMethod[]>(initial.methods.map(method => ({ ...method })));
   const [config, setConfig] = useState<SessionConfig>({ ...initial.config });
-  const [files, setFiles] = useState<TFile[]>([]);
+  const [files, setFiles] = useState<TFile[]>(() => {
+    const active = context.app.workspace.getActiveFile();
+    return active instanceof TFile && active.extension === "md" ? [active] : [];
+  });
   const [title, setTitle] = useState("");
   const [topic, setTopic] = useState("");
   const [difficulty, setDifficulty] = useState<Difficulty>(initial.difficulty);
@@ -41,8 +44,10 @@ function Generator({ context, close, presetId }: { context: PluginContext; close
   const [includeHints, setIncludeHints] = useState(initial.includeHints);
   const [includeExplanations, setIncludeExplanations] = useState(initial.includeExplanations);
   const [includeSources, setIncludeSources] = useState(true);
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const [provider, setProvider] = useState<Provider>(context.settings.provider);
   const [model, setModel] = useState(context.settings.providers[context.settings.provider].model);
+  const [modelOpen, setModelOpen] = useState(!context.settings.providers[context.settings.provider].model.trim());
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [modelsBusy, setModelsBusy] = useState(false);
   const [modelsError, setModelsError] = useState("");
@@ -93,10 +98,8 @@ function Generator({ context, close, presetId }: { context: PluginContext; close
     setModels([]);
     setModelsBusy(false);
     discovery.current = null;
-    const account = context.settings.providers[provider];
-    if (account.apiKey || provider === "ollama" || localEndpoint(provider, account.baseUrl)) void refreshModels();
     return () => { discovery.current?.abort(); };
-  }, [provider, context, refreshModels]);
+  }, [provider]);
 
   const addFiles = (added: TFile[]): void => {
     if (!alive.current) return;
@@ -179,9 +182,9 @@ function Generator({ context, close, presetId }: { context: PluginContext; close
     if (!files.length) { setError("Choose at least one note."); return; }
     const account = context.settings.providers[provider];
     const connection: GenerationConnection = { provider, config: { ...account, model: model.trim() } };
-    if (!account.apiKey && !localEndpoint(provider, account.baseUrl)) { setError(`Add your ${providerNames[provider]} API key in Settings → Quiz maker.`); return; }
-    if (!model.trim()) { setError("Enter or select a model ID."); return; }
-    if (!language.trim()) { setError("Enter the language for your questions."); return; }
+    if (!account.apiKey && !localEndpoint(provider, account.baseUrl)) { setModelOpen(true); setError(`Add your ${providerNames[provider]} API key in Settings → Quiz maker.`); return; }
+    if (!model.trim()) { setModelOpen(true); setError("Enter or select a model ID."); return; }
+    if (!language.trim()) { setOptionsOpen(true); setError("Enter the language for your questions."); return; }
     const controller = new AbortController();
     const id = ++requestSequence.current;
     activeRequest.current = { id, controller };
@@ -236,7 +239,6 @@ function Generator({ context, close, presetId }: { context: PluginContext; close
           <span className="qm-source-path" title={file.path}>{file.path}</span>
           <button type="button" className="qm-icon-button qm-quiet" aria-label={`Remove ${file.path}`} disabled={busy} onClick={() => setFiles(current => current.filter(item => item.path !== file.path))}><Icon name="close"/></button>
         </li>)}</ul>}
-        <label className="qm-field">Quiz title<input value={title} onChange={event => setTitle(event.currentTarget.value)} placeholder={files[0]?.basename || "Optional"} maxLength={200} disabled={busy}/></label>
       </section>
 
       <section className="qm-panel qm-generator-configuration" aria-label="Question settings">
@@ -244,7 +246,8 @@ function Generator({ context, close, presetId }: { context: PluginContext; close
           <option value="custom">Custom</option>{presets.map(pack => <option key={pack.id} value={pack.id}>{pack.name}</option>)}
         </select></label>
         {selectedPack && <p className="qm-muted qm-pack-description">{selectedPack.description}</p>}
-        <header className="qm-section-heading"><h3>Questions</h3><span className="qm-muted">{total} total</span></header>
+        <details className="qm-generator-details qm-question-mix">
+        <summary>Question mix <span className="qm-muted">{total} questions</span></summary>
         <ul className="qm-method-list">{methods.map(method => <li className="qm-method-row" key={method.type}>
           <label htmlFor={`${methodIdPrefix}-${method.type}`}>{questionTypeLabels[method.type]}</label>
           <input id={`${methodIdPrefix}-${method.type}`} type="number" inputMode="numeric" min={1} max={20} step={1} value={method.count || ""} aria-label={`${questionTypeLabels[method.type]} count`} disabled={busy} onChange={event => {
@@ -258,11 +261,13 @@ function Generator({ context, close, presetId }: { context: PluginContext; close
           if (type) { setMethods(current => [...current, { type, count: 1 }]); setPackId("custom"); }
         }}><option value="">Add a format…</option>{questionTypes.filter(type => !methods.some(method => method.type === type)).map(type => <option key={type} value={type}>{questionTypeLabels[type]}</option>)}</select></label>}
         {!validCounts && <InlineError>Choose 1–{MAX_GENERATED_QUESTIONS} questions, with 1–20 per format.</InlineError>}
+        </details>
+        <details className="qm-generator-options qm-generator-details" open={optionsOpen} onToggle={event => setOptionsOpen(event.currentTarget.open)}><summary>More options</summary>
+        <label className="qm-field">Quiz title<input value={title} onChange={event => setTitle(event.currentTarget.value)} placeholder={files[0]?.basename || "Optional"} maxLength={200} disabled={busy}/></label>
         <div className="qm-form-row">
           <label className="qm-field">Difficulty<select value={difficulty} disabled={busy} onChange={event => { setDifficulty(event.currentTarget.value as Difficulty); setPackId("custom"); }}><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></select></label>
           <label className="qm-field">Language<input value={language} maxLength={80} disabled={busy} onChange={event => setLanguage(event.currentTarget.value)}/></label>
         </div>
-        <details className="qm-generator-options"><summary>More options</summary>
           <label className="qm-field">Topic<input value={topic} maxLength={300} disabled={busy} placeholder="Optional focus" onChange={event => setTopic(event.currentTarget.value)}/></label>
           <label className="qm-check"><input type="checkbox" checked={includeHints} disabled={busy} onChange={event => setIncludeHints(event.currentTarget.checked)}/>Hints</label>
           <label className="qm-check"><input type="checkbox" checked={includeExplanations} disabled={busy} onChange={event => setIncludeExplanations(event.currentTarget.checked)}/>Explanations</label>
@@ -271,12 +276,15 @@ function Generator({ context, close, presetId }: { context: PluginContext; close
       </section>
     </div>
 
+    <details className="qm-generator-details qm-model-details" open={modelOpen} onToggle={event => setModelOpen(event.currentTarget.open)}>
+    <summary>Model <span className="qm-muted">{providerNames[provider]}{model ? " · " + model : " · Choose a model"}</span></summary>
     <section className="qm-generator-model" aria-label="Generation model">
       <label className="qm-field">Provider<select value={provider} disabled={busy} onChange={event => { const next = event.currentTarget.value as Provider; setProvider(next); setModel(context.settings.providers[next].model); setModelsError(""); }}>{providers.map(item => <option value={item} key={item}>{providerNames[item]}</option>)}</select></label>
-      <label className="qm-field qm-model-field">Model<input list={modelListId} value={model} maxLength={200} disabled={busy} autoComplete="off" spellCheck={false} placeholder="Select or enter a model ID" onChange={event => setModel(event.currentTarget.value)}/><datalist id={modelListId}>{models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</datalist></label>
+      <label className="qm-field qm-model-field">Model<input list={modelListId} value={model} maxLength={200} disabled={busy} autoComplete="off" spellCheck={false} placeholder="Select or enter a model ID" onChange={event => { setModel(event.currentTarget.value); setModelsError(""); }}/><datalist id={modelListId}>{models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</datalist></label>
       <button type="button" disabled={busy || modelsBusy} onClick={() => { void refreshModels(true); }}><Icon name="search"/>{modelsBusy ? "Finding…" : "Find models"}</button>
     </section>
     <InlineError>{modelsError}</InlineError>
+    </details>
     <footer className="qm-generator-footer">
       <p className="qm-muted qm-network-note">Selected notes go to your configured {providerNames[provider]} {provider === "ollama" ? "server" : "endpoint"}.</p>
       <div className="qm-status" role="status" aria-live="polite">{status}</div>

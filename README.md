@@ -5,7 +5,7 @@
 <p align="center">Quizzes and flashcards from your Obsidian notes.</p>
 
 <p align="center">
-  <a href="https://github.com/Abenovv/quiz-maker-obsidian-edition/releases/latest"><img src="assets/badges/release.svg" height="26" alt="Release 1.2.0"></a>
+  <a href="https://github.com/Abenovv/quiz-maker-obsidian-edition/releases/latest"><img src="assets/badges/release.svg" height="26" alt="Release 1.2.1"></a>
   <a href="#install"><img src="assets/badges/platform.svg" height="26" alt="Obsidian 1.8.7 or newer"></a>
   <a href="LICENSE"><img src="assets/badges/license.svg" height="26" alt="MIT license"></a>
 </p>
@@ -27,12 +27,16 @@ Start with a study pack, import JSON, or write your own questions. Check answers
 
 AI is optional. Hosted providers may charge for usage and receive the notes you select. [Provider and privacy details](#models-cost-and-privacy).
 
-## Inside Obsidian
+## Inside Quiz maker
 
-![Quiz maker practice and answer review in Obsidian](docs/images/obsidian-practice.png)
+![Quiz maker 1.2.1 interface preview with public sample data](docs/images/interface-preview.png)
+
+Current interface preview with public sample data. Earlier native captures are available below.
 
 <details>
-<summary>Library, mini view, settings, and quiz notes</summary>
+<summary>Native Obsidian captures from 1.1.0</summary>
+
+![Quiz maker practice and answer review in Obsidian](docs/images/obsidian-practice.png)
 
 ![Quiz maker library and study packs in Obsidian](docs/images/obsidian-studio.png)
 
@@ -44,7 +48,7 @@ AI is optional. Hosted providers may charge for usage and receive the notes you 
 
 </details>
 
-These native Obsidian captures use the public [JavaScript sample quiz](docs/examples/javascript-essentials.json). Try it with **Quiz maker: Import quiz**; no API key is needed.
+These native Obsidian captures use the public [JavaScript sample quiz](docs/examples/javascript-essentials.json). Open **Quiz maker: Open**, then choose **Create quiz → Import JSON** to try it without an API key.
 
 ## Choose a study pack
 
@@ -80,9 +84,11 @@ Requires **Obsidian 1.8.7 or newer**. Available from GitHub; community-directory
 1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/Abenovv/quiz-maker-obsidian-edition/releases/latest).
 2. Put those three files in `.obsidian/plugins/quiz-maker/` inside your vault.
 3. Reload Obsidian and enable **Quiz maker** in **Settings → Community plugins**.
-4. Run **Quiz maker: Open studio** from the command palette.
+4. Run **Quiz maker: Open** from the command palette. Choose **Create quiz** to generate from notes, write questions, or import JSON.
 
 Use the three release files, not the automatic source archives. [Checksums and build provenance](docs/submission.md#license-and-release-evidence) accompany the release. Quiz maker has its own plugin ID and settings; it does not replace Quiz Generator or import credentials automatically.
+
+Individual palette actions and their hotkeys are available through **General → More options → Extra commands** in Quiz maker settings. They are off by default.
 
 ## Models, cost, and privacy
 

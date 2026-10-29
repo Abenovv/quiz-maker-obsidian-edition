@@ -4,7 +4,7 @@ import { version } from "../../manifest.json";
 import { GenerationService } from "../ai/generation";
 import { ModelService } from "../ai/models";
 import { installFeedback, refreshFeedback } from "../feedback";
-import { registerNoteFeatures } from "../notes";
+import { makeQuizNoteReadable, openQuizFromNote, registerNoteFeatures } from "../notes";
 import { normalizeSettings, QuizMakerSettingsTab } from "../settings";
 import { QuizStore } from "../storage/store";
 import { openEditor, openImport } from "../ui/EditorModal";
@@ -58,18 +58,44 @@ export default class QuizMakerPlugin extends Plugin implements PluginContext {
 
     const paths = icon.match(/<svg\b[^>]*>([\s\S]*?)<\/svg>/i)?.[1].replace(/<title>[\s\S]*?<\/title>/gi, "") ?? "";
     addIcon("quiz-maker", paths);
-    this.addRibbonIcon("quiz-maker", "Open studio", () => this.openStudio());
-    this.addCommand({ id: "open-studio", name: "Open studio", callback: () => this.openStudio() });
-    this.addCommand({ id: "generate-quiz", name: "Generate quiz", callback: () => this.openGenerator() });
-    this.addCommand({ id: "new-quiz", name: "New quiz", callback: () => this.openEditor() });
-    this.addCommand({ id: "import-quiz", name: "Import quiz", callback: () => openImport(this) });
+    this.addRibbonIcon("quiz-maker", "Open " + this.manifest.name, () => this.openStudio());
+    this.addCommand({ id: "open-studio", name: "Open", callback: () => this.openStudio() });
+    this.addCommand({
+      id: "generate-quiz", name: "Generate quiz",
+      checkCallback: checking => {
+        if (!this.settings.extraCommands) return false;
+        if (!checking) this.openGenerator();
+        return true;
+      }
+    });
+    this.addCommand({
+      id: "new-quiz", name: "New quiz",
+      checkCallback: checking => {
+        if (!this.settings.extraCommands) return false;
+        if (!checking) this.openEditor();
+        return true;
+      }
+    });
+    this.addCommand({
+      id: "import-quiz", name: "Import quiz",
+      checkCallback: checking => {
+        if (!this.settings.extraCommands) return false;
+        if (!checking) openImport(this);
+        return true;
+      }
+    });
     this.addCommand({
       id: "open-mini-view", name: "Open mini view",
-      callback: () => { void openMiniView(this).catch(() => this.showNotice("The mini view could not be opened. Try again.")); }
+      checkCallback: checking => {
+        if (!this.settings.extraCommands) return false;
+        if (!checking) this.openMini();
+        return true;
+      }
     });
     this.addCommand({
       id: "resume-quiz", name: "Resume quiz",
       checkCallback: checking => {
+        if (!this.settings.extraCommands) return false;
         const session = this.store.getActiveSession();
         if (!session) return false;
         if (!checking) this.startQuiz(session.quiz, session.config, session);
@@ -79,6 +105,7 @@ export default class QuizMakerPlugin extends Plugin implements PluginContext {
     this.addCommand({
       id: "open-active-json", name: "Open quiz from active JSON file",
       checkCallback: checking => {
+        if (!this.settings.extraCommands) return false;
         const file = this.app.workspace.getActiveFile();
         if (!(file instanceof TFile) || file.extension !== "json") return false;
         if (!checking) void this.openJsonFile(file);
@@ -136,6 +163,18 @@ export default class QuizMakerPlugin extends Plugin implements PluginContext {
   openStudio(): void { if (this.ready) openStudio(this); }
   openGenerator(presetId?: string): void { if (this.ready) openGenerator(this, presetId); }
   openEditor(quiz?: Quiz): void { if (this.ready) openEditor(this, quiz); }
+  openMini(): void {
+    if (this.ready) void openMiniView(this).catch(() => this.showNotice("The mini view could not be opened. Try again."));
+  }
+  openCurrentQuiz(): void {
+    if (!this.ready) return;
+    const file = this.app.workspace.getActiveFile();
+    if (file instanceof TFile && file.extension === "json") void this.openJsonFile(file);
+    else void openQuizFromNote(this, file);
+  }
+  makeCurrentQuizReadable(): void {
+    if (this.ready) void makeQuizNoteReadable(this);
+  }
 
   startQuiz(quiz: Quiz, config?: SessionConfig, resume?: Session): void {
     if (!this.ready) return;
