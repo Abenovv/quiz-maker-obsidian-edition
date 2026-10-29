@@ -5,7 +5,7 @@
 <p align="center">Quizzes and flashcards from your Obsidian notes.</p>
 
 <p align="center">
-  <a href="https://github.com/Abenovv/quiz-maker-obsidian-edition/releases/latest"><img src="assets/badges/release.svg" height="26" alt="Release 1.0.0"></a>
+  <a href="https://github.com/Abenovv/quiz-maker-obsidian-edition/releases/latest"><img src="assets/badges/release.svg" height="26" alt="Release 1.1.0"></a>
   <a href="#install"><img src="assets/badges/platform.svg" height="26" alt="Obsidian 1.8.7 or newer"></a>
   <a href="LICENSE"><img src="assets/badges/license.svg" height="26" alt="MIT license"></a>
 </p>
@@ -19,7 +19,9 @@
 
 ![Blue quiz cards and an open book; original brand illustration](assets/hero.png)
 
-Choose notes, pick a study pack, and adjust the questions. Practice with feedback, set a timer, or keep answers hidden until the end. You can also write questions or import JSON without an AI account.
+Start with a study pack, import JSON, or write your own questions. Check answers as you go, use a timer, or take an exam with answers hidden until submission.
+
+**Create → Edit → Study → Review**
 
 **17 question formats · 7 study packs · 5 study modes**
 
@@ -30,17 +32,19 @@ AI is optional. Hosted providers may charge for usage and receive the notes you 
 ![Quiz maker practice and answer review in Obsidian](docs/images/obsidian-practice.png)
 
 <details>
-<summary>Library, study packs, and readable quiz notes</summary>
+<summary>Library, mini view, settings, and quiz notes</summary>
 
 ![Quiz maker library and study packs in Obsidian](docs/images/obsidian-studio.png)
+
+![Quiz maker mini view in Obsidian](docs/images/obsidian-mini.png)
+
+![Quiz maker settings in Obsidian](docs/images/obsidian-settings.png)
 
 ![A saved quiz with collapsible answers in Obsidian](docs/images/obsidian-note.png)
 
 </details>
 
-Screenshots show the installed plugin in Obsidian with public demo questions.
-
-Try the same [JavaScript sample quiz](docs/examples/javascript-essentials.json) with **Quiz maker: Import quiz**. No API key is needed.
+These native Obsidian captures use the public [JavaScript sample quiz](docs/examples/javascript-essentials.json). Try it with **Quiz maker: Import quiz**; no API key is needed.
 
 ## Choose a study pack
 
@@ -102,7 +106,7 @@ The plugin has no telemetry, advertising, or self-updater. It reads vault notes 
 <details>
 <summary>Appearance, accessibility, and sounds</summary>
 
-Choose **Obsidian**, **Paper**, **Midnight**, or **High contrast**. Controls support keyboard use and narrow screens. Motion follows your system preference or can be reduced. Optional answer-reveal tones are generated locally and are off by default.
+Choose **Obsidian**, **Paper**, **Midnight**, or **High contrast**, each with a blue accent. Obsidian keeps your vault's surfaces and fonts; the other appearances provide their own colors. Controls support keyboard use and narrow screens. Motion follows your system preference or can be reduced. Optional answer-reveal tones are generated locally and are off by default.
 
 </details>
 
@@ -132,6 +136,6 @@ Source and tests are public. Only three files are needed for installation. Local
 
 ## Credits and license
 
-Created and maintained by **Yerkebulan Abenov**. Edward Cui's [Quiz Generator](https://github.com/ECuiDev/obsidian-quiz-generator) inspired the notes-to-quiz workflow. Quiz maker is an independent implementation, not an endorsed release from that project's author.
+Created and maintained by **Yerkebulan Abenov**. This independent implementation was inspired by Edward Cui's [Quiz Generator](https://github.com/ECuiDev/obsidian-quiz-generator).
 
-[MIT license](LICENSE) · [Dependency notices](NOTICE.md) · [Vector logo](assets/logo.svg) · [App icon](assets/app-icon.png)
+[MIT license](LICENSE) · [Dependency notices](NOTICE.md)

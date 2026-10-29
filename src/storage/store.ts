@@ -182,6 +182,25 @@ function sessionIdentity(session: Session): string {
   return JSON.stringify({ ...state, quizId: quiz.id, quizUpdatedAt: quiz.updatedAt });
 }
 
+function questionIdentity(question: Quiz["questions"][number]): string {
+  const { hint: _hint, source: _source, explanation: _explanation, difficulty: _difficulty, ...content } = question;
+  return question.id || JSON.stringify(content);
+}
+
+/** Build the mapping once, so edits and old sessions follow questions rather than row numbers. */
+function questionPositions(previous: Quiz, next: Quiz): number[] {
+  const keys = previous.questions.map(questionIdentity);
+  const nextKeys = next.questions.map(questionIdentity);
+  if (keys.length === nextKeys.length && keys.every((key, index) => key === nextKeys[index])) return keys.map((_key, index) => index);
+  const positions = new Map<string, number>();
+  nextKeys.forEach((key, index) => {
+    positions.set(key, positions.has(key) ? -1 : index);
+  });
+  const counts = new Map<string, number>();
+  for (const key of keys) counts.set(key, (counts.get(key) ?? 0) + 1);
+  return keys.map(key => counts.get(key) === 1 ? positions.get(key) ?? -1 : -1);
+}
+
 export class QuizStore implements QuizStorePort {
   private data: StudyData = freshData();
   private loaded = false;
@@ -279,15 +298,8 @@ export class QuizStore implements QuizStorePort {
     if (index < 0) this.data.quizzes.push(quiz);
     else {
       const previous = this.data.quizzes[index];
-      const identity = (question: Quiz["questions"][number]): string => {
-        const { hint: _hint, source: _source, explanation: _explanation, difficulty: _difficulty, ...content } = question;
-        return question.id || JSON.stringify(content);
-      };
-      const nextKeys = quiz.questions.map(identity);
-      const remap = (oldIndex: number): number => {
-        const key = previous.questions[oldIndex] && identity(previous.questions[oldIndex]);
-        return key && nextKeys.filter(item => item === key).length === 1 ? nextKeys.indexOf(key) : -1;
-      };
+      const positions = questionPositions(previous, quiz);
+      const remap = (oldIndex: number): number => positions[oldIndex] ?? -1;
       this.data.bookmarks[quiz.id] = [...new Set((this.data.bookmarks[quiz.id] || []).map(remap).filter(item => item >= 0))];
       this.data.reviews = this.data.reviews.flatMap(item => {
         if (item.quizId !== quiz.id) return [item];
@@ -367,16 +379,21 @@ export class QuizStore implements QuizStorePort {
     const summary = validateSummary({ ...supplied, session });
     if (summary.id !== session.id || summary.quizId !== session.quiz.id) fail("The result does not belong to this session.");
     if (this.data.history.some(item => item.id === session.id)) { await this.flush(); return; }
-    const exists = this.data.quizzes.some(quiz => quiz.id === session.quiz.id);
-    if (!exists && this.data.quizzes.length >= MAX_LIBRARY_QUIZZES) fail("The library is full. Export or remove an older quiz before saving this result.");
-    const ratings = Object.entries(session.ratings || {});
-    const newCards = ratings.filter(([index]) => !this.data.reviews.some(item => item.quizId === session.quiz.id && item.questionIndex === Number(index))).length;
+    const savedQuiz = this.data.quizzes.find(quiz => quiz.id === session.quiz.id);
+    if (!savedQuiz && this.data.quizzes.length >= MAX_LIBRARY_QUIZZES) fail("The library is full. Export or remove an older quiz before saving this result.");
+    const positions = savedQuiz ? questionPositions(session.quiz, savedQuiz) : session.quiz.questions.map((_question, index) => index);
+    const bookmarks = session.bookmarks.map(index => positions[index]).filter(index => index >= 0);
+    const ratings = Object.entries(session.ratings || {}).flatMap(([index, rating]) => {
+      const target = positions[Number(index)];
+      return target >= 0 ? [{ index: target, rating }] : [];
+    });
+    const newCards = ratings.filter(({ index }) => !this.data.reviews.some(item => item.quizId === session.quiz.id && item.questionIndex === index)).length;
     if (this.data.reviews.length + newCards > MAX_REVIEW_CARDS) fail("Flashcard review history is full. Remove an older quiz before adding more cards.");
     this.data.history = [summary, ...this.data.history.filter(item => item.id !== summary.id)].slice(0, MAX_HISTORY_ENTRIES);
     if (this.data.activeSession?.id === session.id) { delete this.data.activeSession; this.lastSessionIdentity = undefined; }
-    this.data.bookmarks[session.quiz.id] = [...session.bookmarks];
-    if (!exists) this.data.quizzes.push(session.quiz);
-    for (const [index, rating] of ratings) this.scheduleCard(session.quiz.id, Number(index), rating, summary.completedAt);
+    this.data.bookmarks[session.quiz.id] = [...new Set(bookmarks)];
+    if (!savedQuiz) this.data.quizzes.push(session.quiz);
+    for (const { index, rating } of ratings) this.scheduleCard(session.quiz.id, index, rating, summary.completedAt);
     this.changed();
     await this.flush();
   }
@@ -401,16 +418,21 @@ export class QuizStore implements QuizStorePort {
 
   /** Recovery is explicit and saves the damaged bytes before replacing them. */
   async recoverFromJson(text: string): Promise<void> {
-    if (this.disposed) fail("The study library has closed.");
+    this.assertOpen();
     await this.load();
+    this.assertOpen();
     const recovered = decode(text);
     await this.flushPendingOnly();
+    this.assertOpen();
     if (this.loadIssue) {
       const original = await this.adapter.exists(this.path) ? await this.adapter.read(this.path) : this.rawRecovery;
+      this.assertOpen();
       if (original !== undefined) {
         const backup = this.path.replace(/\.json$/, `.recovery-${this.options.now?.() ?? Date.now()}.json`);
         if (await this.adapter.exists(backup)) fail("A recovery copy already exists for this moment. Try again in a moment.");
+        this.assertOpen();
         await this.adapter.write(backup, original);
+        this.assertOpen();
       }
     }
     this.data = recovered;
@@ -459,10 +481,13 @@ export class QuizStore implements QuizStorePort {
   }
 
   private async ensureReady(): Promise<void> {
-    if (this.disposed) fail("The study library has closed.");
+    this.assertOpen();
     await this.load();
+    this.assertOpen();
     if (this.loadIssue) fail(this.loadIssue);
   }
+
+  private assertOpen(): void { if (this.disposed) fail("The study library has closed."); }
 
   private schedule(): void {
     if (this.timer !== undefined) window.clearTimeout(this.timer);

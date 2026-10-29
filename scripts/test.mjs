@@ -29,6 +29,7 @@ try {
     await build({
       entryPoints: [tests[index]], outfile: output, bundle: true, platform: "node", format: "esm",
       target: "node24", packages: "external", jsx: "automatic", logLevel: "warning",
+      loader: { ".svg": "text" },
       plugins: [{
         name: "test-source-boundary",
         setup(builder) {

@@ -18,11 +18,11 @@ function ChoiceInputs({ options, response, onChange, disabled, multiple = false,
     ? [...new Set(response.filter((value): value is number => typeof value === "number" && Number.isInteger(value) && value >= 0 && value < options.length))]
     : [];
   return <fieldset className="qm-options" disabled={disabled}>
-    <legend className="qm-sr-only">{multiple ? "Choose all answers that apply" : "Choose one answer"}</legend>
+    <legend className={multiple ? "qm-field-label" : "qm-sr-only"}>{multiple ? "Select all that apply" : "Choose one answer"}</legend>
     {options.map((option, index) => {
       const value = boolean ? index === 0 : index;
       const checked = multiple ? selected.includes(index) : response === value;
-      return <label className={`qm-choice${checked ? " is-selected" : ""}`} key={index}>
+      return <label className={`qm-choice${checked ? " is-selected" : ""}`} data-selected={checked} key={index}>
         <input
           type={multiple ? "checkbox" : "radio"}
           name={name}
@@ -36,7 +36,6 @@ function ChoiceInputs({ options, response, onChange, disabled, multiple = false,
               : value);
           }}
         />
-        <span className="qm-choice-marker" aria-hidden="true">{String.fromCharCode(65 + index)}</span>
         <Markdown text={option} className="qm-choice-text" />
       </label>;
     })}

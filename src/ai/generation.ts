@@ -1,7 +1,7 @@
 import { createQuestion, createQuiz, validateQuiz } from "../core/schema";
 import { providers, questionTypes } from "../core/types";
 import type {
-  GenerationRequest, GenerationServicePort, Provider, ProviderSettings, Question, QuestionType,
+  GenerationConnection, GenerationRequest, GenerationServicePort, Provider, ProviderSettings, Question, QuestionType,
   Quiz, RequestedMethod, Settings, SourceNote
 } from "../core/types";
 import type { GeneratedText, TransportConfig, ChatMessage } from "./transport";
@@ -188,11 +188,11 @@ export function prepareGenerationRequest(request: GenerationRequest): PreparedRe
   return prepared;
 }
 
-function snapshotSettings(settings: Settings): ProviderSnapshot {
-  if (!settings || !providers.includes(settings.provider)) {
+function snapshotConnection(connection: GenerationConnection): ProviderSnapshot {
+  if (!connection || !providers.includes(connection.provider)) {
     throw new GenerationError("Choose a generation provider in settings.", "configuration");
   }
-  const selected = settings.providers?.[settings.provider];
+  const selected = connection.config;
   if (!selected || typeof selected.apiKey !== "string" || typeof selected.baseUrl !== "string"
     || typeof selected.model !== "string" || !selected.model.trim() || selected.model.length > 200
     || containsControlCharacter(selected.model, true)
@@ -200,9 +200,16 @@ function snapshotSettings(settings: Settings): ProviderSnapshot {
     throw new GenerationError("Choose a model in settings, or enter its model ID.", "configuration");
   }
   return {
-    provider: settings.provider,
+    provider: connection.provider,
     config: { apiKey: selected.apiKey, baseUrl: selected.baseUrl, model: selected.model.trim() }
   };
+}
+
+function snapshotSettings(settings: Settings): ProviderSnapshot {
+  if (!settings || !providers.includes(settings.provider)) {
+    throw new GenerationError("Choose a generation provider in settings.", "configuration");
+  }
+  return snapshotConnection({ provider: settings.provider, config: settings.providers?.[settings.provider] });
 }
 
 export function generationMessages(request: PreparedRequest): ChatMessage[] {
@@ -421,7 +428,7 @@ export class GenerationService implements GenerationServicePort {
     private readonly dependencies: GenerationDependencies = {}
   ) {}
 
-  async generate(request: GenerationRequest): Promise<Quiz> {
+  async generate(request: GenerationRequest, connection?: GenerationConnection): Promise<Quiz> {
     if (this.disposed) throw cancelled();
     const revision = ++this.revision;
     this.active?.abort();
@@ -432,9 +439,10 @@ export class GenerationService implements GenerationServicePort {
     if (request.signal?.aborted) controller.abort();
     try {
       assertActive(controller.signal);
+      // Copy before any callback or await: another settings window must not change the recipient.
+      const origin = connection ? snapshotConnection(connection) : snapshotSettings(this.getSettings());
       progress(request, "Preparing notes");
       const prepared = prepareGenerationRequest(request);
-      const origin = snapshotSettings(this.getSettings());
       const transport = this.dependencies.transport ?? (await import("./transport")).generateText;
       assertActive(controller.signal);
       progress(request, "Generating questions");
@@ -464,15 +472,16 @@ export class GenerationService implements GenerationServicePort {
     }
   }
 
-  async regenerate(quiz: Quiz, questionIndex: number, request: GenerationRequest): Promise<Quiz> {
+  async regenerate(quiz: Quiz, questionIndex: number, request: GenerationRequest, connection?: GenerationConnection): Promise<Quiz> {
     const original = validateQuiz(quiz);
     if (!Number.isInteger(questionIndex) || questionIndex < 0 || questionIndex >= original.questions.length) {
       throw new GenerationError("Select a question before regenerating.", "configuration");
     }
+    const confirmedConnection = connection ? snapshotConnection(connection) : snapshotSettings(this.getSettings());
     const replacement = await this.generate({
       ...request, title: original.title,
       methods: [{ type: original.questions[questionIndex].type, count: 1 }]
-    });
+    }, confirmedConnection);
     const questions = [...original.questions];
     questions[questionIndex] = {
       ...replacement.questions[0],

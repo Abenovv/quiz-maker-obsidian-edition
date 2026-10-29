@@ -11,6 +11,12 @@ export interface SourceReadOptions {
   signal: AbortSignal;
 }
 
+/** Obsidian represents the vault root with a slash; paths beneath it are relative. */
+export function notesInFolder<T extends SelectedNote>(notes: readonly T[], folderPath: string): T[] {
+  const folder = folderPath.replace(/^\/+|\/+$/g, "");
+  return folder ? notes.filter(note => note.path.startsWith(folder + "/")) : [...notes];
+}
+
 function cancelled(signal: AbortSignal): void {
   if (signal.aborted) throw new DOMException("Reading notes was cancelled.", "AbortError");
 }

@@ -1,6 +1,7 @@
 import { memo, useId, type ReactNode } from "react";
 import type { BranchQuestion, BranchStep, QuestionViewProps, TwoStageQuestion } from "../../core/types";
 import { Markdown } from "../shared";
+import { Icon } from "../Icon";
 
 type IndexResponse = Array<number | null>;
 
@@ -15,21 +16,22 @@ function chosenIndex(value: unknown, count: number): number | null {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 && value < count ? value : null;
 }
 
-function ChoiceList({ options, value, onChange, disabled, label, multiple = false }: {
+function ChoiceList({ options, value, onChange, disabled, label, multiple = false, showLabel = false }: {
   options: string[];
   value: unknown;
   onChange(this: void, value: unknown): void;
   disabled: boolean;
   label: string;
   multiple?: boolean;
+  showLabel?: boolean;
 }): ReactNode {
   const group = useId();
   const selected = multiple && Array.isArray(value)
     ? new Set(value.filter((item): item is number => typeof item === "number" && Number.isInteger(item) && item >= 0 && item < options.length))
     : new Set([chosenIndex(value, options.length)]);
   return <fieldset className="qm-fieldset qm-options" disabled={disabled}>
-    <legend className="qm-field-label">{label}</legend>
-    {options.map((option, index) => <label className="qm-choice" data-selected={selected.has(index)} key={index}>
+    <legend className={showLabel ? "qm-field-label" : "qm-sr-only"}>{label}</legend>
+    {options.map((option, index) => <label className={`qm-choice${selected.has(index) ? " is-selected" : ""}`} data-selected={selected.has(index)} key={index}>
       <input
         type={multiple ? "checkbox" : "radio"}
         name={group}
@@ -45,8 +47,7 @@ function ChoiceList({ options, value, onChange, disabled, label, multiple = fals
           onChange([...next].sort((left, right) => left - right));
         }}
       />
-      <span className="qm-choice-letter" aria-hidden="true">{String.fromCharCode(65 + index)}</span>
-      <Markdown className="qm-choice-copy" text={option} />
+      <Markdown className="qm-choice-text qm-choice-copy" text={option} />
     </label>)}
   </fieldset>;
 }
@@ -98,7 +99,7 @@ function Branching({ question, response, onChange, disabled }: QuestionViewProps
         onChange={value => { if (typeof value === "number") onChange(chooseBranchOption(question, response, step, value)); }}
       />
     </section>)}
-    {complete && <p className="qm-muted qm-branch-complete" role="status">Scenario complete.</p>}
+    {complete && <p className="qm-muted qm-branch-complete" role="status">End of scenario</p>}
   </div>;
 }
 
@@ -128,14 +129,14 @@ function Sequence({ question, response, onChange, disabled }: QuestionViewProps 
         <div className="qm-order-actions">
           <button type="button" className="qm-icon-button" disabled={disabled || position === 0}
             aria-label={`Move item ${position + 1} up`}
-            onClick={() => onChange(moveSequence(order, position, -1))}><span aria-hidden="true">↑</span></button>
+            onClick={() => { if (!disabled) onChange(moveSequence(order, position, -1)); }}><Icon name="chevron-up" /></button>
           <button type="button" className="qm-icon-button" disabled={disabled || position === order.length - 1}
             aria-label={`Move item ${position + 1} down`}
-            onClick={() => onChange(moveSequence(order, position, 1))}><span aria-hidden="true">↓</span></button>
+            onClick={() => { if (!disabled) onChange(moveSequence(order, position, 1)); }}><Icon name="chevron-down" /></button>
         </div>
       </li>)}
     </ol>
-    {!recorded && <button type="button" className="qm-button qm-button-secondary" disabled={disabled} onClick={() => onChange(order)}>Use this order</button>}
+    {!recorded && <button type="button" className="qm-button qm-button-secondary" disabled={disabled} onClick={() => { if (!disabled) onChange(order); }}>Use this order</button>}
   </div>;
 }
 
@@ -160,6 +161,7 @@ function IndexedSelections({ items, choices, response, onChange, disabled, label
           disabled={disabled}
           value={values[index] ?? ""}
           onChange={event => {
+            if (disabled) return;
             const value = event.currentTarget.value;
             const next = [...values];
             next[index] = value === "" ? null : Number(value);
@@ -179,9 +181,9 @@ function TwoStage({ question, response, onChange, disabled }: QuestionViewProps 
   const answer = chosenIndex(value.answer, question.options.length);
   const reasonAnswer = chosenIndex(value.reasonAnswer, question.reasons.length);
   return <div className="qm-two-stage">
-    <ChoiceList label="Answer" options={question.options} value={answer} disabled={disabled}
+    <ChoiceList label="Answer" options={question.options} value={answer} disabled={disabled} showLabel
       onChange={next => onChange({ answer: next, reasonAnswer })} />
-    <ChoiceList label="Reason" options={question.reasons} value={reasonAnswer} disabled={disabled}
+    <ChoiceList label="Reason" options={question.reasons} value={reasonAnswer} disabled={disabled} showLabel
       onChange={next => onChange({ answer, reasonAnswer: next })} />
   </div>;
 }
@@ -218,7 +220,7 @@ function AdvancedQuestionBody(props: QuestionViewProps): ReactNode {
     </div>;
     case "evidence-selection": return <div className="qm-advanced">
       <Context label="Claim" text={question.claim} />
-      <ChoiceList {...shared} options={question.options} label="Supporting evidence" multiple />
+      <ChoiceList {...shared} options={question.options} label="Select supporting evidence" multiple showLabel />
     </div>;
     case "two-stage": return <div className="qm-advanced"><TwoStage {...props} disabled={disabled} question={question} /></div>;
     case "concept-map": return <div className="qm-advanced">

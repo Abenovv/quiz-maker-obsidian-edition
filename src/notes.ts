@@ -44,7 +44,6 @@ export function questionAsCallout(question: Question, index: number): string {
   const [first = "", ...rest] = question.question.split(/\r?\n/);
   const lines = ["> [!question|qm-quiz] " + (index + 1) + ". " + viewText(first)];
   if (rest.length) lines.push(quoted(rest.join("\n")));
-  lines.push("> *" + questionTypeLabels[question.type] + "*");
   for (const paragraph of frontMatter(question).slice(1)) lines.push(">", quoted(paragraph));
   if (question.hint) lines.push(">", "> > [!tip]- Hint", quoted(question.hint, "> > "));
   lines.push(">", "> > [!success]- Answer");
@@ -281,7 +280,8 @@ export function noteFolderPath(value: string): string {
 export async function saveQuizNote(context: PluginContext, input: Quiz, questionIndex?: number): Promise<TFile> {
   const quiz = quizForNote(input, questionIndex);
   const settings = context.settings as typeof context.settings & { saveFormat?: NoteSaveFormat };
-  const content = "# " + viewText(quiz.title).replace(/\r?\n/g, " ") + "\n\n" + renderReadableQuiz(quiz, settings.saveFormat || "callouts");
+  // The file name supplies Obsidian's inline title; a second heading repeats it.
+  const content = renderReadableQuiz(quiz, settings.saveFormat || "callouts");
   if (new TextEncoder().encode(content).length > MAX_NOTE_BYTES) throw new Error("This note would be too large. Save a smaller question set.");
   const folder = noteFolderPath(context.settings.saveFolder);
   if (folder) {
@@ -351,7 +351,8 @@ async function renderSavedQuiz(context: PluginContext, quiz: Quiz, target: HTMLE
     for (; shown < end && alive; shown++) {
       const question = quiz.questions[shown];
       const item = append(list, "article", "qm-note-question");
-      append(item, "p", "qm-note-number", (shown + 1) + " · " + questionTypeLabels[question.type]);
+      item.setAttribute("aria-label", questionTypeLabels[question.type]);
+      append(item, "p", "qm-note-number", "Question " + (shown + 1));
       await render(question.question, append(item, "div", "qm-note-prompt"));
       for (const content of questionContext(question)) await render(content, append(item, "div", "qm-note-context"));
       if ("options" in question) {

@@ -28,6 +28,7 @@ export function installDomExtensions(): void {
     removeClass(this: HTMLElement, ...names: string[]) { names.forEach(name => this.classList.remove(name)); return this; },
     toggleClass(this: HTMLElement, name: string, condition: boolean) { this.classList.toggle(name, condition); return this; },
     hasClass(this: HTMLElement, name: string) { return this.classList.contains(name); },
+    instanceOf(this: HTMLElement, kind: typeof HTMLElement) { return this instanceof kind; },
     setAttr(this: HTMLElement, name: string, value: string) { this.setAttribute(name, value); return this; },
     getAttr(this: HTMLElement, name: string) { return this.getAttribute(name); },
     detach(this: HTMLElement) { this.remove(); },

@@ -99,12 +99,19 @@ export default class QuizMakerPlugin extends Plugin implements PluginContext {
       throw new Error("Settings could not be read. Restore the local settings file before saving changes.");
     }
     const snapshot = structuredClone(this.settings);
-    const write = this.settingsWriteQueue.catch(() => undefined).then(() => this.saveData(snapshot));
+    const boot = this.bootVersion;
+    const write = this.settingsWriteQueue.catch(() => undefined).then(() => {
+      if (!this.ready || boot !== this.bootVersion) throw new Error("Quiz maker closed before these settings could be saved.");
+      return this.saveData(snapshot);
+    });
     this.settingsWriteQueue = write;
     await write;
     if (this.ready) {
       refreshFeedback(this);
       refreshContextModals(this);
+      for (const leaf of this.app.workspace.getLeavesOfType(MINI_VIEW_TYPE)) {
+        if (leaf.view instanceof MiniQuizView) leaf.view.refreshAppearance();
+      }
     }
   }
 

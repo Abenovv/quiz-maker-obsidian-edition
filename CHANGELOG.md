@@ -1,5 +1,24 @@
 # Release notes
 
+## 1.1.0
+
+The study interface now follows Quiz maker's blue identity, with clearer controls and less visual clutter.
+
+- Apply blue accents across Obsidian, Paper, Midnight, and High contrast; Midnight now uses dark navy surfaces.
+- Simplify quiz setup, navigation, and action groups, with consistent icons and shorter labels.
+- Refine the mini view and settings for narrow panels, long text, and keyboard use.
+- Require an answer before checking a question in the mini view, matching the full study view.
+- Keep timer updates within the window that owns the study view, including Obsidian popouts.
+- Keep paused sessions paused when reopening the full view, and update the mini view when appearance settings change.
+- Keep the confirmed provider and endpoint fixed while a generation request is running.
+- Preserve bookmarks and review cards when a quiz is edited during a session, and stop queued storage changes after shutdown.
+- Fix selecting the vault root as a source folder.
+- Reduce unnecessary borders and spacing, retain vault and system fonts, and respect reduced motion.
+- Remove duplicate titles and format captions from newly saved readable notes.
+- Refresh native Obsidian screenshots and remove asset-download links from the README footer.
+
+Update the three release files in `.obsidian/plugins/quiz-maker/`, then reload Obsidian. Provider keys and study data stay in their separate local files; they are not included in the release.
+
 ## 1.0.0
 
 Initial independent release of Quiz maker.

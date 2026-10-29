@@ -174,6 +174,8 @@ test("saving creates only selected folders and does not overwrite existing notes
   assert.equal(created.path, "Study/Quizzes/Reading the sky (2).md");
   assert.ok(files.get("Study") instanceof TFolder);
   assert.equal(contents.size, 1);
+  assert.doesNotMatch(contents.get(created.path)!, /^# Reading the sky$/m);
+  assert.doesNotMatch(contents.get(created.path)!, /^> \*(?:Multiple choice|True or false)\*$/m);
   assert.deepEqual(readNoteQuizzes(contents.get(created.path)!), [sample()]);
 });
 

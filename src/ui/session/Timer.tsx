@@ -1,15 +1,17 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { formatDuration } from "./config";
+import { Icon } from "../Icon";
 
 export interface TimerProps {
   deadline: number | null;
   pausedRemaining: number | null;
   paused: boolean;
+  label?: string;
   onExpire(this: void, now: number): void;
 }
 
 /** Clock updates stay here; question inputs do not rerender every second. */
-export const SessionTimer = memo(function SessionTimer({ deadline, pausedRemaining, paused, onExpire }: TimerProps) {
+export const SessionTimer = memo(function SessionTimer({ deadline, pausedRemaining, paused, label = "Time remaining", onExpire }: TimerProps) {
   const [now, setNow] = useState(Date.now);
   const [notice, setNotice] = useState("");
   const reference = useRef<HTMLDivElement>(null);
@@ -49,7 +51,7 @@ export const SessionTimer = memo(function SessionTimer({ deadline, pausedRemaini
 
   if (deadline === null && (!paused || pausedRemaining === null)) return null;
   const seconds = paused ? (pausedRemaining ?? 0) / 1000 : Math.max(0, (deadline! - now) / 1000);
-  return <><div ref={reference} className={`qm-timer${seconds <= 30 ? " is-urgent" : ""}`} role="timer" aria-label={paused ? "Paused time remaining" : "Time remaining"} aria-live="off">
-    <strong>{formatDuration(seconds)}</strong><span>{paused ? "paused" : "remaining"}</span>
+  return <><div ref={reference} className={`qm-timer${!paused && seconds <= 30 ? " is-urgent" : ""}`} role="timer" aria-label={paused ? "Paused time remaining" : label} aria-live="off" data-paused={paused || undefined}>
+    <Icon name={paused ? "pause" : "clock"} size={16} /><strong>{formatDuration(seconds)}</strong>
   </div><span className="qm-sr-only" role="status" aria-live="polite">{notice}</span></>;
 });

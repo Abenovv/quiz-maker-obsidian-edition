@@ -36,7 +36,7 @@ Flag a question to revisit it during the attempt. Bookmark a question to keep it
 
 Flashcards use **Again**, **Good**, and **Easy** ratings to schedule later review. Ratings are not marked as objectively correct or incorrect.
 
-Run **Quiz maker: Open mini view** to continue the active session in a compact panel. It shares the same answers and timer as the full study view.
+Run **Quiz maker: Open mini view** to continue the active session in a compact panel. It shares the same answers and timer as the full study view. Answer a practice question before choosing **Check**; exam answers stay hidden until submission.
 
 ## Save a readable note
 
@@ -101,6 +101,8 @@ Cancel stops the local generation workflow. A provider may already be processing
 
 Settings, including provider keys, are stored locally in `data.json`. Study data is stored in `study.json`. Neither file is encrypted by Quiz maker or included in a release.
 
-Use Obsidian, Paper, Midnight, or High contrast for the study interface. Sound is optional and off by default. Motion can follow your system setting or stay reduced.
+Choose Obsidian, Paper, Midnight, or High contrast in Appearance. Each uses a blue accent. Obsidian keeps the vault's surfaces and fonts; Midnight uses a dark navy background. Fonts are provided by your system and vault, with no font download.
+
+Sound is optional and off by default. Motion can follow your system setting or stay reduced.
 
 When reporting a problem, include the plugin version, Obsidian version, device, and a small example with private content removed. Do not attach API keys, local settings, or study-history files.

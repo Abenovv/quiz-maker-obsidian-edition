@@ -8,7 +8,7 @@ test("defaults are silent, provider-specific, and independently mutable", () => 
   const second = normalizeSettings(null);
   assert.equal(first.soundEnabled, false);
   assert.equal(first.motion, "system");
-  assert.equal(first.theme, "obsidian");
+  assert.equal(first.theme, "midnight");
   assert.equal(first.defaultPreset, "student-pack");
   assert.equal(first.saveFormat, "callouts");
   for (const provider of providers) {
@@ -23,6 +23,13 @@ test("defaults are silent, provider-specific, and independently mutable", () => 
   assert.equal(second.providers.ollama.model, "");
 });
 
+test("fresh installs use Midnight while every saved appearance remains a choice", () => {
+  assert.equal(normalizeSettings(undefined).theme, "midnight");
+  for (const theme of ["obsidian", "paper", "midnight", "contrast"] as const) {
+    assert.equal(normalizeSettings({ theme }).theme, theme);
+  }
+});
+
 test("saved providers and manually selected model IDs survive other settings changes", () => {
   const settings = normalizeSettings({
     provider: "anthropic", theme: "paper", soundEnabled: true, motion: "reduced",
@@ -32,6 +39,7 @@ test("saved providers and manually selected model IDs survive other settings cha
     }
   });
   assert.equal(settings.provider, "anthropic");
+  assert.equal(settings.theme, "paper");
   assert.equal(settings.providers.google.apiKey, "fixture-google");
   assert.equal(settings.providers.google.model, "custom/retained-model");
   assert.equal(settings.providers.google.baseUrl, "https://gateway.example/gemini/v1beta");
@@ -47,7 +55,7 @@ test("malformed or oversized saved values fall back without poisoning valid prov
     unexpectedTelemetry: true
   });
   assert.equal(settings.provider, DEFAULT_SETTINGS.provider);
-  assert.equal(settings.theme, "obsidian");
+  assert.equal(settings.theme, DEFAULT_SETTINGS.theme);
   assert.equal(settings.soundEnabled, false);
   assert.equal(settings.language, "English");
   assert.equal(settings.defaultPreset, "student-pack");
@@ -123,12 +131,13 @@ test("model controls reject invalid visible fields, cancel stale discovery, and 
   const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
   Object.defineProperty(globalThis, "window", { configurable: true, value: { setTimeout, clearTimeout } });
   const groups = new Map<string, Control[]>();
+  const settingElements = new Map<string, HTMLElement>();
   const prototype = Setting.prototype as unknown as {
     addText(callback: (control: Control) => unknown): Setting;
   };
   const original = prototype.addText;
   prototype.addText = function (callback) {
-    const setting = this as unknown as { nameEl: HTMLElement };
+    const setting = this as unknown as { nameEl: HTMLElement; settingEl: HTMLElement };
     return original.call(this, control => {
       control.options = new Map();
       control.setValue = value => { control.inputEl.value = value; return control; };
@@ -139,6 +148,7 @@ test("model controls reject invalid visible fields, cancel stale discovery, and 
       control.onClick = click => { control.click = click; return control; };
       control.selectEl.replaceChildren = () => { control.options.clear(); };
       groups.set(setting.nameEl.textContent || "", [...(groups.get(setting.nameEl.textContent || "") || []), control]);
+      settingElements.set(setting.nameEl.textContent || "", setting.settingEl);
       return callback(control);
     });
   };
@@ -157,6 +167,7 @@ test("model controls reject invalid visible fields, cancel stale discovery, and 
   const tab = new QuizMakerSettingsTab(context.app, context as never);
   try {
     tab.display();
+    assert.equal(tab.containerEl.dataset.motion, "system");
     const nav = tab.containerEl.children[0] as unknown as { children: Array<{ textContent: string; onclick(): void }> };
     nav.children.find(child => child.textContent === "Models")?.onclick();
     const key = groups.get("API key")![0];
@@ -166,9 +177,12 @@ test("model controls reject invalid visible fields, cancel stale discovery, and 
     const buttons = groups.get("Connection")!;
     const refresh = buttons.find(button => button.buttonEl.textContent === "Refresh models")!;
     const connection = buttons.find(button => button.buttonEl.textContent === "Test connection")!;
+    const cancel = buttons.find(button => button.buttonEl.textContent === "Cancel")!;
     assert.equal(key.inputEl.type, "password");
     assert.equal(key.inputEl.getAttribute("value"), null);
     assert.ok(key.inputEl.getAttribute("aria-describedby"));
+    assert.equal(settingElements.get("Available models")?.hidden, true);
+    assert.equal(settingElements.get("Endpoint")?.parentElement?.tagName, "DETAILS");
     key.change!("invalid key");
     assert.equal(refresh.buttonEl.disabled, true);
     connection.click!();
@@ -185,6 +199,15 @@ test("model controls reject invalid visible fields, cancel stale discovery, and 
     refresh.click!();
     assert.equal(listCalls, 1);
     assert.equal(refresh.buttonEl.disabled, true);
+    assert.equal(cancel.buttonEl.hidden, false);
+    cancel.click!();
+    assert.equal(cancel.buttonEl.hidden, true);
+    assert.equal(refresh.buttonEl.disabled, false);
+    releaseList!([{ id: "cancelled-model", name: "Cancelled", provider: "google" }]);
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(available.options.has("cancelled-model"), false);
+    refresh.click!();
     key.change!("new-fixture");
     assert.equal(refresh.buttonEl.disabled, false);
     releaseList!([{ id: "stale-model", name: "Stale", provider: "google" }]);
@@ -199,11 +222,82 @@ test("model controls reject invalid visible fields, cancel stale discovery, and 
     manual.change!("custom-after-discovery");
     assert.equal(settings.providers.google.model, "custom-after-discovery");
     assert.equal(available.options.has("discovered-model"), true);
+    assert.equal(settingElements.get("Available models")?.hidden, false);
     assert.equal(available.options.has("custom-after-discovery"), true);
+    manual.change!("invalid model\nfixture");
+    assert.equal(settings.providers.google.model, "custom-after-discovery");
+    assert.equal(manual.inputEl.getAttribute("aria-invalid"), "true");
+    manual.change!("valid-manual-model");
+    assert.equal(manual.inputEl.getAttribute("aria-invalid"), null);
+    assert.equal(settings.providers.google.model, "valid-manual-model");
+    key.change!("another-account-fixture");
+    assert.equal(available.options.has("discovered-model"), false);
+    assert.equal(settingElements.get("Available models")?.hidden, true);
+    assert.equal(settings.providers.google.model, "valid-manual-model");
+    key.change!("");
+    assert.equal(refresh.buttonEl.disabled, true);
+    connection.click!();
+    await Promise.resolve();
+    assert.equal(testCalls, 0);
   } finally {
     tab.hide();
     prototype.addText = original;
     if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
     else Reflect.deleteProperty(globalThis, "window");
+  }
+});
+
+test("a pending settings save is cleared from its original window after moving to a popout", async () => {
+  const { App } = await import("obsidian");
+  const { QuizMakerSettingsTab } = await import("../src/settings");
+  const clock = () => {
+    let sequence = 0;
+    const pending = new Map<number, () => void>();
+    const cleared: number[] = [];
+    return {
+      pending, cleared,
+      setTimeout(callback: () => void): number { const id = ++sequence; pending.set(id, callback); return id; },
+      clearTimeout(id: number): void { pending.delete(id); cleared.push(id); }
+    };
+  };
+  const firstWindow = clock();
+  const popoutWindow = clock();
+  let saves = 0;
+  let failNextSave = false;
+  const context = {
+    app: new App(), settings: normalizeSettings(undefined), models: { clear() {} },
+    saveSettings: async () => {
+      saves++;
+      if (failNextSave) { failNextSave = false; throw new Error("Simulated save failure"); }
+    }, showNotice() {}
+  };
+  const tab = new QuizMakerSettingsTab(context.app, context as never);
+  const doc = tab.containerEl.ownerDocument;
+  const previousView = Object.getOwnPropertyDescriptor(doc, "defaultView");
+  const controls = tab as unknown as { scheduleSave(): void; flushSettings(): Promise<void> };
+  try {
+    Object.defineProperty(doc, "defaultView", { configurable: true, value: firstWindow });
+    controls.scheduleSave();
+    assert.equal(firstWindow.pending.size, 1);
+    Object.defineProperty(doc, "defaultView", { configurable: true, value: popoutWindow });
+    controls.scheduleSave();
+    assert.equal(firstWindow.pending.size, 0);
+    assert.deepEqual(firstWindow.cleared, [1]);
+    assert.equal(popoutWindow.pending.size, 1);
+    await controls.flushSettings();
+    assert.equal(popoutWindow.pending.size, 0);
+    assert.deepEqual(popoutWindow.cleared, [1]);
+    assert.equal(saves, 1);
+    await controls.flushSettings();
+    assert.equal(saves, 1, "reopening or closing unchanged settings does not write again");
+    failNextSave = true;
+    controls.scheduleSave();
+    await controls.flushSettings();
+    assert.equal(saves, 2);
+    await controls.flushSettings();
+    assert.equal(saves, 3, "a failed save can be retried without changing the form");
+  } finally {
+    if (previousView) Object.defineProperty(doc, "defaultView", previousView);
+    else Reflect.deleteProperty(doc, "defaultView");
   }
 });

@@ -14,8 +14,7 @@ const standardTypes = new Set([
 export const QuestionView = memo(function QuestionView(props: QuestionViewProps) {
   const { question, mode, reveal } = props;
   const answers = reveal ? referenceAnswer(question) : [];
-  return <article className="qm-question" data-question-type={question.type}>
-    <p className="qm-question-label">{questionTypeLabels[question.type]}</p>
+  return <article className="qm-question" aria-label={questionTypeLabels[question.type]} data-question-type={question.type}>
     <Markdown text={question.question} className="qm-question-prompt" />
     {standardTypes.has(question.type) ? <StandardQuestions {...props} /> : <AdvancedQuestions {...props} />}
     {mode !== "exam" && question.hint && !reveal && <details className="qm-hint">
@@ -23,7 +22,7 @@ export const QuestionView = memo(function QuestionView(props: QuestionViewProps)
       <Markdown text={question.hint} />
     </details>}
     {reveal && <section className="qm-reference" aria-label="Reference answer" aria-live="polite">
-      <h3>Reference answer</h3>
+      <h3>Answer</h3>
       <div className="qm-reference-list">
         {answers.map((answer, index) => <Markdown text={answer} key={index} />)}
       </div>

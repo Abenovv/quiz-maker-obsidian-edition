@@ -7,7 +7,7 @@ import {
 } from "../src/ai/generation";
 import { createQuestion, createQuiz } from "../src/core/schema";
 import { providers, questionTypes } from "../src/core/types";
-import type { GenerationRequest, Provider, Quiz, Settings, QuestionType } from "../src/core/types";
+import type { GenerationConnection, GenerationRequest, Provider, Quiz, Settings, QuestionType } from "../src/core/types";
 import type { GenerationTransport } from "../src/ai/generation";
 
 const now = new Date("2026-10-30T10:00:00.000Z");
@@ -274,6 +274,53 @@ test("the configured model is recorded rather than untrusted response metadata",
   const service = generator(undefined, async () => ({ text: JSON.stringify([question("multiple-choice")]), model: "untrusted-response-model" }));
   const quiz = await service.generate(request());
   assert.equal(quiz.provenance?.model, "account-model");
+});
+
+for (const operation of ["generate", "regenerate"] as const) {
+  test(`${operation} uses the confirmed connection even when settings change before dispatch`, async () => {
+    const connection: GenerationConnection = {
+      provider: "google", config: { apiKey: "confirmed-fixture-key", model: "confirmed-model", baseUrl: "https://confirmed.example/v1" }
+    };
+    let calls = 0;
+    const service = new GenerationService(() => { throw new Error("Global settings must not replace the confirmed connection"); }, {
+      now: () => now,
+      transport: async (config, messages) => {
+        calls++;
+        assert.equal(config.provider, "google");
+        assert.equal(config.baseUrl, "https://confirmed.example/v1");
+        assert.equal(config.apiKey, "confirmed-fixture-key");
+        assert.equal(config.model, "confirmed-model");
+        const prompt = JSON.stringify(messages);
+        assert.equal(prompt.includes("confirmed-fixture-key"), false);
+        assert.equal(prompt.includes("confirmed.example"), false);
+        return { text: JSON.stringify([question("multiple-choice")]) };
+      }
+    });
+    const input = { ...request(), onProgress: () => {
+      connection.provider = "openai";
+      connection.config.apiKey = "changed-fixture-key";
+      connection.config.model = "changed-model";
+      connection.config.baseUrl = "https://changed.example/v1";
+    } };
+    const output = operation === "generate"
+      ? await service.generate(input, connection)
+      : await service.regenerate(createQuiz([createQuestion("multiple-choice")]), 0, input, connection);
+    assert.equal(calls, 1);
+    const origin = operation === "generate" ? output.provenance : output.revisions?.[0];
+    assert.equal(origin?.provider, "google");
+    assert.equal(origin?.model, "confirmed-model");
+    assert.equal(JSON.stringify(output).includes("fixture-key"), false);
+    assert.equal(JSON.stringify(output).includes("confirmed.example"), false);
+  });
+}
+
+test("an invalid confirmed connection never falls back to another account", async () => {
+  let calls = 0;
+  const service = generator(undefined, async () => { calls++; return { text: "{}" }; });
+  await assert.rejects(service.generate(request(), {
+    provider: "google", config: { apiKey: "fixture-value", model: "", baseUrl: "" }
+  }), /Choose a model/);
+  assert.equal(calls, 0);
 });
 
 test("provider configuration errors stay actionable without exposing provider response text", async () => {

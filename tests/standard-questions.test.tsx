@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { Question, QuestionViewProps } from "../src/core/types";
 import { StandardQuestions } from "../src/ui/questions/StandardQuestions";
 import { QuestionView } from "../src/ui/questions/QuestionView";
+import { publicQuestions } from "../preview/fixtures";
 
 function props(question: Question, response: unknown = undefined, extra: Partial<QuestionViewProps> = {}): QuestionViewProps {
   return { question, response, onChange: () => undefined, disabled: false, reveal: false, mode: "practice", ...extra };
@@ -32,7 +33,7 @@ test("multiple answers are controlled checkboxes and ignore non-numeric response
   const html = renderToStaticMarkup(<StandardQuestions {...props(question, ["0", 2, -1, 100, 2])} />);
   assert.equal((html.match(/type="checkbox"/g) || []).length, 3);
   assert.equal((html.match(/checked=""/g) || []).length, 1);
-  assert.match(html, /Choose all answers that apply/);
+  assert.match(html, /Select all that apply/);
 });
 
 test("blank fields preserve entered text without mounting reference values", () => {
@@ -103,4 +104,15 @@ test("practice hints and authorized reference sections appear only in their expe
   assert.match(back, /class="qm-explanation"/);
   assert.match(back, /class="qm-source"/);
   assert.doesNotMatch(back, /class="qm-hint"/);
+});
+
+test("all seventeen exam formats keep answer-review details unmounted until reveal", () => {
+  assert.equal(new Set(publicQuestions.map(question => question.type)).size, 17);
+  for (const fixture of publicQuestions) {
+    const question = { ...fixture, hint: "HIDDEN_HINT", explanation: "HIDDEN_EXPLANATION", source: "HIDDEN_SOURCE" };
+    const front = renderToStaticMarkup(<QuestionView {...props(question, undefined, { mode: "exam" })} />);
+    assert.doesNotMatch(front, /HIDDEN_|qm-hint|qm-reference|qm-explanation|qm-source/, fixture.type);
+    const revealed = renderToStaticMarkup(<QuestionView {...props(question, undefined, { mode: "exam", reveal: true })} />);
+    assert.match(revealed, /aria-label="Reference answer"/, fixture.type);
+  }
 });

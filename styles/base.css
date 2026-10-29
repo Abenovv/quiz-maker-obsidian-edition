@@ -1,21 +1,23 @@
-/* Quiz maker: native surfaces, measured typography, and restrained feedback. */
+/* Quiz maker: native surfaces, one blue accent, and restrained feedback. */
 .qm-root {
-  --qm-bg: var(--background-primary, #f6f7f5);
-  --qm-surface: var(--background-secondary, #eef1ed);
-  --qm-surface-alt: var(--background-primary-alt, var(--background-secondary, var(--background-primary, #eef1ed)));
-  --qm-surface-hover: var(--background-modifier-hover, #e4eae5);
-  --qm-text: var(--text-normal, #272b29);
-  --qm-muted: var(--text-muted, #58615c);
-  --qm-accent: var(--interactive-accent, #246557);
-  --qm-accent-hover: var(--interactive-accent-hover, #1b5145);
-  --qm-on-accent: var(--text-on-accent, #fffefa);
-  --qm-border: var(--background-modifier-border, #c9cec5);
-  --qm-control-border: var(--background-modifier-border-hover, #7f8b82);
+  --qm-bg: var(--background-primary, #f7f9fd);
+  --qm-surface: var(--background-secondary, #eef3fb);
+  --qm-surface-alt: var(--background-primary-alt, var(--background-secondary, #e9eff9));
+  --qm-surface-hover: var(--background-modifier-hover, #e2eafa);
+  --qm-text: var(--text-normal, #182641);
+  --qm-muted: var(--text-muted, #52617b);
+  --qm-accent: #245bd2;
+  --qm-accent-hover: #1948b1;
+  --qm-accent-border: #245bd2;
+  --qm-on-accent: #ffffff;
+  --qm-link: #245bd2;
+  --qm-border: var(--background-modifier-border, #d2dceb);
+  --qm-control-border: #7284a6;
   --qm-positive: var(--text-success, #28704f);
   --qm-danger: var(--text-error, #a83636);
   --qm-warning: var(--text-warning, #885b11);
-  --qm-focus: var(--interactive-accent, #246557);
-  --qm-font: var(--font-interface, system-ui, -apple-system, "Segoe UI", sans-serif);
+  --qm-focus: #245bd2;
+  --qm-font: var(--font-interface, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif);
   --qm-font-content: var(--font-text, var(--qm-font));
   --qm-font-mono: var(--font-monospace, ui-monospace, "SFMono-Regular", Consolas, monospace);
   --qm-font-sm: 13px;
@@ -23,7 +25,7 @@
   --qm-font-body: 16px;
   --qm-font-question: 18px;
   --qm-leading-ui: 1.45;
-  --qm-leading-body: 1.65;
+  --qm-leading-body: 1.6;
   --qm-space-1: 4px;
   --qm-space-2: 8px;
   --qm-space-3: 12px;
@@ -32,14 +34,22 @@
   --qm-space-6: 24px;
   --qm-space-7: 32px;
   --qm-space-8: 40px;
-  --qm-radius-sm: 6px;
+  --qm-radius-sm: 7px;
   --qm-radius-md: 10px;
-  --qm-radius-lg: 14px;
-  --qm-control-height: 40px;
-  --qm-measure: 72ch;
-  --qm-shadow: 0 12px 38px rgb(12 24 20 / 12%);
+  --qm-radius-lg: 16px;
+  --qm-control-height: 44px;
+  --qm-measure: 70ch;
+  --qm-shadow: 0 18px 56px rgb(8 21 46 / 18%);
   --qm-duration: 140ms;
   --qm-easing: cubic-bezier(.2, .7, .25, 1);
+  /* Obsidian's native Setting controls inherit these within this plugin only. */
+  --interactive-accent: var(--qm-accent);
+  --interactive-accent-hover: var(--qm-accent-hover);
+  --text-on-accent: var(--qm-on-accent);
+  --checkbox-color: var(--qm-accent);
+  --checkbox-color-hover: var(--qm-accent-hover);
+  --checkbox-border-color: var(--qm-control-border);
+  --checkbox-marker-color: var(--qm-on-accent);
 
   min-width: 0;
   min-height: 0;
@@ -53,57 +63,72 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+.theme-dark .qm-root {
+  --qm-link: #99bdff;
+  --qm-focus: #99bdff;
+  --qm-control-border: #8297bb;
+  --qm-accent-border: #7eaaff;
+  color-scheme: dark;
+}
+.theme-light .qm-root { color-scheme: light; }
+
 .qm-root[data-theme="paper"] {
-  --qm-bg: #f5f3ec;
-  --qm-surface: #fffefa;
-  --qm-surface-alt: #ebe8df;
-  --qm-surface-hover: #e5e9df;
-  --qm-text: #272b29;
-  --qm-muted: #58615c;
-  --qm-accent: #246557;
-  --qm-accent-hover: #1b5145;
-  --qm-on-accent: #fffefa;
-  --qm-border: #c9cec5;
-  --qm-control-border: #7f8b82;
+  --qm-bg: #f7f9fd;
+  --qm-surface: #ffffff;
+  --qm-surface-alt: #eaf0fb;
+  --qm-surface-hover: #e1eafb;
+  --qm-text: #182641;
+  --qm-muted: #52617b;
+  --qm-accent: #245bd2;
+  --qm-accent-hover: #1948b1;
+  --qm-accent-border: #245bd2;
+  --qm-on-accent: #ffffff;
+  --qm-link: #245bd2;
+  --qm-border: #d2dceb;
+  --qm-control-border: #7284a6;
   --qm-positive: #28704f;
   --qm-danger: #a83636;
   --qm-warning: #885b11;
-  --qm-focus: #246557;
+  --qm-focus: #245bd2;
   color-scheme: light;
 }
 
 .qm-root[data-theme="midnight"] {
-  --qm-bg: #171d20;
-  --qm-surface: #1f282b;
-  --qm-surface-alt: #273336;
-  --qm-surface-hover: #32423d;
-  --qm-text: #edf3ef;
-  --qm-muted: #a8bbb2;
-  --qm-accent: #9bd5c1;
-  --qm-accent-hover: #b9e5d5;
-  --qm-on-accent: #132820;
-  --qm-border: #3c4e49;
-  --qm-control-border: #70847b;
+  --qm-bg: #101a2d;
+  --qm-surface: #17253d;
+  --qm-surface-alt: #1d3151;
+  --qm-surface-hover: #263e64;
+  --qm-text: #edf3ff;
+  --qm-muted: #b1bfd7;
+  --qm-accent: #2f6bdb;
+  --qm-accent-hover: #326fde;
+  --qm-accent-border: #7eaaff;
+  --qm-on-accent: #ffffff;
+  --qm-link: #99bdff;
+  --qm-border: #344b6a;
+  --qm-control-border: #8297bb;
   --qm-positive: #a5d4ad;
   --qm-danger: #ffb4ac;
   --qm-warning: #eac687;
-  --qm-focus: #9bd5c1;
-  --qm-shadow: 0 14px 40px rgb(5 12 10 / 28%);
+  --qm-focus: #99bdff;
+  --qm-shadow: 0 18px 56px rgb(4 12 28 / 34%);
   color-scheme: dark;
 }
 
 .qm-root[data-theme="contrast"] {
-  --qm-bg: #101416;
-  --qm-surface: #181e21;
-  --qm-surface-alt: #232c31;
-  --qm-surface-hover: #354342;
+  --qm-bg: #0d1423;
+  --qm-surface: #131f34;
+  --qm-surface-alt: #1a2b47;
+  --qm-surface-hover: #293f61;
   --qm-text: #fff;
-  --qm-muted: #d4dde1;
-  --qm-accent: #b4f4de;
-  --qm-accent-hover: #d4ffee;
-  --qm-on-accent: #0b2119;
-  --qm-border: #adbfc4;
-  --qm-control-border: #adbfc4;
+  --qm-muted: #d8e4f8;
+  --qm-accent: #a8c8ff;
+  --qm-accent-hover: #c4dbff;
+  --qm-accent-border: #a8c8ff;
+  --qm-on-accent: #0c2045;
+  --qm-link: #b9d3ff;
+  --qm-border: #a3b9da;
+  --qm-control-border: #a3b9da;
   --qm-positive: #b3e7a9;
   --qm-danger: #ffbdc0;
   --qm-warning: #ffe183;
@@ -123,11 +148,27 @@
   width: min(1120px, calc(100vw - 48px));
   max-width: calc(100vw - 48px);
   max-height: min(900px, calc(100dvh - 48px));
-  padding: var(--qm-space-6);
+  padding: var(--qm-space-5);
   border: 1px solid var(--qm-border);
   border-radius: var(--qm-radius-lg);
   box-shadow: var(--qm-shadow);
 }
+
+.qm-root.qm-modal > .modal-title:empty { display: none; }
+.qm-root.qm-modal > .modal-title { margin-block: 0 20px; }
+.qm-root.qm-modal .modal-close-button {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  inset-inline-end: 24px;
+  inset-block-start: 8px;
+  padding: 0;
+  border-radius: var(--qm-radius-sm);
+  color: var(--qm-muted);
+  background: transparent;
+}
+.qm-root.qm-modal .modal-close-button:hover { color: var(--qm-text); background: var(--qm-surface-hover); }
 
 .qm-root.qm-modal > .modal-content {
   flex: 1 1 auto;
@@ -136,7 +177,11 @@
   margin: 0;
   overflow: auto;
   overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--qm-control-border) transparent;
 }
+.qm-root.qm-modal.qm-modal-compact { width: min(640px, calc(100vw - 48px)); }
 
 .qm-root .qm-app-shell {
   min-width: 0;
@@ -153,8 +198,8 @@
   text-wrap: balance;
 }
 
-.qm-root h1 { font-size: 28px; line-height: 1.2; letter-spacing: -.025em; }
-.qm-root :is(h2, .modal-title) { font-size: 22px; line-height: 1.3; letter-spacing: -.015em; }
+.qm-root h1 { font-size: 25px; line-height: 1.25; letter-spacing: -.02em; }
+.qm-root :is(h2, .modal-title) { font-size: 21px; line-height: 1.35; letter-spacing: -.015em; }
 .qm-root h3 { font-size: 18px; line-height: 1.4; }
 .qm-root :is(h4, h5, h6) { font-size: 16px; line-height: 1.45; }
 .qm-root p { margin: 0 0 var(--qm-space-4); line-height: var(--qm-leading-body); }
@@ -169,11 +214,13 @@
 .qm-root .qm-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qm-root .qm-wrap { min-width: 0; overflow-wrap: anywhere; }
 
-.qm-root a { color: var(--qm-accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
-.qm-root a:hover { color: var(--qm-accent-hover); }
+.qm-root a { color: var(--qm-link); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.qm-root a:hover { text-decoration-thickness: 2px; }
 
 .qm-root button,
 .qm-root .qm-button {
+  appearance: none;
+  -webkit-appearance: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -186,6 +233,7 @@
   border-radius: var(--qm-radius-sm);
   color: var(--qm-text);
   background: var(--qm-surface);
+  background-image: none;
   box-shadow: none;
   font-family: var(--qm-font);
   font-size: var(--qm-font-ui);
@@ -205,7 +253,7 @@
 }
 
 .qm-root :is(button.mod-cta, button.qm-primary, .qm-button.qm-primary) {
-  border-color: transparent;
+  border-color: var(--qm-accent-border);
   color: var(--qm-on-accent);
   background: var(--qm-accent);
 }
@@ -221,6 +269,7 @@
 .qm-root .qm-icon-button { flex: 0 0 auto; width: var(--qm-control-height); padding: 9px; }
 .qm-root .qm-icon-button svg { width: 18px; height: 18px; flex-shrink: 0; }
 .qm-root :is(button, .qm-button) > svg { flex: 0 0 auto; }
+.qm-root .qm-icon { display: inline-block; flex: 0 0 auto; vertical-align: middle; }
 
 .qm-root :is(input, textarea, select) { color: var(--qm-text); font-family: var(--qm-font); font-size: var(--qm-font-ui); }
 .qm-root input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
@@ -238,11 +287,30 @@
   line-height: 1.4;
 }
 
+/* A native arrow avoids host SVG backgrounds repeating after form resets.
+   These scoped overrides also cover newer Obsidian dropdown selectors. */
+.qm-root select:not([multiple]) {
+  appearance: auto !important;
+  -webkit-appearance: auto !important;
+  background-image: none !important;
+  background-repeat: no-repeat;
+  padding-inline-end: 28px;
+}
+
 .qm-root textarea { width: 100%; min-height: 112px; resize: vertical; line-height: 1.6; }
 .qm-root input::placeholder,
 .qm-root textarea::placeholder { color: var(--qm-muted); opacity: 1; }
 .qm-root :is(input[type="checkbox"], input[type="radio"], input[type="range"]) { accent-color: var(--qm-accent); }
 .qm-root :is(input[type="checkbox"], input[type="radio"]) { flex: 0 0 auto; width: 18px; height: 18px; margin: 0; }
+.qm-root input:is([type="checkbox"], [type="radio"]) {
+  appearance: auto;
+  -webkit-appearance: auto;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+.qm-root input:is([type="checkbox"], [type="radio"])::before,
+.qm-root input:is([type="checkbox"], [type="radio"])::after { content: none; }
 .qm-root input[type="range"] { min-height: var(--qm-control-height); padding: 0; }
 .qm-root :is(input, textarea, select):disabled { opacity: .6; cursor: not-allowed; }
 .qm-root :is(input, textarea, select)[aria-invalid="true"] { border-color: var(--qm-danger); }
@@ -274,6 +342,11 @@
 .qm-root .qm-warning { color: var(--qm-warning); }
 .qm-root .qm-success { color: var(--qm-positive); }
 .qm-root .qm-status { min-height: 1.5em; font-size: var(--qm-font-sm); line-height: 1.5; }
+.qm-root .qm-status:empty { display: none; }
+.qm-root progress { height: 5px; max-width: 100%; overflow: hidden; border: 0; border-radius: 999px; background: var(--qm-surface-alt); accent-color: var(--qm-accent); }
+.qm-root progress::-webkit-progress-bar { border-radius: inherit; background: var(--qm-surface-alt); }
+.qm-root progress::-webkit-progress-value { border-radius: inherit; background: var(--qm-accent); }
+.qm-root progress::-moz-progress-bar { border-radius: inherit; background: var(--qm-accent); }
 .qm-root .qm-panel { min-width: 0; border: 1px solid var(--qm-border); border-radius: var(--qm-radius-md); background: var(--qm-surface); }
 .qm-root .qm-separator { border: 0; border-top: 1px solid var(--qm-border); }
 .qm-root :is(.qm-visually-hidden, .qm-sr-only) { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
@@ -323,6 +396,8 @@
     padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
     border-radius: 0;
   }
+  .qm-root.qm-modal.qm-modal-compact { width: 100%; }
+  .qm-root.qm-modal .modal-close-button { width: 44px; height: 44px; inset-inline-end: 8px; }
   .qm-root h1 { font-size: 24px; }
   .qm-root h2 { font-size: 20px; }
   .qm-root input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
@@ -341,7 +416,9 @@
     --qm-muted: CanvasText;
     --qm-accent: Highlight;
     --qm-accent-hover: Highlight;
+    --qm-accent-border: Highlight;
     --qm-on-accent: HighlightText;
+    --qm-link: LinkText;
     --qm-border: ButtonText;
     --qm-control-border: ButtonText;
     --qm-positive: CanvasText;

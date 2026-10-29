@@ -40,6 +40,8 @@ export type Question = BooleanQuestion | ChoiceQuestion | MultiChoiceQuestion | 
 export const providers = ["openai", "google", "anthropic", "mistral", "cohere", "perplexity", "ollama"] as const;
 export type Provider = typeof providers[number];
 export interface ProviderSettings { apiKey: string; model: string; baseUrl: string }
+/** A single request's transport configuration. Never stored with quiz content. */
+export interface GenerationConnection { provider: Provider; config: ProviderSettings }
 export type Theme = "obsidian" | "paper" | "midnight" | "contrast";
 export type Motion = "system" | "reduced";
 export interface Settings {
@@ -188,8 +190,8 @@ export interface GenerationRequest {
   onProgress?: (message: string) => void;
 }
 export interface GenerationServicePort {
-  generate(request: GenerationRequest): Promise<Quiz>;
-  regenerate(quiz: Quiz, questionIndex: number, request: GenerationRequest): Promise<Quiz>;
+  generate(request: GenerationRequest, connection?: GenerationConnection): Promise<Quiz>;
+  regenerate(quiz: Quiz, questionIndex: number, request: GenerationRequest, connection?: GenerationConnection): Promise<Quiz>;
 }
 export interface Preset {
   id: string;

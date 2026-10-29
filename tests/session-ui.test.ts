@@ -3,7 +3,7 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { PluginContext, Quiz, SessionConfig } from "../src/core/types";
-import { createSession, reduceSession } from "../src/session/engine";
+import { createSession, reduceSession, tickSession } from "../src/session/engine";
 import { SessionContent, SessionSetup } from "../src/ui/SessionModal";
 import { SessionTimer } from "../src/ui/session/Timer";
 import { configForMode, configForTimer, defaultSessionConfig, durationSeconds } from "../src/ui/session/config";
@@ -63,7 +63,7 @@ test("active exam markup contains no reference, hint, feedback, or export contro
   assert.match(html, /Finish exam/);
   assert.match(html, /Question 1 of 2/);
   assert.doesNotMatch(html, /reference-only-hidden-value|hint-only-hidden-value|explanation-only-hidden-value/);
-  assert.doesNotMatch(html, /Reference answer|Check answer|Show reference|Edit \/ export/);
+  assert.doesNotMatch(html, /Reference answer|Check answer|Show reference|Edit quiz/);
 });
 
 test("submitted exams expose answer review and export through the editor", () => {
@@ -71,7 +71,7 @@ test("submitted exams expose answer review and export through the editor", () =>
   const html = renderToStaticMarkup(createElement(SessionContent, { context, quiz, resume: session, close: noop }));
   assert.match(html, /Session complete/);
   assert.match(html, /Reference answer/);
-  assert.match(html, /Edit \/ export/);
+  assert.match(html, /Edit quiz/);
   assert.match(html, /Save note/);
 });
 
@@ -91,4 +91,36 @@ test("an untimed paused session does not display an invented zero countdown", ()
   const timed = renderToStaticMarkup(createElement(SessionTimer, { deadline: null, pausedRemaining: 90000, paused: true, onExpire: noop }));
   assert.match(timed, /1:30/);
   assert.match(timed, /Paused time remaining/);
+});
+
+test("opening the full view preserves a paused session and its unused timer budget", () => {
+  const started = Date.now() - 60_000;
+  const running = createSession(quiz, { timerMode: "whole-quiz", durationSeconds: 1800 }, { now: started });
+  const paused = reduceSession(running, { type: "pause" }, started + 10_000);
+  const html = renderToStaticMarkup(createElement(SessionContent, { context, quiz, resume: paused, close: noop }));
+  assert.match(html, /<h3>Paused<\/h3>/);
+  assert.match(html, /Paused time remaining/);
+  assert.match(html, /29:50/);
+  assert.doesNotMatch(html, /What is an orbit\?|Show reference|Check answer/);
+  assert.equal(paused.phase, "paused");
+  assert.equal(paused.pausedRemaining, 1_790_000);
+});
+
+test("an expired unanswered question explains the lock without calling it self-review", () => {
+  const future = Date.now() + 60_000;
+  const running = createSession(quiz, { timerMode: "per-question", durationSeconds: 1 }, { now: future });
+  const expired = tickSession(running, future + 1000);
+  const previous = reduceSession(expired, { type: "previous" }, future + 1500);
+  const html = renderToStaticMarkup(createElement(SessionContent, { context, quiz, resume: previous, close: noop }));
+  assert.match(html, /Time expired\. No answer submitted\./);
+  assert.doesNotMatch(html, /Self-review|Show reference|Check answer/);
+});
+
+test("question navigation stays collapsed instead of rendering hundreds of hidden buttons", () => {
+  const large: Quiz = { ...quiz, questions: Array.from({ length: 500 }, () => ({ type: "true-false", question: "Earth orbits the Sun.", answer: true })) };
+  const running = createSession(large);
+  const html = renderToStaticMarkup(createElement(SessionContent, { context, quiz: large, resume: running, close: noop }));
+  assert.match(html, /qm-question-navigation/);
+  assert.match(html, /Question 1 of 500/);
+  assert.doesNotMatch(html, /aria-label="Question 2, unanswered"|aria-label="Question 500, unanswered"/);
 });

@@ -103,8 +103,9 @@ jobs:
         run: |
           set -euo pipefail
           cp "$ATTESTATION_BUNDLE" attestation.json
+          node scripts/release-notes.mjs "$RELEASE_VERSION" > "$RUNNER_TEMP/quiz-maker-release-notes.md"
           gh release create "$RELEASE_VERSION" main.js manifest.json styles.css SHA256SUMS attestation.json \
             --target "$RELEASE_COMMIT" \
             --title "Quiz maker $RELEASE_VERSION" \
-            --notes-file CHANGELOG.md \
+            --notes-file "$RUNNER_TEMP/quiz-maker-release-notes.md" \
             --latest

@@ -232,6 +232,64 @@ test("bookmarks and card schedules follow question identity when a quiz is reord
   await store.dispose();
 });
 
+test("finishing an old session remaps bookmarks and ratings to the edited quiz", async () => {
+  const adapter = new MemoryAdapter(); const store = new QuizStore(adapter, path);
+  const original = quiz();
+  await store.saveQuiz(original);
+  const finished: Session = { ...session("old-snapshot", original), phase: "finished", completedAt: 2000, bookmarks: [0], ratings: { 0: "good" } };
+  await store.saveQuiz({ ...original, title: "Edited quiz", questions: [...original.questions].reverse(), updatedAt: "2026-10-30T12:01:00.000Z" });
+  await store.completeSession(finished, result(finished));
+  assert.equal(store.getQuiz(original.id)?.title, "Edited quiz");
+  assert.deepEqual(store.getBookmarks(original.id), [1]);
+  assert.deepEqual(store.getReviews().map(card => card.questionIndex), [1]);
+  assert.equal(store.getHistory()[0].session?.quiz.questions[0].id, "q-a");
+  const reloaded = new QuizStore(adapter, path); await reloaded.load();
+  assert.equal(reloaded.loadIssue, undefined);
+  assert.deepEqual(reloaded.getBookmarks(original.id), [1]);
+  await store.dispose(); await reloaded.dispose();
+});
+
+test("deleted questions in an old finished session cannot corrupt the current library", async () => {
+  const adapter = new MemoryAdapter(); const store = new QuizStore(adapter, path);
+  const original = quiz(); await store.saveQuiz(original);
+  const finished: Session = { ...session("deleted-question", original), phase: "finished", completedAt: 2000, bookmarks: [1], ratings: { 1: "easy" } };
+  await store.saveQuiz({ ...original, questions: original.questions.slice(0, 1) });
+  await store.completeSession(finished, result(finished));
+  assert.deepEqual(store.getBookmarks(original.id), []);
+  assert.deepEqual(store.getReviews(), []);
+  const reloaded = new QuizStore(adapter, path); await reloaded.load();
+  assert.equal(reloaded.loadIssue, undefined);
+  assert.equal(reloaded.getQuiz(original.id)?.questions.length, 1);
+  assert.equal(reloaded.getHistory()[0].session?.quiz.questions.length, 2);
+  await store.dispose(); await reloaded.dispose();
+});
+
+test("pending mutations reject when the library closes before readiness resumes", async () => {
+  for (const operation of ["quiz", "session"] as const) {
+    const adapter = new MemoryAdapter(); const store = new QuizStore(adapter, path);
+    await store.load();
+    const pending = operation === "quiz" ? store.saveQuiz(quiz()) : store.saveSession(session(), true);
+    const closing = store.dispose();
+    await assert.rejects(pending, /closed/);
+    await closing;
+    assert.equal(adapter.writes.length, 0);
+    assert.equal(store.listQuizzes().length, 0);
+    assert.equal(store.getActiveSession(), undefined);
+  }
+});
+
+test("recovery cannot replace damaged data after the library closes", async () => {
+  const adapter = new MemoryAdapter(); adapter.files.set(path, "damaged fixture");
+  const store = new QuizStore(adapter, path); await store.load();
+  const restored = JSON.stringify({ version: 1, quizzes: [quiz()], history: [], reviews: [], bookmarks: {} });
+  const pending = store.recoverFromJson(restored);
+  const closing = store.dispose();
+  await assert.rejects(pending, /closed/);
+  await closing;
+  assert.equal(adapter.files.get(path), "damaged fixture");
+  assert.equal(adapter.writes.length, 0);
+});
+
 test("history keeps the most recent 100 results and deleting a quiz removes its active reviews", async () => {
   const adapter = new MemoryAdapter(); const store = new QuizStore(adapter, path);
   for (let index = 0; index < 103; index++) {

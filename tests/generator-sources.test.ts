@@ -1,8 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mergeSelectedNotes, readSelectedNotes } from "../src/ui/generator/sources";
+import { mergeSelectedNotes, notesInFolder, readSelectedNotes } from "../src/ui/generator/sources";
 
 const options = (maxNotes = 50, maxCharacters = 120_000) => ({ maxNotes, maxCharacters, signal: new AbortController().signal });
+
+test("the actual Obsidian vault root includes all notes without matching neighbouring folders", () => {
+  const notes = [{ path: "root.md" }, { path: "course/one.md" }, { path: "course/deeper/two.md" }, { path: "coursework/three.md" }];
+  assert.deepEqual(notesInFolder(notes, "/"), notes);
+  assert.deepEqual(notesInFolder(notes, ""), notes);
+  assert.deepEqual(notesInFolder(notes, "course").map(note => note.path), ["course/one.md", "course/deeper/two.md"]);
+  assert.notEqual(notesInFolder(notes, "/"), notes);
+});
 
 test("source selection deduplicates paths without mutating the current list", () => {
   const first = { path: "course/one.md" };

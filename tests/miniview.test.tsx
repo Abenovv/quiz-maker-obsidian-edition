@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { Platform, type App } from "obsidian";
+import { Platform, type App, type WorkspaceLeaf } from "obsidian";
 import type { PluginContext, Quiz, QuizStorePort, Session, SessionSummary } from "../src/core/types";
 import { createSession, reduceSession, summarizeSession } from "../src/session/engine";
-import { latestMiniSession, miniSessionSnapshot, MiniStudy, MINI_VIEW_TYPE, openMiniView } from "../src/ui/MiniView";
+import { latestMiniSession, miniSessionSnapshot, MiniQuizView, MiniStudy, MINI_VIEW_TYPE, openMiniView } from "../src/ui/MiniView";
 
 const quiz: Quiz = {
   schemaVersion: 2, id: "sample", title: "Sky practice", sources: [],
@@ -94,8 +94,40 @@ test("pausing the shared session removes response controls until resuming", () =
   const paused = reduceSession(initial, { type: "pause" }, initial.updatedAt + 1);
   const html = renderToStaticMarkup(createElement(MiniStudy, { context: contextFor(paused) }));
   assert.match(html, /Quiz paused/);
-  assert.match(html, />Resume</);
+  assert.match(html, /Resume<\/button>/);
   assert.doesNotMatch(html, /Check answer|question-type/);
+});
+
+test("practice keeps its primary check action visible and disabled until answered", () => {
+  const initial = session();
+  const front = renderToStaticMarkup(createElement(MiniStudy, { context: contextFor(initial) }));
+  assert.match(front, /<button[^>]*disabled=""[^>]*>Check answer<\/button>/);
+  const answered = reduceSession(initial, { type: "answer", response: false }, initial.updatedAt + 1);
+  const active = renderToStaticMarkup(createElement(MiniStudy, { context: contextFor(answered) }));
+  assert.match(active, /<button[^>]*data-qm-feedback="reveal"[^>]*>Check answer<\/button>/);
+  assert.doesNotMatch(active, /<button[^>]*disabled=""[^>]*>Check answer<\/button>/);
+});
+
+test("compact icon controls retain distinct accessible labels and pressed state", () => {
+  const marked = { ...session(), flags: [0], bookmarks: [0] };
+  const html = renderToStaticMarkup(createElement(MiniStudy, { context: contextFor(marked) }));
+  assert.match(html, /aria-label="Open full view"/);
+  assert.match(html, /aria-label="Flag question"[^>]*aria-pressed="true"/);
+  assert.match(html, /aria-label="Bookmark question"[^>]*aria-pressed="true"/);
+  assert.match(html, /aria-label="Previous question"/);
+  assert.match(html, /aria-label="Next question"/);
+  assert.match(html, /aria-label="Pause quiz"/);
+});
+
+test("paused timed practice shows the saved time without a live announcement each second", () => {
+  const now = Date.now();
+  const timed = createSession(quiz, { mode: "timed-practice", durationSeconds: 90 }, { now, id: "timed" });
+  const paused = reduceSession(timed, { type: "pause" }, now + 15_000);
+  const html = renderToStaticMarkup(createElement(MiniStudy, { context: contextFor(paused) }));
+  assert.match(html, /role="timer" aria-live="off" aria-label="Paused time remaining"/);
+  assert.match(html, /1:15<\/span>/);
+  assert.match(html, /Quiz paused/);
+  assert.doesNotMatch(html, /Check answer|aria-label="Pause quiz"/);
 });
 
 test("opening the mini view reuses its existing native leaf", async () => {
@@ -109,6 +141,19 @@ test("opening the mini view reuses its existing native leaf", async () => {
   } } as unknown as App;
   await openMiniView(context);
   assert.deepEqual(calls, [leaf]);
+});
+
+test("an existing mini view picks up theme and motion changes without reopening", () => {
+  const context = contextFor();
+  const view = new MiniQuizView({} as WorkspaceLeaf, context);
+  view.refreshAppearance();
+  assert.equal(view.contentEl.dataset.theme, "obsidian");
+  context.settings.theme = "midnight";
+  context.settings.motion = "reduced";
+  view.refreshAppearance();
+  assert.equal(view.contentEl.dataset.theme, "midnight");
+  assert.equal(view.contentEl.dataset.motion, "reduced");
+  assert.equal(view.getIcon(), "quiz-maker");
 });
 
 test("mobile mini view uses a normal tab instead of a desktop-only split", async () => {

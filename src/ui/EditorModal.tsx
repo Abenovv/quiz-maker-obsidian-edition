@@ -1,20 +1,21 @@
 import { Platform, TFile, TFolder, normalizePath } from "obsidian";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createQuestion, createQuiz, MAX_QUIZ_BYTES, MAX_QUESTIONS, questionTypeLabels, questionTypes, serializeQuiz, validateQuiz } from "../core/schema";
-import type { GenerationRequest, PluginContext, Provider, Question, QuestionType, Quiz, SessionConfig } from "../core/types";
-import { InlineError, ReactModal, errorMessage } from "./shared";
+import type { GenerationConnection, GenerationRequest, PluginContext, Provider, Question, QuestionType, Quiz, SessionConfig } from "../core/types";
+import { Icon, InlineError, ReactModal, errorMessage } from "./shared";
 import { duplicateQuestion, editorError, exportFilename, moveQuestion, previewImport, removeQuestion, replaceQuestion, validateEditorDraft } from "./editor/model";
 import { MAX_LEGACY_LIBRARY_BYTES } from "../storage/legacy";
 
 interface CloseControl { dirty: boolean; request?: () => void }
 const providerNames: Record<Provider, string> = { openai: "OpenAI", google: "Google", anthropic: "Anthropic", mistral: "Mistral", cohere: "Cohere", perplexity: "Perplexity", ollama: "Ollama" };
 
-function useSettledText(value: string): string {
+function useSettledText(value: string, owner?: RefObject<HTMLElement>): string {
   const [settled, setSettled] = useState(value);
   useEffect(() => {
-    const timeout = window.setTimeout(() => setSettled(value), 200);
-    return () => window.clearTimeout(timeout);
-  }, [value]);
+    const host = owner?.current?.ownerDocument.defaultView ?? window;
+    const timeout = host.setTimeout(() => setSettled(value), 150);
+    return () => host.clearTimeout(timeout);
+  }, [value, owner]);
   return settled;
 }
 
@@ -168,7 +169,7 @@ function QuizEditor({ context, initial, control, close }: { context: PluginConte
   const [dirty, setDirty] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
-  const [confirmRegenerate, setConfirmRegenerate] = useState(false);
+  const [confirmRegenerate, setConfirmRegenerate] = useState<GenerationConnection | null>(null);
   const [busy, setBusy] = useState<"save" | "regenerate" | null>(null);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
@@ -180,17 +181,18 @@ function QuizEditor({ context, initial, control, close }: { context: PluginConte
   const regeneratePrompt = useRef<HTMLDivElement>(null);
   const confirmationTrigger = useRef<HTMLElement | null>(null);
   const wasConfirming = useRef(false);
-  const settledJson = useSettledText(json);
-  const settledQuestionJson = useSettledText(questionJson ?? "");
+  const settledJson = useSettledText(json, editor);
+  const settledQuestionJson = useSettledText(questionJson ?? "", editor);
   const questionJsonPending = questionJson !== undefined && settledQuestionJson !== questionJson;
   const pending = (mode === "json" && settledJson !== json) || questionJsonPending;
   control.dirty = dirty;
   control.request = () => setConfirmClose(true);
   useEffect(() => { active.current = true; return () => { active.current = false; abort.current?.abort(); control.request = undefined; }; }, [control]);
   useEffect(() => {
-    const confirming = confirmClose || confirmRemove || confirmRegenerate;
+    const confirming = confirmClose || confirmRemove || Boolean(confirmRegenerate);
     if (confirming && !wasConfirming.current) {
-      confirmationTrigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      const focused = editor.current?.ownerDocument.activeElement;
+      confirmationTrigger.current = focused?.instanceOf(HTMLElement) ? focused : null;
       const prompt = confirmClose ? closePrompt.current : confirmRemove ? removePrompt.current : regeneratePrompt.current;
       prompt?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
     } else if (!confirming && wasConfirming.current) {
@@ -218,7 +220,7 @@ function QuizEditor({ context, initial, control, close }: { context: PluginConte
   }, [questionJson, settledQuestionJson, selection]);
   const choose = (index: number): void => {
     if (questionJsonError || questionJsonPending) { setError("Finish the question JSON before switching questions."); return; }
-    setSelection(index); setQuestionJson(undefined); setQuestionJsonError(""); setConfirmRemove(false); setConfirmRegenerate(false); setError("");
+    setSelection(index); setQuestionJson(undefined); setQuestionJsonError(""); setConfirmRemove(false); setConfirmRegenerate(null); setError("");
   };
   const save = async (study = false): Promise<void> => {
     if (!valid || busy) return;
@@ -233,12 +235,14 @@ function QuizEditor({ context, initial, control, close }: { context: PluginConte
     finally { if (active.current) setBusy(null); }
   };
   const regenerate = async (): Promise<void> => {
-    if (!valid || !selected || busy) return;
+    if (!valid || !selected || busy || !confirmRegenerate) return;
+    const connection: GenerationConnection = { provider: confirmRegenerate.provider, config: { ...confirmRegenerate.config } };
+    const language = context.settings.language;
     const snapshot = valid;
     const index = selection;
     const controller = new AbortController();
     abort.current = controller;
-    setBusy("regenerate"); setConfirmRegenerate(false); setError(""); setStatus("Reading source notes…");
+    setBusy("regenerate"); setConfirmRegenerate(null); setError(""); setStatus("Reading notes…");
     try {
       if (!snapshot.sources.length || snapshot.sources.length > 50) throw new Error("Choose between 1 and 50 source notes to regenerate a question.");
       const sources: GenerationRequest["sources"] = [];
@@ -254,10 +258,10 @@ function QuizEditor({ context, initial, control, close }: { context: PluginConte
       }
       const next = await context.generation.regenerate(snapshot, index, {
         sources, methods: [{ type: selected.type, count: 1 }], title: snapshot.title,
-        difficulty: selected.difficulty ?? "medium", language: context.settings.language,
+        difficulty: selected.difficulty ?? "medium", language,
         includeHints: Boolean(selected.hint), includeExplanations: Boolean(selected.explanation), includeSources: true,
         signal: controller.signal, onProgress: message => { if (active.current && !controller.signal.aborted) setStatus(message); }
-      });
+      }, connection);
       if (!active.current || controller.signal.aborted) return;
       update(next); setStatus("Question regenerated. Review it before saving.");
     } catch (issue) {
@@ -301,14 +305,17 @@ function QuizEditor({ context, initial, control, close }: { context: PluginConte
           {selected && <fieldset className="qm-editor-fields" disabled={Boolean(busy)}>
             <legend>Question {selection + 1} · {questionTypeLabels[selected.type]}</legend>
             <div className="qm-editor-question-actions">
-              <button type="button" disabled={selection === 0 || Boolean(questionJsonError) || questionJsonPending} onClick={() => { update(moveQuestion(draft, selection, selection - 1)); setSelection(selection - 1); }}>Move up</button>
-              <button type="button" disabled={selection === draft.questions.length - 1 || Boolean(questionJsonError) || questionJsonPending} onClick={() => { update(moveQuestion(draft, selection, selection + 1)); setSelection(selection + 1); }}>Move down</button>
-              <button type="button" disabled={draft.questions.length >= MAX_QUESTIONS || Boolean(questionJsonError) || questionJsonPending} onClick={() => { update(duplicateQuestion(draft, selection)); setSelection(selection + 1); }}>Duplicate</button>
-              <button type="button" onClick={() => setConfirmRemove(true)}>Remove</button>
-              {draft.sources.length > 0 && <button type="button" disabled={!valid} onClick={() => setConfirmRegenerate(true)}>Regenerate</button>}
+              <button type="button" className="qm-icon-button" aria-label="Move up" title="Move up" disabled={selection === 0 || Boolean(questionJsonError) || questionJsonPending} onClick={() => { update(moveQuestion(draft, selection, selection - 1)); setSelection(selection - 1); }}><Icon name="chevron-up" /></button>
+              <button type="button" className="qm-icon-button" aria-label="Move down" title="Move down" disabled={selection === draft.questions.length - 1 || Boolean(questionJsonError) || questionJsonPending} onClick={() => { update(moveQuestion(draft, selection, selection + 1)); setSelection(selection + 1); }}><Icon name="chevron-down" /></button>
+              <button type="button" disabled={draft.questions.length >= MAX_QUESTIONS || Boolean(questionJsonError) || questionJsonPending} onClick={() => { update(duplicateQuestion(draft, selection)); setSelection(selection + 1); }}><Icon name="plus" />Duplicate</button>
+              <button type="button" onClick={() => setConfirmRemove(true)}><Icon name="trash" />Remove</button>
+              {draft.sources.length > 0 && <button type="button" disabled={!valid} onClick={() => {
+                const provider = context.settings.provider;
+                setConfirmRegenerate({ provider, config: { ...context.settings.providers[provider] } });
+              }}><Icon name="refresh" />Regenerate</button>}
             </div>
             {confirmRemove && <div ref={removePrompt} className="qm-editor-confirm" role="alert"><p>Remove this question?</p><button type="button" onClick={() => setConfirmRemove(false)}>Keep question</button><button type="button" onClick={() => { update(removeQuestion(draft, selection)); setSelection(Math.max(0, Math.min(selection, draft.questions.length - 2))); setConfirmRemove(false); }}>Remove question</button></div>}
-            {confirmRegenerate && <div ref={regeneratePrompt} className="qm-editor-confirm" role="alert"><p>Send these source notes to {providerNames[context.settings.provider]} to regenerate this question?</p><ul>{draft.sources.map(path => <li key={path}>{path}</li>)}</ul><button type="button" onClick={() => setConfirmRegenerate(false)}>Cancel</button><button type="button" className="mod-cta" onClick={() => { void regenerate(); }}>Regenerate question</button></div>}
+            {confirmRegenerate && <div ref={regeneratePrompt} className="qm-editor-confirm" role="alert"><p>Send these notes to {providerNames[confirmRegenerate.provider]} to replace this question?</p><ul>{draft.sources.map(path => <li key={path}>{path}</li>)}</ul><button type="button" onClick={() => setConfirmRegenerate(null)}>Cancel</button><button type="button" className="mod-cta" onClick={() => { void regenerate(); }}>Regenerate question</button></div>}
             <label className="qm-field"><span>Question</span><textarea rows={3} value={selected.question} onChange={event => update(replaceQuestion(draft, selection, { ...selected, question: event.currentTarget.value }))} /></label>
             <QuestionFields question={selected} onChange={question => update(replaceQuestion(draft, selection, question))} />
             <details><summary>Hint, explanation and source</summary>{(["hint", "explanation", "source"] as const).map(key => <label key={key} className="qm-field"><span>{key === "hint" ? "Hint" : key === "explanation" ? "Explanation" : "Source note"}</span><textarea rows={key === "explanation" ? 3 : 2} value={selected[key] ?? ""} onChange={event => { const next = { ...selected }; if (event.currentTarget.value) next[key] = event.currentTarget.value; else delete next[key]; update(replaceQuestion(draft, selection, next)); }} /></label>)}</details>

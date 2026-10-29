@@ -124,11 +124,11 @@ function Studio({ context, close }: { context: PluginContext; close(this: void):
 
   return <div className="qm-studio">
     <header className="qm-studio-header">
-      <h1>Quiz maker</h1>
+      <h1 className="qm-brand"><Icon name="book" size={24}/>Quiz maker</h1>
       <div className="qm-toolbar" aria-label="Quiz actions">
-        <button className="mod-cta" type="button" disabled={loading || blocked || pending} onClick={() => leave(() => context.openGenerator())}><Icon name="plus" />Generate</button>
-        <button type="button" disabled={loading || blocked || pending} onClick={() => leave(() => context.openEditor())}>New quiz</button>
-        <button type="button" disabled={loading || blocked || pending} onClick={() => leave(() => openImport(context))}>Import</button>
+        <button className="mod-cta" type="button" disabled={loading || blocked || pending} onClick={() => leave(() => context.openGenerator())}><Icon name="book" />Generate</button>
+        <button type="button" disabled={loading || blocked || pending} onClick={() => leave(() => context.openEditor())}><Icon name="plus" />New quiz</button>
+        <button type="button" disabled={loading || blocked || pending} onClick={() => leave(() => openImport(context))}><Icon name="upload" />Import</button>
       </div>
     </header>
 
@@ -143,7 +143,7 @@ function Studio({ context, close }: { context: PluginContext; close(this: void):
     <p className="qm-status" role="status" aria-live="polite">{notice}</p>
 
     {active && active.phase !== "finished" && !loading && <section className="qm-resume" aria-label="Unfinished session">
-      <div><span className="qm-muted">{active.phase === "paused" ? "Paused" : "Unfinished"}</span><h2>{active.quiz.title}</h2><p>{Math.min(active.position + 1, active.order.length)} of {active.order.length} questions</p></div>
+      <div><span className="qm-muted">{active.phase === "paused" ? "Paused" : "Unfinished"}</span><h2>{active.quiz.title}</h2><p>Question {Math.min(active.position + 1, active.order.length)} of {active.order.length}</p></div>
       <button className="mod-cta" type="button" disabled={pending || blocked} onClick={() => leave(() => context.startQuiz(active.quiz, active.config, active))}>Resume</button>
     </section>}
 
@@ -154,7 +154,7 @@ function Studio({ context, close }: { context: PluginContext; close(this: void):
           <label className="qm-search"><span className="qm-sr-only">Search title or source</span><Icon name="search" /><input type="search" placeholder="Search title or source" value={query} onChange={event => { setQuery(event.target.value); setPage(0); }} /></label>
           <label><span className="qm-sr-only">Filter quizzes</span><select aria-label="Filter quizzes" value={filter} onChange={event => { setFilter(event.target.value as LibraryFilter); setPage(0); }}><option value="all">All quizzes</option><option value="due">Cards due</option><option value="missed">Missed questions</option><option value="bookmarked">Bookmarked</option></select></label>
         </div>}
-        {!entries.length ? <EmptyState title="Start with your notes" action={<button type="button" disabled={pending} onClick={sample}>{busy === "sample" ? "Preparing…" : "Try a sample quiz"}</button>}>Generate a question pack, import JSON, or try three questions without a model connection.</EmptyState> : !results.length ? <EmptyState title="No matching quizzes">Try another title or source, or change the filter.</EmptyState> : <>
+        {!entries.length ? <EmptyState title="Start a quiz" action={<button type="button" disabled={pending} onClick={sample}>{busy === "sample" ? "Preparing…" : "Try a sample quiz"}</button>}>Generate from notes, import JSON, or try three sample questions.</EmptyState> : !results.length ? <EmptyState title="No matching quizzes">Try another title or change the filter.</EmptyState> : <>
           <ul className="qm-library" aria-label="Saved quizzes">{pageData.items.map(entry => <QuizRow key={entry.quiz.id} entry={entry} context={context} pending={pending} busy={busy} leave={leave} review={review} run={run} />)}</ul>
           {pageData.pageCount > 1 && <nav className="qm-pagination" aria-label="Library pages"><button type="button" disabled={pageData.page === 0} onClick={() => setPage(pageData.page - 1)}>Previous</button><span className="qm-muted">{pageData.start}–{pageData.end} of {results.length}</span><button type="button" disabled={pageData.page === pageData.pageCount - 1} onClick={() => setPage(pageData.page + 1)}>Next</button></nav>}
         </>}
@@ -162,7 +162,7 @@ function Studio({ context, close }: { context: PluginContext; close(this: void):
     </section>
 
     <div className="qm-studio-bottom">
-      <section className="qm-presets" aria-labelledby={`${headingId}-presets`}><div className="qm-section-heading"><h2 id={`${headingId}-presets`}>Question packs</h2></div><ul className="qm-preset-list">{presets.map(preset => <li key={preset.id} className={`qm-preset${preset.id === "student-pack" ? " is-featured" : ""}`}><button type="button" disabled={blocked || pending || loading} onClick={() => leave(() => context.openGenerator(preset.id))}><strong>{preset.name}</strong><span>{preset.description}</span><small>{presetQuestionCount(preset)} questions{preset.config.timerMode !== "none" ? ` · ${Math.round(preset.config.durationSeconds / 60)} min` : ""}</small><Icon name="arrow" /></button></li>)}</ul></section>
+      <section className="qm-presets" aria-labelledby={`${headingId}-presets`}><div className="qm-section-heading"><h2 id={`${headingId}-presets`}>Study packs</h2></div><ul className="qm-preset-list">{presets.map(preset => <li key={preset.id} className={`qm-preset${preset.id === "student-pack" ? " is-featured" : ""}`}><button type="button" disabled={blocked || pending || loading} onClick={() => leave(() => context.openGenerator(preset.id))}><strong>{preset.name}</strong><span>{preset.description}</span><small>{presetQuestionCount(preset)} questions{preset.config.timerMode !== "none" ? ` · ${Math.round(preset.config.durationSeconds / 60)} min` : ""}</small><Icon name="arrow" /></button></li>)}</ul></section>
       {history.length > 0 && <section className="qm-history" aria-labelledby={`${headingId}-history`}><div className="qm-section-heading"><h2 id={`${headingId}-history`}>Recent sessions</h2></div><ol>{history.map(result => <HistoryRow key={result.id} result={result} />)}</ol></section>}
     </div>
   </div>;
@@ -204,13 +204,13 @@ function QuizRow({ entry, context, pending, busy, leave, review, run }: QuizRowP
   return <li className="qm-library-row">
     <div className="qm-library-details">
       {rename ? <form className="qm-rename-form" onSubmit={event => { event.preventDefault(); saveTitle(); }} onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); if (!pending) cancelInline(); } }}><label><span className="qm-sr-only">Quiz title</span><input ref={titleInput} aria-label="Quiz title" aria-invalid={!validTitle} aria-describedby={!validTitle ? errorId : undefined} value={title} maxLength={200} onChange={event => setTitle(event.target.value)} /></label><button type="submit" disabled={!validTitle || pending}>{busy === `rename:${quiz.id}` ? "Saving…" : "Save"}</button><button type="button" disabled={pending} onClick={cancelInline}>Cancel</button>{!validTitle && <span id={errorId} className="qm-error">Enter a title.</span>}</form> : <h3>{quiz.title}</h3>}
-      <div className="qm-library-meta qm-muted"><span>{quiz.questions.length} {quiz.questions.length === 1 ? "question" : "questions"}</span><span>{date(quiz.updatedAt)}</span>{entry.latest && <span>Last result {scoreLabel(entry.latest)}</span>}</div>
+      <div className="qm-library-meta qm-muted"><span>{quiz.questions.length} {quiz.questions.length === 1 ? "question" : "questions"}</span><span>{date(quiz.updatedAt)}</span>{entry.latest && <span aria-label={`Last result ${scoreLabel(entry.latest)}`}>{scoreLabel(entry.latest)}</span>}</div>
       {deleting && <div className="qm-delete-confirm" role="group" aria-label={`Delete ${quiz.title}`} onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); if (!pending) cancelInline(); } }}><p role="status">Delete this quiz from the library? Saved Markdown notes stay in your vault.</p><button ref={confirmDelete} className="mod-warning" type="button" disabled={pending} onClick={() => { void run(`delete:${quiz.id}`, () => context.store.deleteQuiz(quiz.id), "Quiz deleted."); }}>{busy === `delete:${quiz.id}` ? "Deleting…" : "Delete quiz"}</button><button type="button" disabled={pending} onClick={cancelInline}>Keep quiz</button></div>}
     </div>
     <div className="qm-row-actions">
       <button className="qm-study-button" type="button" disabled={pending} aria-label={`Study ${quiz.title}`} onClick={() => leave(() => context.startQuiz(quiz))}><Icon name="play" />Study</button>
-      <button type="button" disabled={pending} aria-label={`Edit ${quiz.title}`} onClick={() => leave(() => context.openEditor(quiz))}>Edit</button>
-      <details className="qm-more"><summary ref={more} aria-label={`More actions for ${quiz.title}`}>More</summary><div className="qm-more-actions">
+      <button className="qm-icon-button" type="button" disabled={pending} title="Edit" aria-label={`Edit ${quiz.title}`} onClick={() => leave(() => context.openEditor(quiz))}><Icon name="edit" /></button>
+      <details className="qm-more"><summary ref={more} title="More actions" aria-label={`More actions for ${quiz.title}`}><Icon name="more" /></summary><div className="qm-more-actions">
         {entry.due.length > 0 && <button type="button" disabled={pending} onClick={() => review(entry, "due")}>Review {entry.due.length} due</button>}
         {entry.missed.length > 0 && <button type="button" disabled={pending} onClick={() => review(entry, "missed")}>Review {entry.missed.length} missed</button>}
         {entry.bookmarked.length > 0 && <button type="button" disabled={pending} onClick={() => review(entry, "bookmarked")}>Bookmarks ({entry.bookmarked.length})</button>}

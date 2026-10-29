@@ -1,11 +1,11 @@
 import { FuzzySuggestModal, TFile, TFolder } from "obsidian";
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { questionTypeLabels } from "../core/schema";
-import { providers, questionTypes, type Difficulty, type GenerationRequest, type ModelInfo, type PluginContext, type Provider, type Quiz, type RequestedMethod, type SessionConfig } from "../core/types";
+import { providers, questionTypes, type Difficulty, type GenerationConnection, type GenerationRequest, type ModelInfo, type PluginContext, type Provider, type Quiz, type RequestedMethod, type SessionConfig } from "../core/types";
 import { MAX_GENERATED_QUESTIONS, MAX_GENERATION_SOURCES, MAX_SOURCE_CHARACTERS } from "../ai/generation";
 import { DEFAULT_PRESET_ID, findPreset, presets } from "../presets";
 import { Icon, InlineError, errorMessage, openReactModal } from "./shared";
-import { mergeSelectedNotes, readSelectedNotes } from "./generator/sources";
+import { mergeSelectedNotes, notesInFolder, readSelectedNotes } from "./generator/sources";
 
 const providerNames: Record<Provider, string> = {
   openai: "OpenAI", google: "Google", anthropic: "Anthropic", mistral: "Mistral", cohere: "Cohere", perplexity: "Perplexity", ollama: "Ollama"
@@ -17,7 +17,7 @@ class SourcePicker<T extends TFile | TFolder> extends FuzzySuggestModal<T> {
     this.setPlaceholder(`Choose a ${kind}`);
   }
   getItems(): T[] { return this.items; }
-  getItemText(item: T): string { return item.path || "Vault"; }
+  getItemText(item: T): string { return item.path === "/" ? "Vault" : item.path || "Vault"; }
   onChooseItem(item: T): void { this.choose(item); }
 }
 
@@ -113,8 +113,7 @@ function Generator({ context, close, presetId }: { context: PluginContext; close
     const folders = context.app.vault.getAllLoadedFiles().filter((file): file is TFolder => file instanceof TFolder).sort((left, right) => left.path.localeCompare(right.path));
     if (!folders.length) { setError("No folders are available."); return; }
     new SourcePicker(context, folders, folder => {
-      const prefix = folder.path ? folder.path + "/" : "";
-      const notes = context.app.vault.getMarkdownFiles().filter(file => file.path.startsWith(prefix));
+      const notes = notesInFolder(context.app.vault.getMarkdownFiles(), folder.path);
       if (!notes.length) { setError("This folder has no Markdown notes."); return; }
       addFiles(notes);
     }, "folder").open();
@@ -178,6 +177,7 @@ function Generator({ context, close, presetId }: { context: PluginContext; close
     if (!validCounts) { setError(`Choose 1–${MAX_GENERATED_QUESTIONS} questions, with 1–20 per format.`); return; }
     if (!files.length) { setError("Choose at least one note."); return; }
     const account = context.settings.providers[provider];
+    const connection: GenerationConnection = { provider, config: { ...account, model: model.trim() } };
     if (!account.apiKey && !localEndpoint(provider, account.baseUrl)) { setError(`Add your ${providerNames[provider]} API key in Settings → Quiz maker.`); return; }
     if (!model.trim()) { setError("Enter or select a model ID."); return; }
     if (!language.trim()) { setError("Enter the language for your questions."); return; }
@@ -186,13 +186,15 @@ function Generator({ context, close, presetId }: { context: PluginContext; close
     activeRequest.current = { id, controller };
     const current = (): boolean => alive.current && activeRequest.current?.id === id && !controller.signal.aborted;
     setBusy(true);
-    setStatus("Reading selected notes…");
+    setStatus("Reading notes…");
     try {
       const sources = await readSelectedNotes(files, file => context.app.vault.cachedRead(file), { maxNotes: MAX_GENERATION_SOURCES, maxCharacters: MAX_SOURCE_CHARACTERS, signal: controller.signal });
       if (!current()) return;
-      context.settings.provider = provider;
-      context.settings.providers[provider].model = model.trim();
-      await context.saveSettings();
+      if (context.settings.provider !== provider || context.settings.providers[provider].model !== connection.config.model) {
+        context.settings.provider = provider;
+        context.settings.providers[provider].model = connection.config.model;
+        await context.saveSettings();
+      }
       if (!current()) return;
       const request: GenerationRequest = {
         sources, methods: methods.map(method => ({ ...method })),
@@ -203,7 +205,7 @@ function Generator({ context, close, presetId }: { context: PluginContext; close
         signal: controller.signal,
         onProgress: message => { if (current()) setStatus(message); }
       };
-      const result = await context.generation.generate(request);
+      const result = await context.generation.generate(request, connection);
       if (!current()) return;
       const quiz = { ...result, runConfig: { ...config } };
       await persistResult(quiz, current);
@@ -226,10 +228,10 @@ function Generator({ context, close, presetId }: { context: PluginContext; close
         <header className="qm-section-heading"><h3 id={notesHeadingId}>Notes</h3><span className="qm-muted">{files.length}/{MAX_GENERATION_SOURCES}</span></header>
         <div className="qm-toolbar">
           <button type="button" onClick={chooseNotes} disabled={busy}><Icon name="plus"/>Add note</button>
-          <button type="button" onClick={chooseFolder} disabled={busy}>Add folder</button>
+          <button type="button" onClick={chooseFolder} disabled={busy}><Icon name="folder"/>Add folder</button>
           {files.length > 0 && <button type="button" className="qm-quiet" onClick={() => setFiles([])} disabled={busy}>Clear</button>}
         </div>
-        {!files.length ? <p className="qm-empty-description">Choose notes to use as the source.</p> : <ul className="qm-source-list">{files.map(file => <li className="qm-source-row" key={file.path}>
+        {!files.length ? <p className="qm-empty-description">Choose your source notes.</p> : <ul className="qm-source-list">{files.map(file => <li className="qm-source-row" key={file.path}>
           <span className="qm-source-path" title={file.path}>{file.path}</span>
           <button type="button" className="qm-icon-button qm-quiet" aria-label={`Remove ${file.path}`} disabled={busy} onClick={() => setFiles(current => current.filter(item => item.path !== file.path))}><Icon name="close"/></button>
         </li>)}</ul>}
@@ -271,7 +273,7 @@ function Generator({ context, close, presetId }: { context: PluginContext; close
     <section className="qm-generator-model" aria-label="Generation model">
       <label className="qm-field">Provider<select value={provider} disabled={busy} onChange={event => { const next = event.currentTarget.value as Provider; setProvider(next); setModel(context.settings.providers[next].model); setModelsError(""); }}>{providers.map(item => <option value={item} key={item}>{providerNames[item]}</option>)}</select></label>
       <label className="qm-field qm-model-field">Model<input list={modelListId} value={model} maxLength={200} disabled={busy} autoComplete="off" spellCheck={false} placeholder="Select or enter a model ID" onChange={event => setModel(event.currentTarget.value)}/><datalist id={modelListId}>{models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</datalist></label>
-      <button type="button" disabled={busy || modelsBusy} onClick={() => { void refreshModels(true); }}>{modelsBusy ? "Refreshing…" : "Refresh models"}</button>
+      <button type="button" disabled={busy || modelsBusy} onClick={() => { void refreshModels(true); }}><Icon name="refresh"/>{modelsBusy ? "Refreshing…" : "Refresh models"}</button>
     </section>
     <InlineError>{modelsError}</InlineError>
     <footer className="qm-generator-footer">
