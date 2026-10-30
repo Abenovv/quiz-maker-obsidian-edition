@@ -1,13 +1,76 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createElement } from "react";
+import { createElement, type KeyboardEvent } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { TFile, TFolder } from "obsidian";
 import type { PluginContext, Quiz, SessionSummary } from "../src/core/types";
 import { createWelcomeQuiz } from "../src/presets";
 import { createSession, summarizeSession } from "../src/session/engine";
 import { filterLibrary, libraryEntries, libraryPage, reviewSource, scoreLabel } from "../src/ui/studioData";
-import { Studio } from "../src/ui/StudioModal";
+import { closeStudioDisclosure, positionStudioDisclosure, studioMenuPlacement, Studio } from "../src/ui/StudioModal";
+
+test("a last-row menu opens above the trigger when the scroll pane clips its lower actions", () => {
+  assert.deepEqual(studioMenuPlacement({ top: 80, bottom: 569, triggerTop: 413, triggerBottom: 457, menuHeight: 202 }), { side: "above", maxHeight: 327 });
+});
+
+test("top menus stay below when they fit and tall menus scroll within the roomier side", () => {
+  assert.deepEqual(studioMenuPlacement({ top: 80, bottom: 569, triggerTop: 100, triggerBottom: 144, menuHeight: 202 }), { side: "below", maxHeight: 419 });
+  assert.deepEqual(studioMenuPlacement({ top: 80, bottom: 220, triggerTop: 110, triggerBottom: 154, menuHeight: 300, gap: 8 }), { side: "below", maxHeight: 58 });
+  assert.deepEqual(studioMenuPlacement({ top: 80, bottom: 220, triggerTop: 160, triggerBottom: 204, menuHeight: 300 }), { side: "above", maxHeight: 74 });
+});
+
+test("partially clipped triggers and panes shorter than a control never produce negative menu heights", () => {
+  assert.deepEqual(studioMenuPlacement({ top: 100, bottom: 130, triggerTop: 98, triggerBottom: 142, menuHeight: 300 }), { side: "below", maxHeight: 1 });
+  assert.deepEqual(studioMenuPlacement({ top: 100, bottom: 145, triggerTop: 120, triggerBottom: 164, menuHeight: 300 }), { side: "above", maxHeight: 14 });
+});
+
+test("menu positioning intersects its owning viewport and scroll pane without global window access", () => {
+  const properties = new Map<string, string>([["--qm-menu-max-height", "20px"]]);
+  const details = {
+    open: true,
+    ownerDocument: { defaultView: { innerHeight: 900, visualViewport: { offsetTop: 40, height: 400 } } },
+    dataset: {} as Record<string, string>,
+    style: { removeProperty: (name: string) => properties.delete(name), setProperty: (name: string, value: string) => properties.set(name, value) },
+    closest: () => ({ getBoundingClientRect: () => ({ top: 80, bottom: 569 }) }),
+    querySelector: (selector: string) => selector === ":scope > summary"
+      ? { getBoundingClientRect: () => ({ top: 350, bottom: 394 }) }
+      : { getBoundingClientRect: () => ({ height: 20 }), scrollHeight: 202, offsetHeight: 20, clientHeight: 18 }
+  };
+  positionStudioDisclosure(details as unknown as HTMLDetailsElement);
+  assert.equal(details.dataset.side, "above");
+  assert.equal(properties.get("--qm-menu-max-height"), "264px");
+  details.open = false;
+  details.querySelector = () => { throw new Error("A closed disclosure must not measure its hidden panel"); };
+  assert.doesNotThrow(() => positionStudioDisclosure(details as unknown as HTMLDetailsElement));
+});
+
+test("Escape dismisses an open action disclosure before the native modal and restores its trigger", () => {
+  let prevented = false;
+  let stopped = false;
+  let focused = false;
+  const details = {
+    open: true,
+    querySelector: (selector: string) => selector === "summary" ? { focus: () => { focused = true; } } : null
+  };
+  closeStudioDisclosure({
+    key: "Escape", currentTarget: details,
+    preventDefault: () => { prevented = true; }, stopPropagation: () => { stopped = true; }
+  } as unknown as KeyboardEvent<HTMLDetailsElement>);
+  assert.equal(details.open, false);
+  assert.ok(prevented && stopped && focused);
+});
+
+test("closed disclosures and ordinary keys retain the native keyboard behavior", () => {
+  for (const [key, open] of [["Escape", false], ["Enter", true], ["Tab", true]] as const) {
+    const details = { open, querySelector: () => { throw new Error("Unexpected focus change"); } };
+    closeStudioDisclosure({
+      key, currentTarget: details,
+      preventDefault: () => { throw new Error("Unexpected native behavior prevention"); },
+      stopPropagation: () => { throw new Error("Unexpected modal keyboard interception"); }
+    } as unknown as KeyboardEvent<HTMLDetailsElement>);
+    assert.equal(details.open, open);
+  }
+});
 
 function quiz(id = "sample"): Quiz {
   return { ...createWelcomeQuiz(new Date("2026-01-01T00:00:00Z")), id, title: "Orbital mechanics", description: "Recall and application", sources: ["Astronomy/Week 2.md"] };

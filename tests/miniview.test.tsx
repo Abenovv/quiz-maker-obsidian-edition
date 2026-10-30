@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { Platform, type App, type WorkspaceLeaf } from "obsidian";
 import type { PluginContext, Quiz, QuizStorePort, Session, SessionSummary } from "../src/core/types";
 import { createSession, reduceSession, summarizeSession } from "../src/session/engine";
+import { refreshAppearance } from "../src/appearance";
 import { latestMiniSession, miniSessionSnapshot, MiniQuizView, MiniStudy, MINI_VIEW_TYPE, openMiniView } from "../src/ui/MiniView";
 
 const quiz: Quiz = {
@@ -130,6 +131,19 @@ test("paused timed practice shows the saved time without a live announcement eac
   assert.doesNotMatch(html, /Check answer|aria-label="Pause quiz"/);
 });
 
+test("a paused countdown does not retain the running timer's urgency state", () => {
+  const now = Date.now();
+  const timed = createSession(quiz, { mode: "timed-practice", durationSeconds: 20 }, { now, id: "near-expiry" });
+  const running = renderToStaticMarkup(createElement(MiniStudy, { context: contextFor(timed) }));
+  assert.match(running, /data-urgent="true"/);
+  const paused = reduceSession(timed, { type: "pause" }, now + 12_000);
+  const html = renderToStaticMarkup(createElement(MiniStudy, { context: contextFor(paused) }));
+  assert.match(html, /Paused time remaining/);
+  assert.match(html, /data-paused="true"/);
+  assert.match(html, /0:08<\/span>/);
+  assert.doesNotMatch(html, /data-urgent/);
+});
+
 test("opening the mini view reuses its existing native leaf", async () => {
   const calls: unknown[] = [];
   const leaf = { setViewState: async (value: unknown) => { calls.push(value); } };
@@ -154,6 +168,27 @@ test("an existing mini view picks up theme and motion changes without reopening"
   assert.equal(view.contentEl.dataset.theme, "midnight");
   assert.equal(view.contentEl.dataset.motion, "reduced");
   assert.equal(view.getIcon(), "quiz-maker");
+});
+
+test("mini appearance subscribes while loading and stops updating when closed", async () => {
+  const context = contextFor();
+  let finishLoading!: () => void;
+  context.store.load = () => new Promise<void>(resolve => { finishLoading = resolve; });
+  context.store.flush = async () => undefined;
+  const view = new MiniQuizView({} as WorkspaceLeaf, context);
+  const opening = view.onOpen();
+  assert.equal(view.contentEl.dataset.theme, "obsidian");
+  context.settings.theme = "midnight";
+  context.settings.motion = "reduced";
+  refreshAppearance(context);
+  assert.equal(view.contentEl.dataset.theme, "midnight");
+  assert.equal(view.contentEl.dataset.motion, "reduced");
+  await view.onClose();
+  context.settings.theme = "paper";
+  refreshAppearance(context);
+  assert.equal(view.contentEl.dataset.theme, "midnight");
+  finishLoading();
+  await opening;
 });
 
 test("mobile mini view uses a normal tab instead of a desktop-only split", async () => {

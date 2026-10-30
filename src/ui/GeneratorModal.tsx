@@ -229,11 +229,11 @@ export function Generator({ context, close, presetId }: { context: PluginContext
   return <div className="qm-generator">
     <div className="qm-generator-columns">
       <section className="qm-panel qm-generator-sources" aria-labelledby={notesHeadingId}>
-        <header className="qm-section-heading"><h3 id={notesHeadingId}>Notes</h3><span className="qm-muted">{files.length}/{MAX_GENERATION_SOURCES}</span></header>
+        <header className="qm-section-heading"><h3 id={notesHeadingId}>Notes</h3><span className="qm-muted" aria-label={`${files.length} of ${MAX_GENERATION_SOURCES} notes selected`}>{files.length}/{MAX_GENERATION_SOURCES}</span></header>
         <div className="qm-toolbar">
           <button type="button" onClick={chooseNotes} disabled={busy}><Icon name="plus"/>Add note</button>
           <button type="button" onClick={chooseFolder} disabled={busy}><Icon name="folder"/>Add folder</button>
-          {files.length > 0 && <button type="button" className="qm-quiet" onClick={() => setFiles([])} disabled={busy}>Clear</button>}
+          {files.length > 1 && <button type="button" className="qm-quiet" onClick={() => setFiles([])} disabled={busy}>Clear all</button>}
         </div>
         {!files.length ? <p className="qm-empty-description">Choose your source notes.</p> : <ul className="qm-source-list">{files.map(file => <li className="qm-source-row" key={file.path}>
           <span className="qm-source-path" title={file.path}>{file.path}</span>

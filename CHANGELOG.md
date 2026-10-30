@@ -1,5 +1,20 @@
 # Release notes
 
+## 1.2.2
+
+Fix panel spacing and control alignment across settings and study views.
+
+- Restore panel padding so labels and inputs sit inside their group boundaries.
+- Resolve conflicting question-mix layout rules and align buttons, fields, and footers in narrow panes.
+- Organize the three settings tabs into Appearance, Playback, Connection, Defaults, and Saved notes groups.
+- Hide empty save-feedback areas and associate notes-folder validation with its field while preserving the last valid folder.
+- Stop the mini timer from showing urgency while the session is paused.
+- Apply saved theme and motion changes to open embedded quiz views.
+- Follow the saved theme in the full study view until you choose an appearance for that view.
+- Close library action menus with Escape and restore focus to their trigger.
+
+After replacing the three plugin files, reload Obsidian and confirm **1.2.2** in the settings footer.
+
 ## 1.2.1
 
 Open Quiz maker through one command, then choose the action you need.

@@ -114,10 +114,16 @@ Cancel stops the local generation workflow. A provider may already be processing
 
 ## Data and appearance
 
+Quiz maker settings have three tabs: **General** for appearance and playback, **Models** for the provider connection, and **Quizzes** for defaults and saved notes.
+
 Settings, including provider keys, are stored locally in `data.json`. Study data is stored in `study.json`. Neither file is encrypted by Quiz maker or included in a release.
 
 Choose Obsidian, Paper, Midnight, or High contrast in Appearance. Each uses a blue accent. Obsidian keeps the vault's surfaces and fonts; Midnight uses a dark navy background. Fonts are provided by your system and vault, with no font download.
 
+Saved appearance changes update open quiz views. Choosing a theme in the study view keeps that choice for the current view.
+
 Sound is optional and off by default. Motion can follow your system setting or stay reduced.
 
-When reporting a problem, include the plugin version shown at the bottom of settings, Obsidian version, device, and a small example with private content removed. Do not attach API keys, local settings, or study-history files.
+After updating the plugin files, reload Obsidian and check that Quiz maker settings show **1.2.2** at the bottom. An older version there means the running plugin has not picked up the update.
+
+When reporting a problem, include that version, Obsidian version, device, and a small example with private content removed. Do not attach API keys, local settings, or study-history files.

@@ -4,6 +4,7 @@ import { canAnswer, canCheck, canPause, canReveal, createReviewSession, createSe
 import { gradeQuestion, isAnswered } from "../session/grading";
 import { saveQuizNote } from "../notes";
 import { playFeedback } from "../feedback";
+import { subscribeAppearance } from "../appearance";
 import { errorMessage, InlineError, openReactModal, type ReactModal } from "./shared";
 import { QuestionView } from "./questions/QuestionView";
 import { configForMode, configForTimer, defaultSessionConfig, durationSeconds, durationValue, formatDuration, modeLabel, studyModes } from "./session/config";
@@ -42,7 +43,15 @@ export function SessionContent({ context, quiz, initialConfig, resume, close }: 
   const [saveError, setSaveError] = useState("");
   const [confirmFinish, setConfirmFinish] = useState(false);
   const [theme, setTheme] = useState<Theme>(context.settings.theme);
+  const localThemeOverride = useRef(false);
   const saveVersion = useRef(0);
+
+  useEffect(() => {
+    const update = (): void => { if (!localThemeOverride.current) setTheme(context.settings.theme); };
+    const unsubscribe = subscribeAppearance(context, update);
+    update();
+    return unsubscribe;
+  }, [context]);
 
   const persist = useCallback((snapshot: Session): void => {
     const version = ++saveVersion.current;
@@ -135,7 +144,7 @@ export function SessionContent({ context, quiz, initialConfig, resume, close }: 
         {session && <span className="qm-mode-label">{modeLabel(session.config.mode)}</span>}
         {session && session.phase !== "finished" && <SessionTimer deadline={session.deadline} pausedRemaining={session.pausedRemaining} paused={session.phase === "paused"} label={session.config.timerMode === "per-question" ? "Question time remaining" : "Time remaining"} onExpire={onExpire} />}
       </div>
-      <label className="qm-theme-control"><span className="qm-sr-only">Appearance</span><select aria-label="Appearance" value={theme} onChange={event => setTheme(event.target.value as Theme)}>
+      <label className="qm-theme-control"><span className="qm-sr-only">Appearance</span><select aria-label="Appearance" value={theme} onChange={event => { localThemeOverride.current = true; setTheme(event.target.value as Theme); }}>
         <option value="obsidian">Obsidian</option><option value="paper">Paper</option><option value="midnight">Midnight</option><option value="contrast">High contrast</option>
       </select></label>
     </header>

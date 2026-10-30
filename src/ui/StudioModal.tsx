@@ -23,6 +23,47 @@ export function openStudio(context: PluginContext): void {
   modal.modalEl.setAttribute("aria-label", "Quiz maker");
 }
 
+export function closeStudioDisclosure(event: KeyboardEvent<HTMLDetailsElement>): void {
+  if (event.key !== "Escape" || !event.currentTarget.open) return;
+  event.preventDefault();
+  event.stopPropagation();
+  event.currentTarget.open = false;
+  event.currentTarget.querySelector("summary")?.focus();
+}
+
+export function studioMenuPlacement(bounds: {
+  top: number; bottom: number; triggerTop: number; triggerBottom: number; menuHeight: number; gap?: number;
+}): { side: "above" | "below"; maxHeight: number } {
+  const gap = bounds.gap ?? 6;
+  const above = Math.max(0, Math.min(bounds.triggerTop, bounds.bottom) - bounds.top - gap);
+  const below = Math.max(0, bounds.bottom - Math.max(bounds.triggerBottom, bounds.top) - gap);
+  const side = below < bounds.menuHeight && above > below ? "above" : "below";
+  return { side, maxHeight: Math.max(1, Math.floor(side === "above" ? above : below)) };
+}
+
+export function positionStudioDisclosure(details: HTMLDetailsElement, gap = 6): void {
+  if (!details.open) return;
+  const ownerWindow = details.ownerDocument.defaultView;
+  const trigger = details.querySelector<HTMLElement>(":scope > summary");
+  const panel = details.querySelector<HTMLElement>(":scope > .qm-more-actions, :scope > .qm-create-panel, :scope > .qm-quiet-actions");
+  if (!ownerWindow || !trigger || !panel) return;
+  details.style.removeProperty("--qm-menu-max-height");
+  const viewportTop = ownerWindow.visualViewport?.offsetTop ?? 0;
+  const viewportBottom = viewportTop + (ownerWindow.visualViewport?.height ?? ownerWindow.innerHeight);
+  const scrollPane = details.closest<HTMLElement>(".modal-content")?.getBoundingClientRect();
+  const triggerBounds = trigger.getBoundingClientRect();
+  const placement = studioMenuPlacement({
+    top: Math.max(viewportTop, scrollPane?.top ?? viewportTop),
+    bottom: Math.min(viewportBottom, scrollPane?.bottom ?? viewportBottom),
+    triggerTop: triggerBounds.top,
+    triggerBottom: triggerBounds.bottom,
+    menuHeight: Math.max(panel.getBoundingClientRect().height, panel.scrollHeight + panel.offsetHeight - panel.clientHeight),
+    gap
+  });
+  details.dataset.side = placement.side;
+  details.style.setProperty("--qm-menu-max-height", `${placement.maxHeight}px`);
+}
+
 export function Studio({ context, close }: { context: PluginContext; close(this: void): void }): ReactNode {
   const headingId = useId();
   const [revision, setRevision] = useState(0);
@@ -71,14 +112,6 @@ export function Studio({ context, close }: { context: PluginContext; close(this:
   const canMakeReadable = currentFile instanceof TFile && currentFile.extension === "md" && typeof context.makeCurrentQuizReadable === "function";
   const canOpenMini = typeof context.openMini === "function";
   const hasTools = canOpenCurrent || canMakeReadable || canOpenMini;
-
-  const closeDisclosure = (event: KeyboardEvent<HTMLDetailsElement>): void => {
-    if (event.key !== "Escape" || !event.currentTarget.open) return;
-    event.preventDefault();
-    event.stopPropagation();
-    event.currentTarget.open = false;
-    event.currentTarget.querySelector("summary")?.focus();
-  };
 
   const leave = (action: () => void): void => {
     close();
@@ -143,7 +176,7 @@ export function Studio({ context, close }: { context: PluginContext; close(this:
     <header className="qm-studio-header">
       <h1 className="qm-brand"><Icon name="book" size={24}/>Quiz maker</h1>
       <div className="qm-toolbar" aria-label="Quiz actions">
-        <details ref={createChoices} className="qm-studio-create" onKeyDown={closeDisclosure} onToggle={event => { if (event.currentTarget.open && tools.current) tools.current.open = false; }}>
+        <details ref={createChoices} className="qm-studio-create" onKeyDown={closeStudioDisclosure} onToggle={event => { if (event.currentTarget.open && tools.current) tools.current.open = false; positionStudioDisclosure(event.currentTarget, 8); }}>
           <summary className="qm-button qm-primary mod-cta"><Icon name="plus" />Create quiz<Icon name="chevron-down" size={16} /></summary>
           <div className="qm-create-panel">
             <button className="qm-create-choice" type="button" disabled={loading || blocked || pending} onClick={() => leave(() => context.openGenerator())}><Icon name="book" /><span className="qm-create-choice-text"><strong>From notes</strong></span></button>
@@ -151,7 +184,7 @@ export function Studio({ context, close }: { context: PluginContext; close(this:
             <button className="qm-create-choice" type="button" disabled={loading || blocked || pending} onClick={() => leave(() => openImport(context))}><Icon name="upload" /><span className="qm-create-choice-text"><strong>Import JSON</strong></span></button>
           </div>
         </details>
-        {hasTools && <details ref={tools} className="qm-studio-tools" onKeyDown={closeDisclosure} onToggle={event => { if (event.currentTarget.open && createChoices.current) createChoices.current.open = false; }}>
+        {hasTools && <details ref={tools} className="qm-studio-tools" onKeyDown={closeStudioDisclosure} onToggle={event => { if (event.currentTarget.open && createChoices.current) createChoices.current.open = false; positionStudioDisclosure(event.currentTarget, 8); }}>
           <summary><Icon name="more" />Tools<Icon name="chevron-down" size={16} /></summary>
           <div className="qm-quiet-actions">
             {canOpenCurrent && <button type="button" disabled={loading || pending} onClick={() => leave(() => context.openCurrentQuiz?.())}><Icon name="book" />Open quiz from current note</button>}
@@ -239,7 +272,7 @@ function QuizRow({ entry, context, pending, busy, leave, review, run }: QuizRowP
     </div>
     <div className="qm-row-actions">
       <button className="qm-study-button" type="button" disabled={pending} aria-label={`Study ${quiz.title}`} onClick={() => leave(() => context.startQuiz(quiz))}><Icon name="play" />Study</button>
-      <details className="qm-more"><summary ref={more} title="More actions" aria-label={`More actions for ${quiz.title}`}><Icon name="more" /></summary><div className="qm-more-actions">
+      <details className="qm-more" onKeyDown={closeStudioDisclosure} onToggle={event => positionStudioDisclosure(event.currentTarget)}><summary ref={more} title="More actions" aria-label={`More actions for ${quiz.title}`}><Icon name="more" /></summary><div className="qm-more-actions">
         <button type="button" disabled={pending} aria-label={`Edit ${quiz.title}`} onClick={() => leave(() => context.openEditor(quiz))}>Edit questions</button>
         {entry.due.length > 0 && <button type="button" disabled={pending} onClick={() => review(entry, "due")}>Review {entry.due.length} due</button>}
         {entry.missed.length > 0 && <button type="button" disabled={pending} onClick={() => review(entry, "missed")}>Review {entry.missed.length} missed</button>}

@@ -2,6 +2,7 @@ import { ItemView, Platform, type WorkspaceLeaf } from "obsidian";
 import { createRoot, type Root } from "react-dom/client";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { PluginContext, QuizStorePort, Session } from "../core/types";
+import { bindAppearance } from "../appearance";
 import {
   canAnswer, canCheck, canPause, canReveal, currentQuestionIndex, reduceSession,
   remainingSeconds, summarizeSession, type SessionAction
@@ -59,9 +60,10 @@ function MiniClock({ session, tick }: { session: Session; tick(this: void): void
   }, [session.phase, session.config.timerMode, session.deadline, tick]);
   const remaining = remainingSeconds(session, now);
   if (remaining === null || session.phase === "finished") return null;
+  const paused = session.phase === "paused";
   return <span ref={element} className="qm-mini-clock" role="timer" aria-live="off"
-    aria-label={session.phase === "paused" ? "Paused time remaining" : "Time remaining"} data-urgent={remaining <= 30 || undefined}>
-    <Icon name="clock" size={14} />{clockLabel(remaining)}
+    aria-label={paused ? "Paused time remaining" : "Time remaining"} data-urgent={!paused && remaining <= 30 || undefined} data-paused={paused || undefined}>
+    <Icon name={paused ? "pause" : "clock"} size={14} />{clockLabel(remaining)}
   </span>;
 }
 
@@ -218,6 +220,7 @@ export function MiniStudy({ context }: { context: PluginContext }): ReactNode {
 export class MiniQuizView extends ItemView {
   private root: Root | undefined;
   private opened = false;
+  private stopAppearance: (() => void) | undefined;
 
   constructor(leaf: WorkspaceLeaf, private readonly context: PluginContext) { super(leaf); }
   getViewType(): string { return MINI_VIEW_TYPE; }
@@ -232,7 +235,8 @@ export class MiniQuizView extends ItemView {
   async onOpen(): Promise<void> {
     this.opened = true;
     this.contentEl.addClass("qm-root", "qm-mini-host");
-    this.refreshAppearance();
+    this.stopAppearance?.();
+    this.stopAppearance = bindAppearance(this.context, this.contentEl);
     try {
       await this.context.store.load();
       if (!this.opened) return;
@@ -248,6 +252,8 @@ export class MiniQuizView extends ItemView {
 
   async onClose(): Promise<void> {
     this.opened = false;
+    this.stopAppearance?.();
+    this.stopAppearance = undefined;
     this.root?.unmount();
     this.root = undefined;
     this.contentEl.empty();

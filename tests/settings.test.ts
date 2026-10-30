@@ -220,6 +220,31 @@ test("three settings tabs keep quiz defaults together and keyboard navigation wr
   } finally { harness.close(); }
 });
 
+test("settings expose labelled groups and folder validation stays beside its field", async () => {
+  const harness = await settingsHarness();
+  try {
+    const groupNames = () => elements(harness.tab.containerEl)
+      .filter(element => element.getAttribute("role") === "group").map(element => element.getAttribute("aria-label"));
+    assert.deepEqual(groupNames(), ["Appearance", "Playback"]);
+    harness.section("Models");
+    assert.deepEqual(groupNames(), ["Connection"]);
+    harness.section("Quizzes");
+    assert.deepEqual(groupNames(), ["Defaults", "Saved notes"]);
+    const folder = harness.groups.get("Notes folder")![0];
+    folder.change!("../outside");
+    assert.equal(harness.settings.saveFolder, "Quizzes");
+    assert.equal(folder.inputEl.getAttribute("aria-invalid"), "true");
+    const error = elements(harness.tab.containerEl).find(element => element.getAttribute("id") === folder.inputEl.getAttribute("aria-describedby"))!;
+    assert.equal(error.getAttribute("role"), "alert");
+    assert.match(error.textContent ?? "", /inside this vault/);
+    assert.equal(error.parentElement!.parentElement!.getAttribute("aria-label"), "Saved notes");
+    folder.change!("Review");
+    assert.equal(harness.settings.saveFolder, "Review");
+    assert.equal(folder.inputEl.getAttribute("aria-invalid"), null);
+    assert.equal(error.textContent, "");
+  } finally { harness.close(); }
+});
+
 test("extra commands stay behind More options and update the live setting before saving", async () => {
   let saves = 0;
   const harness = await settingsHarness({ save: async () => { saves++; } });
@@ -355,6 +380,35 @@ test("model metadata errors have an explicit retry without clearing the selected
   } finally { harness.close(); }
 });
 
+test("switching providers cancels discovery and restores each provider's own model", async () => {
+  let signal: AbortSignal | undefined;
+  let reply: ((models: Array<{ id: string; name: string; provider: "google" }>) => void) | undefined;
+  const harness = await settingsHarness({ list: async (_provider, _config, options) => {
+    signal = options.signal;
+    return await new Promise(resolve => { reply = resolve; });
+  } });
+  try {
+    harness.settings.providers.ollama.model = "local-fixture-model";
+    harness.section("Models");
+    const provider = harness.groups.get("Provider")![0];
+    harness.groups.get("Model ID")!.find(control => control.buttonEl.textContent === "Find models")!.click!();
+    provider.change!("unsupported-provider");
+    assert.equal(harness.settings.provider, "google");
+    assert.equal(signal?.aborted, false, "an invalid selection cannot discard the active connection");
+    provider.change!("ollama");
+    assert.equal(signal?.aborted, true);
+    assert.equal(harness.settings.provider, "ollama");
+    const visibleModel = () => harness.groups.get("Model ID")!.filter(control => control.inputEl.getAttribute("aria-label") === "Model ID").at(-1)!.inputEl.value;
+    assert.equal(visibleModel(), "local-fixture-model");
+    reply!([{ id: "late-google-model", name: "Late Google model", provider: "google" }]);
+    await settle();
+    assert.equal(elements(harness.tab.containerEl).some(element => element.className === "qm-model-result"), false);
+    harness.groups.get("Provider")!.at(-1)!.change!("google");
+    assert.equal(visibleModel(), "manual-model");
+    assert.equal(harness.settings.providers.ollama.model, "local-fixture-model");
+  } finally { harness.close(); }
+});
+
 test("settings accept custom languages, expose the actual version, and show save retry only after a failed write", async () => {
   let fail = true;
   const harness = await settingsHarness({ save: async () => { if (fail) throw new Error("Quiz maker is not active. fixture-private"); } });
@@ -362,6 +416,7 @@ test("settings accept custom languages, expose the actual version, and show save
   try {
     assert.ok(elements(harness.tab.containerEl).some(el => el.className === "qm-settings-version" && el.textContent === "Quiz maker 1.2.0"));
     assert.equal(elements(harness.tab.containerEl).some(el => el.textContent === "Retry saving"), false);
+    assert.equal(elements(harness.tab.containerEl).find(el => el.className === "qm-settings-save")!.hidden, true);
     harness.section("Quizzes");
     const language = harness.groups.get("Language")![0];
     language.change!("Қазақша");
@@ -376,9 +431,11 @@ test("settings accept custom languages, expose the actual version, and show save
     assert.match(status.textContent ?? "", /Enable Quiz maker/);
     assert.doesNotMatch(status.textContent ?? "", /fixture-private/);
     assert.equal(elements(harness.tab.containerEl).filter(el => el.textContent === "Retry saving").length, 1);
+    assert.equal(elements(harness.tab.containerEl).find(el => el.className === "qm-settings-save")!.hidden, false);
     fail = false;
     await flush.flushSettings();
     assert.equal(elements(harness.tab.containerEl).some(el => el.textContent === "Retry saving"), false);
+    assert.equal(elements(harness.tab.containerEl).find(el => el.className === "qm-settings-save")!.hidden, true);
   } finally { harness.close(); }
 });
 

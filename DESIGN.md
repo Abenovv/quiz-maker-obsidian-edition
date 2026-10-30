@@ -27,6 +27,8 @@ Native button appearance is reset within the plugin. Grid buttons explicitly str
 
 The studio uses divided library rows. One Create quiz control reveals three choices: generate from notes, write questions, or import JSON. Current-note and conversion actions stay in Tools. Study packs and recent sessions open on request. Keep the current session easy to resume and avoid a separate box for every label or status.
 
+Generator panels use 20px padding on wide layouts and 16px in narrow panes, with 16–20px between groups. The form stops at 1040px and switches to one column when its own content width falls below 700px. Question formats use one readable row each, with fixed count and remove controls. Footer actions use the page background rather than another card. Settings content stops at 840px within the full-width plugin background; standard controls stay near 300px on wide screens and fill narrow panes. Native setting groups remain flat, with headings, row dividers, and local errors providing structure.
+
 Session setup uses a mode selector with one description. Timing stays beside it; shuffle and pause settings sit in a disclosure. During practice, question navigation opens on demand. The question has a readable content column and the footer separates navigation from answering. Reference answers use a small semantic border rather than a nested stack of cards.
 
 The mini view shares the same session and controls at 280px. Its navigation uses two compact labelled buttons and a pause icon. Results, finishing, and error recovery stay in the same panel. Native settings use container queries so fields stack inside a narrow settings pane even when the overall window is wide.

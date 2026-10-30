@@ -5,6 +5,7 @@ import { createQuiz, parseQuiz, questionTypeLabels } from "../src/core/schema";
 import { questionTypes, type GenerationRequest, type Question, type QuestionType, type SessionConfig, type Theme } from "../src/core/types";
 import { GenerationService } from "../src/ai/generation";
 import { TransportError } from "../src/ai/transport";
+import { bindAppearance } from "../src/appearance";
 import manifest from "../manifest.json";
 import { createSession } from "../src/session/engine";
 import { createWelcomeQuiz, presets } from "../src/presets";
@@ -84,9 +85,10 @@ async function showNotes(kind: "native" | "structured" = "native"): Promise<void
 function showSettings(): void {
   const tab = new QuizMakerSettingsTab(app as never, plugin);
   const modal = new Modal(app);
-  modal.setTitle("Settings"); modal.modalEl.classList.add("qm-root"); modal.modalEl.dataset.theme = plugin.settings.theme;
-  modal.onOpen = () => { modal.contentEl.append(tab.containerEl); tab.display(); };
-  modal.onClose = () => tab.hide();
+  let releaseAppearance: (() => void) | undefined;
+  modal.setTitle("Settings"); modal.modalEl.classList.add("qm-root", "preview-settings-modal"); modal.modalEl.dataset.theme = plugin.settings.theme;
+  modal.onOpen = () => { releaseAppearance = bindAppearance(plugin, modal.modalEl); modal.contentEl.append(tab.containerEl); tab.display(); };
+  modal.onClose = () => { tab.hide(); releaseAppearance?.(); };
   modal.open();
 }
 
@@ -104,6 +106,7 @@ async function initialize(): Promise<void> {
   const saveData = plugin.saveData.bind(plugin);
   plugin.saveData = async (value: unknown) => { if (storageFailure) throw new Error("Simulated settings write failure"); await saveData(value); };
   await plugin.onload();
+  plugin.register(bindAppearance(plugin, canvas));
   plugin.settings.provider = "ollama";
   plugin.settings.providers.ollama.model = "preview-local-model";
   const generation = new GenerationService(() => plugin.settings, { transport: async (_config, messages, signal) => {
@@ -145,6 +148,9 @@ async function initialize(): Promise<void> {
   button("preview-editor", "Edit JSON", () => plugin.openEditor(currentQuiz()));
   button("preview-import", "Import", () => openImport(plugin));
   button("preview-settings", "Settings", showSettings);
+  window.addEventListener("keydown", event => {
+    if ((event.ctrlKey || event.metaKey) && event.key === ",") { event.preventDefault(); showSettings(); }
+  });
   button("preview-notes", "Saved note", () => showNotes("native"));
   button("preview-structured-note", "JSON note", () => showNotes("structured"));
   button("preview-gallery", "Question controls", showGallery);

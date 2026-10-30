@@ -1,6 +1,6 @@
 {
   "name": "quiz-maker-obsidian-edition",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "private": true,
   "description": "Make readable quizzes from Obsidian notes and study with focused practice.",
   "main": "main.js",

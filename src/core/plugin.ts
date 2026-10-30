@@ -4,6 +4,7 @@ import { version } from "../../manifest.json";
 import { GenerationService } from "../ai/generation";
 import { ModelService } from "../ai/models";
 import { installFeedback, refreshFeedback } from "../feedback";
+import { refreshAppearance } from "../appearance";
 import { makeQuizNoteReadable, openQuizFromNote, registerNoteFeatures } from "../notes";
 import { normalizeSettings, QuizMakerSettingsTab } from "../settings";
 import { QuizStore } from "../storage/store";
@@ -145,6 +146,7 @@ export default class QuizMakerPlugin extends Plugin implements PluginContext {
     if (!this.ready || boot !== this.bootVersion) return;
     let refreshFailed = false;
     try { refreshFeedback(this); } catch { refreshFailed = true; }
+    try { refreshAppearance(this); } catch { refreshFailed = true; }
     try { refreshContextModals(this); } catch { refreshFailed = true; }
     try {
       for (const leaf of this.app.workspace.getLeavesOfType(MINI_VIEW_TYPE)) {

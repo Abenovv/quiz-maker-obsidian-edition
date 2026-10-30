@@ -3,6 +3,7 @@ import type { PluginContext, Provider, Question, Quiz } from "./core/types";
 import { createQuiz, MAX_QUIZ_BYTES, parseQuiz, questionTypeLabels, toQuestion, validateQuiz } from "./core/schema";
 import { sanitizeQuizMarkdown } from "./core/markdown";
 import { questionContext, referenceAnswer } from "./session/grading";
+import { bindAppearance } from "./appearance";
 
 const BEGIN = "<!-- quiz-maker:begin -->";
 const END = "<!-- quiz-maker:end -->";
@@ -314,8 +315,7 @@ async function renderSavedQuiz(context: PluginContext, quiz: Quiz, target: HTMLE
   let alive = true;
   component.register(() => { alive = false; });
   const root = append(target, "section", "qm-root qm-note");
-  root.dataset.theme = context.settings.theme;
-  root.dataset.motion = context.settings.motion;
+  component.register(bindAppearance(context, root));
   root.setAttribute("aria-label", quiz.title);
   const header = append(root, "header", "qm-note-header");
   append(header, "h3", "qm-note-title", quiz.title);

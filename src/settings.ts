@@ -88,6 +88,12 @@ function labelDropdown(select: DropdownComponent, label: string): DropdownCompon
   return select;
 }
 
+function settingsGroup(parent: HTMLElement, name: string): HTMLElement {
+  const group = parent.createEl("section", { cls: "qm-settings-group", attr: { role: "group", "aria-label": name } });
+  new Setting(group).setName(name).setHeading();
+  return group;
+}
+
 export function filterModels(models: readonly ModelInfo[], query: string): ModelInfo[] {
   const terms = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
   return models.filter(model => {
@@ -245,6 +251,7 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
   }
 
   private updateSaveFeedback(): void {
+    if (this.saveFeedback) this.saveFeedback.hidden = !this.saveFailed;
     if (this.saveStatus) {
       this.saveStatus.textContent = this.saveFailed ? this.saveMessage : "";
       this.saveStatus.dataset.state = this.saveFailed ? "error" : "idle";
@@ -270,8 +277,8 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
   }
 
   private renderGeneral(panel: HTMLElement): void {
-    new Setting(panel).setName("Appearance").setHeading();
-    new Setting(panel).setName("Theme").addDropdown(select => labelDropdown(select, "Theme")
+    const appearance = settingsGroup(panel, "Appearance");
+    new Setting(appearance).setName("Theme").addDropdown(select => labelDropdown(select, "Theme")
       .addOptions({ obsidian: "Obsidian", paper: "Paper", midnight: "Midnight", contrast: "High contrast" })
       .setValue(this.context.settings.theme)
       .onChange(value => {
@@ -279,15 +286,15 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
         this.containerEl.dataset.theme = value;
         this.scheduleSave();
       }));
-    new Setting(panel).setName("Motion").addDropdown(select => labelDropdown(select, "Motion")
+    new Setting(appearance).setName("Motion").addDropdown(select => labelDropdown(select, "Motion")
       .addOptions({ system: "Follow system", reduced: "Reduce motion" })
       .setValue(this.context.settings.motion).onChange(value => {
         this.context.settings.motion = value === "reduced" ? "reduced" : "system";
         this.containerEl.dataset.motion = this.context.settings.motion;
         this.scheduleSave();
       }));
-    new Setting(panel).setName("Feedback").setHeading();
-    new Setting(panel).setName("Study sounds").setDesc("Quiet tones when an answer is revealed.")
+    const playback = settingsGroup(panel, "Playback");
+    new Setting(playback).setName("Study sounds").setDesc("Quiet tones when an answer is revealed.")
       .addToggle(toggle => {
         toggle.toggleEl.setAttribute("aria-label", "Study sounds");
         return toggle.setValue(this.context.settings.soundEnabled).onChange(value => {
@@ -314,8 +321,10 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
   }
 
   private renderModels(panel: HTMLElement): void {
+    panel = settingsGroup(panel, "Connection");
     new Setting(panel).setName("Provider").addDropdown(select => labelDropdown(select, "Provider").addOptions(providerNames)
       .setValue(this.context.settings.provider).onChange(value => {
+        if (!providers.includes(value as Provider) || value === this.context.settings.provider) return;
         this.context.settings.provider = value as Provider;
         this.scheduleSave();
         this.display();
@@ -578,7 +587,7 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
   }
 
   private renderQuestions(panel: HTMLElement): void {
-    new Setting(panel).setName("Defaults").setHeading();
+    panel = settingsGroup(panel, "Defaults");
     const suggestions = panel.createEl("datalist", { attr: { id: this.id + "-languages" } });
     for (const language of languages) suggestions.createEl("option", { attr: { value: language } });
     let languageStatus: HTMLElement;
@@ -611,21 +620,18 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
   }
 
   private renderSaving(panel: HTMLElement): void {
-    new Setting(panel).setName("Saved notes").setHeading();
+    panel = settingsGroup(panel, "Saved notes");
     new Setting(panel).setName("Format").addDropdown(select => labelDropdown(select, "Format")
       .addOptions({ callouts: "Question callouts", "spaced-repetition": "Spaced repetition" })
       .setValue(this.context.settings.saveFormat).onChange(value => {
         this.context.settings.saveFormat = value === "spaced-repetition" ? "spaced-repetition" : "callouts";
         this.scheduleSave();
       }));
-    const status = panel.createEl("p");
-    status.id = this.id + "-folder-status";
-    status.className = "qm-settings-status";
-    status.setAttribute("role", "status");
-    new Setting(panel).setName("Notes folder").setDesc("A folder inside this vault. Leave blank to save in the vault root.")
+    let status: HTMLElement;
+    const folderSetting = new Setting(panel).setName("Notes folder").setDesc("A folder inside this vault. Leave blank to save in the vault root.")
       .addText(input => {
         input.inputEl.setAttribute("aria-label", "Notes folder");
-        input.inputEl.setAttribute("aria-describedby", status.id);
+        input.inputEl.setAttribute("aria-describedby", this.id + "-folder-status");
         input.setValue(this.context.settings.saveFolder).setPlaceholder("Quizzes").onChange(value => {
         try {
           this.context.settings.saveFolder = normalizeSaveFolder(value);
@@ -638,6 +644,6 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
         }
       });
       });
-    panel.appendChild(status);
+    status = folderSetting.settingEl.createEl("p", { cls: "qm-settings-field-error", attr: { id: this.id + "-folder-status", role: "alert" } });
   }
 }

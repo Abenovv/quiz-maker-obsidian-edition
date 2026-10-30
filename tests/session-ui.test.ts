@@ -27,6 +27,14 @@ const context = {
   showNotice: noop
 } as unknown as PluginContext;
 
+test("each newly opened session starts with the current global appearance", () => {
+  const currentContext = { ...context, settings: { ...context.settings, theme: "paper" } } as PluginContext;
+  const render = (): string => renderToStaticMarkup(createElement(SessionContent, { context: currentContext, quiz, close: noop }));
+  assert.match(render(), /data-qm-theme="paper" data-theme="paper"/);
+  currentContext.settings.theme = "midnight";
+  assert.match(render(), /data-qm-theme="midnight" data-theme="midnight"/);
+});
+
 test("switching to an exam replaces no timer with a usable whole-quiz limit", () => {
   const exam = configForMode(defaultSessionConfig, "exam");
   assert.equal(exam.timerMode, "whole-quiz");
