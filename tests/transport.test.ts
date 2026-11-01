@@ -1,7 +1,8 @@
+import { setRequestUrlFixture } from "./helpers/obsidian";
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Provider } from "../src/core/types";
-import { DEFAULT_BASE_URLS, generateText, isLocalNetworkHost, providerHeaders, requestJson, resolveBaseUrl, TransportError } from "../src/ai/transport";
+import { DEFAULT_BASE_URLS, defaultHttpClient, generateText, isLocalNetworkHost, providerHeaders, requestJson, resolveBaseUrl, TransportError } from "../src/ai/transport";
 import type { HttpClient, HttpRequest, HttpResponse, TransportConfig } from "../src/ai/transport";
 
 // Supply Obsidian's browser clock boundary for fixture-only Node tests.
@@ -215,4 +216,50 @@ test("network exceptions are sanitized rather than leaking arbitrary SDK errors"
 test("empty and oversized output fail clearly", async () => {
   await assert.rejects(generateText(config("openai"), messages, undefined, mock({ status: "completed", output_text: " " }).http), hasCode("invalid-response"));
   await assert.rejects(generateText(config("openai"), messages, undefined, mock({ status: "completed", output_text: "x".repeat(2 * 1024 * 1024 + 1) }).http), hasCode("payload"));
+});
+
+test("copied API endpoints resolve to their provider base without duplicated routes", () => {
+  const cases: Array<[Provider, string, string]> = [
+    ["openai", "https://api.openai.com/v1/responses", "https://api.openai.com/v1"],
+    ["openai", "https://proxy.example/team/v1/chat/completions/", "https://proxy.example/team/v1"],
+    ["google", "https://generativelanguage.googleapis.com/v1beta/models", "https://generativelanguage.googleapis.com/v1beta"],
+    ["google", "https://generativelanguage.googleapis.com/v1beta/models/gemini-future:generateContent", "https://generativelanguage.googleapis.com/v1beta"],
+    ["anthropic", "https://api.anthropic.com/v1/messages", "https://api.anthropic.com/v1"],
+    ["mistral", "https://api.mistral.ai/v1/chat/completions", "https://api.mistral.ai/v1"],
+    ["cohere", "https://api.cohere.com/v1/models", "https://api.cohere.com/v2"],
+    ["perplexity", "https://api.perplexity.ai/v1/models", "https://api.perplexity.ai/v1"],
+    ["ollama", "http://localhost:11434/api/chat", "http://localhost:11434"],
+    ["ollama", "https://proxy.example/local/api/tags", "https://proxy.example/local"]
+  ];
+  for (const [provider, input, expected] of cases) assert.equal(resolveBaseUrl(provider, input), expected);
+  assert.throws(() => resolveBaseUrl("google", "https://generativelanguage.googleapis.com/v1beta/models?key=fixture"), hasCode("configuration"));
+});
+
+
+test("default client uses the native Obsidian request boundary with exact request fields", async () => {
+  const calls: unknown[] = [];
+  const restore = setRequestUrlFixture(async request => { calls.push(request); return { status: 200, headers: { "x-fixture": "yes" }, json: { models: [] } }; });
+  try {
+    const result = await defaultHttpClient({ url: "https://provider.example/v1/models", method: "POST", headers: { Authorization: "Bearer fixture" }, body: "{}" });
+    assert.deepEqual(calls, [{ url: "https://provider.example/v1/models", method: "POST", headers: { Authorization: "Bearer fixture" }, body: "{}", throw: false }]);
+    assert.deepEqual(result, { status: 200, headers: { "x-fixture": "yes" }, json: { models: [] } });
+  } finally { restore(); }
+});
+
+test("default client retains HTTP error status when its body is not JSON", async () => {
+  const restore = setRequestUrlFixture(async () => ({ status: 403, headers: {}, get json(): unknown { throw new Error("private error page"); } }));
+  try {
+    await assert.rejects(requestJson({ url: "https://provider.example/v1/models" }), error => hasCode("auth")(error) && !String(error).includes("private error page"));
+  } finally { restore(); }
+});
+
+test("default client rejects unreadable successful JSON and honors pre-dispatch cancellation", async () => {
+  let calls = 0;
+  const restore = setRequestUrlFixture(async () => { calls++; return { status: 200, headers: {}, get json(): unknown { throw new Error("private successful page"); } }; });
+  try {
+    await assert.rejects(defaultHttpClient({ url: "https://provider.example/v1/models" }), hasCode("invalid-response"));
+    const controller = new AbortController(); controller.abort();
+    await assert.rejects(defaultHttpClient({ url: "https://provider.example/v1/models", signal: controller.signal }), hasCode("cancelled"));
+    assert.equal(calls, 1);
+  } finally { restore(); }
 });

@@ -14,7 +14,7 @@ const secretPatterns = [
   /AIza[0-9A-Za-z_-]{35}/,
   /(?:sk-proj-|sk-ant-|sk-)[A-Za-z0-9_-]{20,}/,
   /(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]{20,}/,
-  /AKIA[0-9A-Z]{16}/,
+  /(?:^|[^A-Za-z0-9])AKIA[0-9A-Z]{16}(?![A-Za-z0-9])/,
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/
 ];
 const nodeModules = new Set(builtinModules.map(name => name.replace(/^node:/, "")));
@@ -52,6 +52,10 @@ export function sourceIssues(text, filename = "source.ts") {
       inspectImport(node, node.moduleSpecifier.text);
     }
     if (ts.isCallExpression(node)) {
+      if (node.expression.kind === ts.SyntaxKind.ImportKeyword && node.arguments.length
+        && ts.isStringLiteralLike(node.arguments[0]) && node.arguments[0].text === "obsidian") {
+        add(node, "Import Obsidian statically so the desktop plugin loader can resolve it.");
+      }
       if (ts.isPropertyAccessExpression(node.expression)
         && ["getFiles", "getMarkdownFiles", "getAllLoadedFiles"].includes(node.expression.name.text)) {
         add(node, "Use an explicit selected folder or file instead of broad vault enumeration.");
@@ -113,7 +117,7 @@ export function stylesheetIssues(text, filename = "styles.css") {
 }
 
 export function trackedProjectFiles() {
-  return execFileSync("git", ["ls-files", "-z"], { cwd: projectRoot, encoding: "utf8" })
+  return execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], { cwd: projectRoot, encoding: "utf8" })
     .split("\0").filter(Boolean);
 }
 

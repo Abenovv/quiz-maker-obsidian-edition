@@ -112,3 +112,11 @@ export async function readSelectedNotes<T extends SelectedNote>(files: readonly 
   if (sources.every(source => !source.content.trim())) throw new Error("The selected notes are empty. Choose notes with study material.");
   return sources;
 }
+
+/** A captured selection is the complete source; this path never reads its note. */
+export function selectionSources(selection: { path: string; content: string; fromLine: number; toLine: number }, maxCharacters: number): SourceNote[] {
+  if (!selection.path || !selection.content.trim()) throw new Error("Select some text before making a quiz.");
+  if (selection.content.length > maxCharacters) throw new Error(`Selected text exceeds ${maxCharacters.toLocaleString()} characters.`);
+  if (!Number.isInteger(selection.fromLine) || !Number.isInteger(selection.toLine) || selection.fromLine < 0 || selection.toLine < selection.fromLine) throw new Error("The selection location is invalid. Select the text again.");
+  return [{ path: selection.path, content: selection.content }];
+}

@@ -10,6 +10,8 @@ import { QuestionView } from "./questions/QuestionView";
 import { configForMode, configForTimer, defaultSessionConfig, durationSeconds, durationValue, formatDuration, modeLabel, studyModes } from "./session/config";
 import { SessionTimer } from "./session/Timer";
 import { Icon } from "./Icon";
+import { studyTrends } from "../session/trends";
+import { FocusControl, ShortcutGuide, StudySources } from "./session/StudyTools";
 
 const openModals = new WeakMap<PluginContext, ReactModal>();
 
@@ -42,6 +44,7 @@ export function SessionContent({ context, quiz, initialConfig, resume, close }: 
   const mounted = useRef(true);
   const [saveError, setSaveError] = useState("");
   const [confirmFinish, setConfirmFinish] = useState(false);
+  const [focused, setFocused] = useState(false);
   const [theme, setTheme] = useState<Theme>(context.settings.theme);
   const localThemeOverride = useRef(false);
   const saveVersion = useRef(0);
@@ -121,6 +124,7 @@ export function SessionContent({ context, quiz, initialConfig, resume, close }: 
     const current = latest.current;
     if (!current || current.phase !== "running" || event.nativeEvent.isComposing) return;
     const target = event.target as HTMLElement;
+    if (typeof target.closest === "function" && target.closest(".qm-study-tools")) return;
     const editing = typeof target.closest === "function" && Boolean(target.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])"));
     if (!editing && event.altKey && event.key === "ArrowLeft") { event.preventDefault(); apply({ type: "previous" }); }
     else if (!editing && event.altKey && event.key === "ArrowRight") { event.preventDefault(); apply({ type: "next" }); }
@@ -138,15 +142,19 @@ export function SessionContent({ context, quiz, initialConfig, resume, close }: 
     context.startQuiz(session.quiz, next.config, next);
   };
 
-  return <div className="qm-session qm-root" data-qm-theme={theme} data-theme={theme} data-qm-mode={session?.config.mode ?? "setup"} onKeyDown={keyDown}>
+  return <div className="qm-session qm-root" data-qm-theme={theme} data-theme={theme} data-qm-mode={session?.config.mode ?? "setup"} data-focus={focused || undefined} onKeyDown={keyDown}>
     <header className="qm-session-header">
       <div className="qm-session-meta">
         {session && <span className="qm-mode-label">{modeLabel(session.config.mode)}</span>}
         {session && session.phase !== "finished" && <SessionTimer deadline={session.deadline} pausedRemaining={session.pausedRemaining} paused={session.phase === "paused"} label={session.config.timerMode === "per-question" ? "Question time remaining" : "Time remaining"} onExpire={onExpire} />}
       </div>
+      <details className="qm-study-tools"><summary>View</summary><div>
+        {session?.phase === "running" && <FocusControl focused={focused} onChange={setFocused} />}
+        {context.settings.shortcutGuideEnabled && session?.phase === "running" && <ShortcutGuide />}
       <label className="qm-theme-control"><span className="qm-sr-only">Appearance</span><select aria-label="Appearance" value={theme} onChange={event => { localThemeOverride.current = true; setTheme(event.target.value as Theme); }}>
         <option value="obsidian">Obsidian</option><option value="paper">Paper</option><option value="midnight">Midnight</option><option value="contrast">High contrast</option>
       </select></label>
+      </div></details>
     </header>
     {saveError && <div className="qm-save-error"><InlineError>{saveError}</InlineError><button type="button" onClick={() => { if (latest.current) persist(latest.current); }}>Retry saving</button></div>}
     {!session && <SessionSetup quiz={quiz} initialConfig={initialConfig} onStart={start} onEdit={() => { close(); context.openEditor(quiz); }} />}
@@ -240,8 +248,9 @@ function RunningSession({ context, session, apply, confirmFinish, setConfirmFini
         </details>
       </aside>
       <main className="qm-session-main">
-        <div className="qm-session-question-header"><h2 className="qm-question-position" aria-label={`Question ${session.position + 1} of ${session.order.length}`} ref={questionHeading} tabIndex={-1}>{session.position + 1} of {session.order.length}</h2><div className="qm-question-markers"><button type="button" className="qm-icon-button" aria-label="Flag question" title="Flag question" aria-pressed={session.flags.includes(questionIndex)} onClick={() => apply({ type: "flag" })}><Icon name="flag" /></button><button type="button" className="qm-icon-button" aria-label="Bookmark question" title="Bookmark question" aria-pressed={session.bookmarks.includes(questionIndex)} onClick={() => apply({ type: "bookmark" })}><Icon name="bookmark" /></button></div></div>
+        <div className="qm-session-question-header"><h2 className="qm-question-position" aria-label={`Question ${session.position + 1} of ${session.order.length}`} ref={questionHeading} tabIndex={-1}>{session.position + 1} of {session.order.length}</h2><details className="qm-question-markers qm-study-options"><summary>More</summary><div><button type="button" className="qm-quiet" aria-label="Flag question" title="Flag question" aria-pressed={session.flags.includes(questionIndex)} onClick={() => apply({ type: "flag" })}><Icon name="flag" />Flag</button><button type="button" className="qm-quiet" aria-label="Bookmark question" title="Bookmark question" aria-pressed={session.bookmarks.includes(questionIndex)} onClick={() => apply({ type: "bookmark" })}><Icon name="bookmark" />Bookmark</button>{canPause(session) && <button type="button" onClick={() => apply({ type: "pause" })}><Icon name="pause" />Pause</button>}{!atEnd && <button ref={finishButton} type="button" onClick={() => setConfirmFinish(true)}>{session.config.mode === "exam" ? "Finish exam" : "Finish"}</button>}</div></details></div>
         <QuestionView question={question} response={response} onChange={changeResponse} reveal={revealed} disabled={!canAnswer(session) || questionChecked} mode={session.config.mode} />
+        <StudySources context={context} session={session} questionIndex={questionIndex} />
         {expired && grade?.status !== "unanswered" && <p className="qm-question-expired" role="status">Time expired for this question.</p>}
         {grade && <p className={`qm-grade qm-grade-${grade.status}`} role="status">{feedback}</p>}
         {flashcards && revealed && <div className="qm-flashcard-ratings" role="group" aria-label="Recall rating"><button type="button" onClick={() => apply({ type: "rate", rating: "again" })}>Again</button><button type="button" onClick={() => apply({ type: "rate", rating: "good" })}>Good</button><button type="button" onClick={() => apply({ type: "rate", rating: "easy" })}>Easy</button></div>}
@@ -250,13 +259,12 @@ function RunningSession({ context, session, apply, confirmFinish, setConfirmFini
     <footer className="qm-session-actions">
       <div className="qm-session-actions-secondary">
         <button type="button" disabled={session.position === 0} onClick={() => apply({ type: "previous" })}><Icon name="chevron-left" />Previous</button>
-        {canPause(session) && <button type="button" className="qm-icon-button" aria-label="Pause" title="Pause" onClick={() => apply({ type: "pause" })}><Icon name="pause" /></button>}
       </div>
       <div className="qm-session-actions-main">
         {flashcards && !revealed && <button type="button" className="mod-cta" data-qm-feedback="reveal" onClick={() => apply({ type: "reveal" })}>Reveal answer</button>}
         {!flashcards && canCheck(session) && !questionChecked && <button type="button" className="mod-cta" data-qm-feedback="reveal" disabled={!isAnswered(question, response)} onClick={() => apply({ type: "check" })}><Icon name="check" />{question.type === "short-answer" || question.type === "long-answer" ? "Show reference" : "Check answer"}</button>}
         {!atEnd && <button type="button" className={questionChecked || session.config.mode === "exam" ? "mod-cta" : undefined} onClick={() => apply({ type: "next" })}>Next<Icon name="chevron-right" /></button>}
-        <button ref={finishButton} type="button" className={atEnd && !flashcards && (questionChecked || session.config.mode === "exam") ? "mod-cta" : "qm-finish-button"} onClick={() => setConfirmFinish(true)}>{session.config.mode === "exam" ? "Finish exam" : "Finish"}</button>
+        {atEnd && <button ref={finishButton} type="button" className={atEnd && !flashcards && (questionChecked || session.config.mode === "exam") ? "mod-cta" : "qm-finish-button"} onClick={() => setConfirmFinish(true)}>{session.config.mode === "exam" ? "Finish exam" : "Finish"}</button>}
       </div>
     </footer>
     {confirmFinish && <section className="qm-finish-confirmation" aria-label="Finish session"><p>{remaining > 0 ? `${remaining} ${flashcards ? remaining === 1 ? "card remains unrated" : "cards remain unrated" : remaining === 1 ? "question is unanswered" : "questions are unanswered"}. Submit now?` : "Submit this session?"}</p><div className="qm-session-actions"><button ref={submitButton} type="button" className="mod-cta" onClick={event => { void playFeedback(context, "complete", event.nativeEvent); apply({ type: "finish", reason: "submitted" }); }}>Submit</button><button type="button" onClick={() => { setConfirmFinish(false); finishButton.current?.focus(); }}>Keep studying</button></div></section>}
@@ -268,6 +276,7 @@ const resultQuestionLabel = (text: string): string => text.split("\n").find(line
 
 function SessionResults({ context, session, onReview, onRepeat, onEdit }: { context: PluginContext; session: Session; onReview(this: void, indices: number[]): void; onRepeat(this: void): void; onEdit(this: void): void }) {
   const summary: SessionSummary = useMemo(() => summarizeSession(session), [session]);
+  const trends = useMemo(() => studyTrends([...(context.store.getHistory?.() ?? []), summary]), [context, summary]);
   const [selected, setSelected] = useState(session.order[0]);
   const [savingNote, setSavingNote] = useState(false);
   const [noteStatus, setNoteStatus] = useState("");
@@ -310,11 +319,17 @@ function SessionResults({ context, session, onReview, onRepeat, onEdit }: { cont
       <div><strong>{summary.maxScore ? `${Math.round(summary.score / summary.maxScore * 100)}%` : "Self-review"}</strong><span>{summary.maxScore ? `${summary.score} / ${summary.maxScore} points` : session.config.mode === "flashcards" ? "Recall ratings saved" : "Written responses saved"}</span></div>
       <dl>{statistics.filter(item => item.visible).map(item => <div key={item.label}><dt>{item.label}</dt><dd>{item.value}</dd></div>)}</dl>
     </div>
-    <div className="qm-session-actions qm-results-actions">{missed.length > 0 && <button type="button" className="mod-cta" onClick={() => onReview(missed)}><Icon name="refresh" />Review missed</button>}<button type="button" className={missed.length ? undefined : "mod-cta"} onClick={onRepeat}><Icon name="play" />Repeat quiz</button>{session.bookmarks.length > 0 && <button type="button" onClick={() => onReview(session.bookmarks)}><Icon name="bookmark" />Bookmarks ({session.bookmarks.length})</button>}<button type="button" onClick={onEdit}><Icon name="edit" />Edit quiz</button><button type="button" disabled={savingNote} onClick={() => { void saveNote(); }}><Icon name="book" />{savingNote ? "Saving…" : "Save note"}</button></div>
+    <details className="qm-study-trends"><summary>Learning trends</summary><dl>
+      <div><dt>Sessions</dt><dd>{trends.sessions}</dd></div>
+      <div><dt>Study time</dt><dd>{formatDuration(trends.totalSeconds)}</dd></div>
+      {trends.accuracy !== null && <div><dt>Graded accuracy</dt><dd>{trends.accuracy}%</dd></div>}
+    </dl>{trends.selfReview > 0 && <p className="qm-help">Written responses and recall ratings are excluded from graded accuracy.</p>}
+    {trends.topics.length > 0 && <ul>{trends.topics.slice(0, 3).map(topic => <li key={topic.tag}>{topic.tag}: {topic.correct} / {topic.attempted}</li>)}</ul>}</details>
+    <div className="qm-session-actions qm-results-actions">{missed.length > 0 && <button type="button" className="mod-cta" onClick={() => onReview(missed)}><Icon name="refresh" />Review missed</button>}<button type="button" className={missed.length ? undefined : "mod-cta"} onClick={onRepeat}><Icon name="play" />Repeat quiz</button>{session.bookmarks.length > 0 && <button type="button" onClick={() => onReview(session.bookmarks)}><Icon name="bookmark" />Bookmarks ({session.bookmarks.length})</button>}<details className="qm-result-more"><summary>More actions</summary><div><button type="button" onClick={onEdit}><Icon name="edit" />Edit quiz</button><button type="button" disabled={savingNote} onClick={() => { void saveNote(); }}><Icon name="book" />{savingNote ? "Saving…" : "Save note"}</button><button type="button" onClick={() => { void import("./InterchangeModal").then(({ openInterchange }) => openInterchange(context, session.quiz)).catch(error => context.showNotice(errorMessage(error, "Export could not be opened."))); }}><Icon name="download" />Export</button></div></details></div>
     {noteError ? <InlineError>{noteStatus}</InlineError> : <p className={noteStatus ? "qm-help" : "qm-sr-only"} role="status">{noteStatus}</p>}
     <div className="qm-results-grid">
       <nav className="qm-result-list" aria-label="Question results">{grades.map(({ index, grade }, position) => <button key={index} type="button" aria-current={index === selected ? "true" : undefined} onClick={() => setSelected(index)}><span>{position + 1}</span><span>{resultQuestionLabel(session.quiz.questions[index].question)}</span><span className={`qm-result-status qm-grade-${grade.status}`}>{session.config.mode === "flashcards" ? session.ratings?.[index] ?? "Unrated" : grade.status === "self-review" ? "Written" : grade.status === "correct" ? "Correct" : grade.status === "incorrect" ? "Missed" : "Unanswered"}</span></button>)}</nav>
-      <div className="qm-result-detail" aria-label="Answer review"><QuestionView question={question} response={session.responses[selected]} onChange={unchanged} reveal={true} disabled={true} mode="review" /></div>
+      <div className="qm-result-detail" aria-label="Answer review"><QuestionView question={question} response={session.responses[selected]} onChange={unchanged} reveal={true} disabled={true} mode="review" /><StudySources context={context} session={session} questionIndex={selected} /></div>
     </div>
   </section>;
 }

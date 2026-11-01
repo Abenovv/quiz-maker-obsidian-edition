@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { App, Modal, type Command, type PluginManifest } from "obsidian";
+import { App, Modal, type Command, type Editor, type MarkdownView, type PluginManifest } from "obsidian";
 import QuizMakerPlugin from "../src/core/plugin";
 import type { Settings } from "../src/core/types";
 import { installFeedback } from "../src/feedback";
@@ -110,7 +110,7 @@ function feedbackDocument(): Document {
   }) as unknown as Document;
 }
 
-test("two default commands keep former actions available through a live opt-in", async () => {
+test("command preferences control individual actions without reading notes", async () => {
   const originalDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
   Object.defineProperty(globalThis, "document", { configurable: true, value: feedbackDocument() });
   const app = new App();
@@ -131,10 +131,28 @@ test("two default commands keep former actions available through a live opt-in",
     await plugin.onload();
     await app.workspace.getLeaf().openFile(note);
     const commands = Reflect.get(plugin, "commands") as Command[];
-    const visible = () => commands.filter(command => !command.checkCallback || command.checkCallback(true));
-    assert.deepEqual(visible().map(command => [command.id, command.name]), [["open-studio", "Open"], ["quick-quiz", "Quick quiz"]]);
-    const formerIds = ["generate-quiz", "new-quiz", "import-quiz", "open-mini-view", "resume-quiz", "open-active-json", "open-quiz-from-note", "make-quiz-readable"];
-    assert.deepEqual(commands.filter(command => !["open-studio", "quick-quiz"].includes(command.id)).map(command => command.id).sort(), formerIds.sort());
+    const visible = () => commands.filter(command => !command.editorCheckCallback && (!command.checkCallback || command.checkCallback(true)));
+    const selectionCommand = commands.find(command => command.id === "quiz-selection");
+    let selectionReads = 0;
+    let selected = true;
+    const editor = {
+      somethingSelected: () => selected,
+      getSelection: () => { selectionReads++; return "Only selected text"; },
+      getCursor: () => ({ line: 0, ch: 0 })
+    } as unknown as Editor;
+    const markdownView = { file: note } as MarkdownView;
+    assert.equal(selectionCommand?.editorCheckCallback?.(true, editor, markdownView), true);
+    assert.equal(selectionReads, 0, "availability does not inspect selected content");
+    assert.equal(reads, 0, "selection availability does not read the note");
+    selected = false;
+    assert.equal(selectionCommand?.editorCheckCallback?.(true, editor, markdownView), false);
+    selected = true;
+    assert.equal(selectionCommand?.editorCheckCallback?.(true, editor, { file: json } as MarkdownView), false);
+    assert.equal(plugin.settings.extraCommands, false);
+    plugin.settings.extraCommands = false;
+    assert.deepEqual(visible().map(command => [command.id, command.name]), [["open-studio", "Open"], ["quick-quiz", "Quick quiz"], ["new-quiz", "New quiz"]]);
+    const formerIds = ["generate-quiz", "import-quiz", "open-mini-view", "resume-quiz", "open-active-json", "open-quiz-from-note", "make-quiz-readable"];
+    assert.deepEqual(commands.filter(command => !["open-studio", "quick-quiz", "new-quiz", "quiz-selection"].includes(command.id)).map(command => command.id).sort(), formerIds.sort());
     plugin.settings.extraCommands = true;
     assert.deepEqual(visible().map(command => command.id).sort(), ["open-studio", "quick-quiz", "generate-quiz", "new-quiz", "import-quiz", "open-mini-view", "open-quiz-from-note", "make-quiz-readable"].sort());
     plugin.store.getActiveSession = () => createSession(quiz);
@@ -151,8 +169,8 @@ test("two default commands keep former actions available through a live opt-in",
     assert.equal(actions, 1);
     assert.equal(reads, 1);
     plugin.settings.extraCommands = false;
-    assert.deepEqual(visible().map(command => command.id), ["open-studio", "quick-quiz"]);
-    assert.equal(commands.find(command => command.id === "new-quiz")?.checkCallback?.(false), false);
+    assert.deepEqual(visible().map(command => command.id), ["open-studio", "quick-quiz", "new-quiz"]);
+    assert.equal(commands.find(command => command.id === "import-quiz")?.checkCallback?.(false), false);
     assert.equal(actions, 1, "disabled command actions must remain unavailable to old hotkeys");
     plugin.openCurrentQuiz();
     await new Promise<void>(resolve => setImmediate(resolve));
@@ -169,6 +187,8 @@ test("two default commands keep former actions available through a live opt-in",
     assert.equal(commands.find(command => command.id === "quick-quiz")?.checkCallback?.(false), true);
     assert.equal(chosenPreset, "exam-prep");
     assert.equal(actions, 4);
+    commands.find(command => command.id === "new-quiz")?.callback?.();
+    assert.equal(actions, 5, "New quiz remains available while extra commands are off");
     assert.equal(reads, readsBeforeQuickQuiz, "quick creation opens setup without reading source content");
   } finally {
     plugin.onunload();

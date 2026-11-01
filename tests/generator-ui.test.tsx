@@ -80,3 +80,33 @@ test("missing model setup is exposed and a JSON file is not selected as a source
   assert.match(html, /Choose your source notes/);
   assert.doesNotMatch(html, /qm-source-path/);
 });
+
+test("selection generation shows its scope without choosing or reading the active note", () => {
+  let reads = 0;
+  const settings = normalizeSettings(undefined);
+  settings.provider = "ollama";
+  settings.providers.ollama.model = "public-fixture-model";
+  const context = {
+    settings,
+    app: { workspace: { getActiveFile: () => new TFile("Whole note.md") }, vault: { cachedRead: () => { reads++; throw new Error("Selection must not read the note"); } } },
+    models: { list: async () => [] }
+  } as unknown as PluginContext;
+  const html = renderToStaticMarkup(createElement(Generator, { context, close() {}, options: { selection: { path: "Public.md", content: "Selected paragraph", fromLine: 3, toLine: 3 } } }));
+  assert.match(html, /Public\.md/);
+  assert.match(html, /Selected text/);
+  assert.doesNotMatch(html, /Whole note/);
+  assert.doesNotMatch(html, />Add note</);
+  assert.equal(reads, 0);
+});
+
+
+test("generator uses the shared model picker and keeps estimates in advanced options", () => {
+  const { html, requests } = render(new TFile("Public.md"), false);
+  assert.doesNotMatch(html, /<datalist/);
+  assert.match(html, /Choose model/);
+  assert.match(html, /placeholder="Enter a model ID"/);
+  assert.match(html, /Customize pack/);
+  const options = html.slice(html.indexOf('class="qm-generator-options'), html.indexOf('<details class="qm-generator-details qm-model-details'));
+  assert.match(options, /output tokens/);
+  assert.equal(requests, 0);
+});

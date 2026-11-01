@@ -306,13 +306,20 @@ export class ModelService implements ModelServicePort {
   }
 
   private async ollamaCapabilities(rows: RecordValue[], base: string, headers: Record<string, string>, signal: AbortSignal): Promise<RecordValue[]> {
-    if (rows.length > MAX_OLLAMA_MODELS) throw new TransportError("payload", "More than 100 local models are installed. Enter a model ID manually.");
+    // Catalog aliases can repeat an ID; inspect each local model only once.
+    const uniqueRows = new Map<string, RecordValue>();
+    for (const row of rows) {
+      const candidate = modelInfo("ollama", row);
+      if (candidate && !uniqueRows.has(candidate.id)) uniqueRows.set(candidate.id, row);
+    }
+    const models = [...uniqueRows.values()];
+    if (models.length > MAX_OLLAMA_MODELS) throw new TransportError("payload", "More than 100 local models are installed. Enter a model ID manually.");
     const results: RecordValue[] = [];
     let position = 0;
     const worker = async (): Promise<void> => {
-      while (position < rows.length) {
+      while (position < models.length) {
         assertActive(signal);
-        const row = rows[position++];
+        const row = models[position++];
         const candidate = modelInfo("ollama", row);
         if (!candidate) continue;
         const detail = Array.isArray(row.capabilities) ? row : await this.request({
@@ -323,7 +330,7 @@ export class ModelService implements ModelServicePort {
         if (detail.capabilities.includes("completion")) results.push(row);
       }
     };
-    await Promise.all(Array.from({ length: Math.min(4, rows.length) }, worker));
+    await Promise.all(Array.from({ length: Math.min(4, models.length) }, worker));
     return results;
   }
 }

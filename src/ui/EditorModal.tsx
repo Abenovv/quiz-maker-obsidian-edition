@@ -1,9 +1,13 @@
-import { Platform, TFile, TFolder, normalizePath } from "obsidian";
+import { TFile, TFolder, normalizePath } from "obsidian";
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createQuestion, createQuiz, MAX_QUIZ_BYTES, MAX_QUESTIONS, questionTypeLabels, questionTypes, serializeQuiz, validateQuiz } from "../core/schema";
-import type { GenerationConnection, GenerationRequest, PluginContext, Provider, Question, QuestionType, Quiz, SessionConfig } from "../core/types";
-import { Icon, InlineError, ReactModal, errorMessage } from "./shared";
+import type { GenerationConnection, GenerationRequest, PluginContext, Provider, Difficulty, Question, QuestionType, Quiz, SessionConfig } from "../core/types";
+import { Icon, InlineError, QuestionImage, localImagePath, ReactModal, errorMessage } from "./shared";
 import { duplicateQuestion, editorError, exportFilename, moveQuestion, previewImport, removeQuestion, replaceQuestion, validateEditorDraft } from "./editor/model";
+import { DraftHistory, editQuestions, type BulkEdit } from "./editor/history";
+import { inspectQuiz } from "../ai/quality";
+import { QuestionView } from "./questions/QuestionView";
+import { openInterchange } from "./InterchangeModal";
 import { MAX_LEGACY_LIBRARY_BYTES } from "../storage/legacy";
 
 interface CloseControl { dirty: boolean; request?: () => void }
@@ -37,24 +41,6 @@ export function openImport(context: PluginContext): void {
   const modal = new ReactModal(context, close => <ImportQuiz context={context} close={close} />,
     { className: "qm-import-modal", title: "Import quiz" });
   modal.open();
-}
-
-/** Webview downloads on mobile are unreliable, so save a user-requested export in the vault. */
-export function exportQuiz(quiz: Quiz, context?: PluginContext): void {
-  const content = serializeQuiz(quiz);
-  if (Platform.isMobile && context) {
-    void saveVaultExport(context, quiz.title, content).then(file => context.showNotice(`Exported ${file.path}`))
-      .catch(error => context.showNotice(errorMessage(error, "Could not export this quiz.")));
-    return;
-  }
-  const url = URL.createObjectURL(new Blob([content], { type: "application/json;charset=utf-8" }));
-  const anchor = createEl("a");
-  try {
-    anchor.href = url;
-    anchor.download = exportFilename(quiz.title);
-    document.body.append(anchor);
-    anchor.click();
-  } finally { anchor.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); }
 }
 
 export async function saveVaultExport(context: PluginContext, title: string, content: string): Promise<TFile> {
@@ -135,6 +121,7 @@ function ImportQuiz({ context, close }: { context: PluginContext; close(this: vo
     } finally { if (mounted.current) setBusy(false); }
   };
   return <section className="qm-import">
+    <details><summary>Anki cards</summary><p className="qm-muted">Import a text file or a compatible deck package.</p><button type="button" disabled={busy} onClick={() => { close(); openInterchange(context); }}>Import cards</button></details>
     <label className="qm-import-drop"><span>Choose a JSON file</span>
       <input type="file" accept=".json,application/json" disabled={busy} onChange={event => { void readFile(event.currentTarget.files?.[0]); event.currentTarget.value = ""; }} />
     </label>
@@ -163,7 +150,18 @@ function ImportQuiz({ context, close }: { context: PluginContext; close(this: vo
 
 function QuizEditor({ context, initial, control, close }: { context: PluginContext; initial?: Quiz; control: CloseControl; close(this: void): void }): ReactNode {
   const [draft, setDraft] = useState<Quiz>(() => initial ? structuredClone(initial) : createQuiz([createQuestion("multiple-choice")], { provenance: { kind: "manual" } }));
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   const [selection, setSelection] = useState(0);
+  const history = useRef(new DraftHistory());
+  const [replacement, setReplacement] = useState<{ before: Quiz; after: Quiz; index: number }>();
+  const [bulk, setBulk] = useState<number[]>([]);
+  const [bulkMode, setBulkMode] = useState(false);
+  const [bulkTags, setBulkTags] = useState("");
+  const [bulkDifficulty, setBulkDifficulty] = useState<Difficulty>("medium");
+  const [revisionId, setRevisionId] = useState("");
+  const [imagePath, setImagePath] = useState("");
+  const [imageAlt, setImageAlt] = useState("");
   const [newType, setNewType] = useState<QuestionType>("multiple-choice");
   const [mode, setMode] = useState<"form" | "json">("form");
   const [json, setJson] = useState("");
@@ -174,6 +172,7 @@ function QuizEditor({ context, initial, control, close }: { context: PluginConte
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [confirmRegenerate, setConfirmRegenerate] = useState<GenerationConnection | null>(null);
   const [busy, setBusy] = useState<"save" | "regenerate" | null>(null);
+  const locked = Boolean(busy) || Boolean(replacement);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const abort = useRef<AbortController>();
@@ -188,7 +187,7 @@ function QuizEditor({ context, initial, control, close }: { context: PluginConte
   const settledQuestionJson = useSettledText(questionJson ?? "", editor);
   const questionJsonPending = questionJson !== undefined && settledQuestionJson !== questionJson;
   const pending = (mode === "json" && settledJson !== json) || questionJsonPending;
-  control.dirty = dirty;
+  control.dirty = dirty || Boolean(replacement);
   control.request = () => setConfirmClose(true);
   useEffect(() => { active.current = true; return () => { active.current = false; abort.current?.abort(); control.request = undefined; }; }, [control]);
   useEffect(() => {
@@ -208,25 +207,48 @@ function QuizEditor({ context, initial, control, close }: { context: PluginConte
   const validation = useMemo(() => validateEditorDraft(draft, mode === "json" ? settledJson : undefined), [draft, mode, settledJson]);
   const valid = validation.quiz && !questionJsonError && !pending ? validation.quiz : undefined;
   const selected = draft.questions[selection];
-  const update = (next: Quiz, resetQuestionJson = true): void => {
-    setDraft(next); setDirty(true); setError(""); setStatus("");
+  const quality = useMemo(() => valid ? inspectQuiz(valid) : undefined, [valid]);
+  const revisions = context.store.getRevisions?.(draft.id) ?? context.store.getWorkspace?.().revisions.filter(item => item.quizId === draft.id) ?? [];
+  const update = (next: Quiz, resetQuestionJson = true): boolean => {
+    try { history.current.record(draft, next); }
+    catch (issue) { setError(errorMessage(issue)); return false; }
+    setDraft(next); setDirty(true); setError(""); setStatus(""); setReplacement(undefined); setBulk([]);
     if (resetQuestionJson) { setQuestionJson(undefined); setQuestionJsonError(""); }
+    return true;
+  };
+  const travel = (direction: "undo" | "redo"): void => {
+    if (locked || pending || questionJsonError || mode === "json") return;
+    try {
+      const next = history.current[direction](draft);
+      if (!next) return;
+      setDraft(next); setSelection(Math.min(selection, Math.max(0, next.questions.length - 1)));
+      setQuestionJson(undefined); setQuestionJsonError(""); setReplacement(undefined); setBulk([]);
+      setDirty(true); setError(""); setStatus(direction === "undo" ? "Change undone." : "Change restored.");
+    } catch (issue) { setError(errorMessage(issue)); }
+  };
+  const applyBulk = (edit: BulkEdit): void => {
+    if (locked || questionJsonPending || questionJsonError) return;
+    try { const next = editQuestions(draft, bulk, edit); update(next); setBulk([]); setBulkMode(false); setSelection(Math.min(selection, next.questions.length - 1)); }
+    catch (issue) { setError(errorMessage(issue)); }
   };
   useEffect(() => {
     if (questionJson === undefined || settledQuestionJson !== questionJson) return;
     try {
       const question: unknown = JSON.parse(settledQuestionJson);
       const checked = validateQuiz({ questions: [question] }).questions[0];
-      setDraft(current => replaceQuestion(current, selection, checked));
+      const current = draftRef.current;
+      const next = replaceQuestion(current, selection, checked);
+      history.current.record(current, next);
+      setDraft(next);
       setQuestionJsonError(""); setError("");
     } catch (issue) { setQuestionJsonError(editorError(issue, settledQuestionJson)); }
   }, [questionJson, settledQuestionJson, selection]);
   const choose = (index: number): void => {
     if (questionJsonError || questionJsonPending) { setError("Finish the question JSON before switching questions."); return; }
-    setSelection(index); setQuestionJson(undefined); setQuestionJsonError(""); setConfirmRemove(false); setConfirmRegenerate(null); setError("");
+    setSelection(index); setImagePath(""); setImageAlt(""); setQuestionJson(undefined); setQuestionJsonError(""); setConfirmRemove(false); setConfirmRegenerate(null); setError("");
   };
   const save = async (study = false): Promise<void> => {
-    if (!valid || busy) return;
+    if (!valid || busy || replacement || quality?.valid === false) return;
     setBusy("save"); setError("");
     try {
       const saved = await context.store.saveQuiz(dirty ? { ...valid, updatedAt: new Date().toISOString() } : valid);
@@ -247,6 +269,7 @@ function QuizEditor({ context, initial, control, close }: { context: PluginConte
     abort.current = controller;
     setBusy("regenerate"); setConfirmRegenerate(null); setError(""); setStatus("Reading notes…");
     try {
+      if (snapshot.sourceSelection) throw new Error("This quiz uses selected text. Select the passage again and generate a replacement from that selection.");
       if (!snapshot.sources.length || snapshot.sources.length > 50) throw new Error("Choose between 1 and 50 source notes to regenerate a question.");
       const sources: GenerationRequest["sources"] = [];
       let bytes = 0;
@@ -262,11 +285,12 @@ function QuizEditor({ context, initial, control, close }: { context: PluginConte
       const next = await context.generation.regenerate(snapshot, index, {
         sources, methods: [{ type: selected.type, count: 1 }], title: snapshot.title,
         difficulty: selected.difficulty ?? "medium", language,
-        includeHints: Boolean(selected.hint), includeExplanations: Boolean(selected.explanation), includeSources: true,
+        includeHints: Boolean(selected.hint), includeExplanations: Boolean(selected.explanation), includeSources: context.settings.sourceEvidenceEnabled,
         signal: controller.signal, onProgress: message => { if (active.current && !controller.signal.aborted) setStatus(message); }
       }, connection);
       if (!active.current || controller.signal.aborted) return;
-      update(next); setStatus("Question regenerated. Review it before saving.");
+      setReplacement({ before: snapshot, after: next, index });
+      setStatus("Review the replacement.");
     } catch (issue) {
       if (active.current) {
         if (controller.signal.aborted) setStatus("Regeneration cancelled.");
@@ -278,53 +302,81 @@ function QuizEditor({ context, initial, control, close }: { context: PluginConte
     if (next === mode) return;
     if (questionJsonError || questionJsonPending) { setError("Finish the question JSON first."); return; }
     if (next === "json") { setJson(JSON.stringify(draft, null, 2)); setMode(next); }
-    else if (validation.quiz) { setDraft(validation.quiz); setSelection(Math.min(selection, validation.quiz.questions.length - 1)); setMode(next); setError(""); }
+    else if (validation.quiz) { update(validation.quiz); setSelection(Math.min(selection, validation.quiz.questions.length - 1)); setMode(next); setError(""); }
     else setError(validation.error ?? "Fix the JSON before returning to the form.");
   };
-  return <section ref={editor} className="qm-editor" aria-busy={Boolean(busy)}>
+  return <section ref={editor} className="qm-editor" aria-busy={Boolean(busy)} onKeyDown={event => {
+    const target = event.target as HTMLElement;
+    if (target.closest("input, textarea, select, [contenteditable=true]") || !(event.ctrlKey || event.metaKey) || event.altKey) return;
+    if (event.key.toLowerCase() === "z") { event.preventDefault(); travel(event.shiftKey ? "redo" : "undo"); }
+  }}>
     {confirmClose && <div ref={closePrompt} className="qm-editor-confirm" role="alert">
-      <p>Save your changes before closing?</p>
+      <p>{replacement ? "Discard the replacement and close?" : "Save your changes before closing?"}</p>
       <button type="button" onClick={() => setConfirmClose(false)}>Keep editing</button>
       <button type="button" disabled={Boolean(busy)} onClick={() => { control.dirty = false; close(); }}>Discard changes</button>
-      <button type="button" className="mod-cta" disabled={!valid || Boolean(busy)} onClick={() => { void save().then(() => { if (!control.dirty) close(); }); }}>Save and close</button>
+      <button type="button" className="mod-cta" disabled={!valid || quality?.valid === false || locked} onClick={() => { void save().then(() => { if (!control.dirty) close(); }); }}>Save and close</button>
     </div>}
     <div className="qm-editor-toolbar">
-      <label className="qm-field"><span>Title</span><input value={draft.title} maxLength={200} disabled={Boolean(busy) || mode === "json"} onChange={event => update({ ...draft, title: event.currentTarget.value }, false)} /></label>
-      <div className="qm-segmented" role="group" aria-label="Editor view"><button type="button" aria-pressed={mode === "form"} disabled={Boolean(busy) || pending} onClick={() => switchMode("form")}>Form</button><button type="button" aria-pressed={mode === "json"} disabled={Boolean(busy) || pending} onClick={() => switchMode("json")}>JSON</button></div>
+      <label className="qm-field"><span>Title</span><input value={draft.title} maxLength={200} disabled={locked || mode === "json"} onChange={event => update({ ...draft, title: event.currentTarget.value }, false)} /></label>
+      <details className="qm-editor-tools"><summary>Quiz options</summary><div className="qm-editor-tools-content">
+        <button type="button" disabled={locked || pending} onClick={() => switchMode(mode === "json" ? "form" : "json")}>{mode === "json" ? "Edit form" : "Edit JSON"}</button>
+        <div className="qm-editor-history" role="group" aria-label="Edit history">
+      <button type="button" className="qm-icon-button" aria-label="Undo" title="Undo" disabled={locked || pending || Boolean(questionJsonError) || mode === "json" || !history.current.canUndo} onClick={() => travel("undo")}><Icon name="undo" /></button>
+      <button type="button" className="qm-icon-button" aria-label="Redo" title="Redo" disabled={locked || pending || Boolean(questionJsonError) || mode === "json" || !history.current.canRedo} onClick={() => travel("redo")}><Icon name="arrow" /></button>
     </div>
-    {draft.provenance?.kind === "ai" && <p className="qm-muted">Quiz created with {draft.provenance.provider ? providerNames[draft.provenance.provider] : "AI"}{draft.provenance.model ? ` · ${draft.provenance.model}` : ""}.</p>}
-    {mode === "json" ? <label className="qm-field"><span>Quiz JSON</span><textarea className="qm-json-input" rows={24} spellCheck={false} maxLength={MAX_QUIZ_BYTES} value={json} disabled={Boolean(busy)} onChange={event => { setJson(event.currentTarget.value); setDirty(true); setError(""); setStatus(""); }} /></label> : <>
       <details className="qm-editor-quiz-details"><summary>Quiz details</summary>
-        <label className="qm-field"><span>Description</span><textarea rows={2} value={draft.description ?? ""} disabled={Boolean(busy)} onChange={event => { const next = { ...draft }; if (event.currentTarget.value) next.description = event.currentTarget.value; else delete next.description; update(next, false); }} /></label>
-        <SessionFields config={draft.runConfig} disabled={Boolean(busy)} onChange={config => { const next = { ...draft }; if (config) next.runConfig = config; else delete next.runConfig; update(next, false); }} />
+        {draft.provenance?.kind === "ai" && <p className="qm-muted">{draft.provenance.provider ? providerNames[draft.provenance.provider] : "AI"}{draft.provenance.model ? ` · ${draft.provenance.model}` : ""}</p>}
+        <label className="qm-field"><span>Description</span><textarea rows={2} value={draft.description ?? ""} disabled={locked || mode === "json"} onChange={event => { const next = { ...draft }; if (event.currentTarget.value) next.description = event.currentTarget.value; else delete next.description; update(next, false); }} /></label>
+        {revisions.length > 0 && <details><summary>Saved versions · {revisions.length}</summary><label className="qm-field"><span>Version</span><select value={revisionId} disabled={locked || mode === "json"} onChange={event => setRevisionId(event.currentTarget.value)}><option value="">Choose a version</option>{revisions.map(item => <option key={item.id} value={item.id}>{new Date(item.savedAt).toLocaleString()} · {item.reason}</option>)}</select></label>{revisions.find(item => item.id === revisionId) && <><p>{revisions.find(item => item.id === revisionId)?.quiz.title} · {revisions.find(item => item.id === revisionId)?.quiz.questions.length} questions</p><button type="button" disabled={locked || mode === "json" || Boolean(questionJsonError) || questionJsonPending} onClick={() => { const item = revisions.find(value => value.id === revisionId); if (!item) return; try { if (update(validateQuiz({ ...item.quiz, id: draft.id }))) { setSelection(0); setStatus("Version restored to draft."); } } catch (issue) { setError(errorMessage(issue)); } }}>Restore to draft</button></>}</details>}
+        <SessionFields config={draft.runConfig} disabled={locked || mode === "json"} onChange={config => { const next = { ...draft }; if (config) next.runConfig = config; else delete next.runConfig; update(next, false); }} />
       </details>
+      <button type="button" disabled={!valid || locked} onClick={() => { if (valid) openInterchange(context, valid); }}>Export</button>
+      </div></details>
+    </div>
+    {quality?.valid === false && <p role="alert" className="qm-error">Resolve conflicting answers before saving.</p>}
+    {quality && quality.issues.length > 0 && <details className="qm-editor-quality"><summary>Review · {quality.issues.length} {quality.issues.length === 1 ? "item" : "items"}</summary><p className="qm-muted">These checks flag possible problems; review the answers against your sources.</p><ul>{quality.issues.map((issue, index) => <li key={index}>{issue.questionIndex !== undefined ? `Question ${issue.questionIndex + 1}: ` : ""}{issue.message}</li>)}</ul></details>}
+    {replacement && <section className="qm-editor-comparison" aria-label="Review replacement"><h3>Review replacement</h3><div className="qm-editor-comparison-grid">{([ ["Current", replacement.before], ["Replacement", replacement.after] ] as const).map(([label, quiz]) => <div key={label}><h4>{label}</h4><QuestionView question={quiz.questions[replacement.index]} response={undefined} onChange={() => undefined} reveal disabled mode="practice" /></div>)}</div><button type="button" onClick={() => { setReplacement(undefined); setStatus("Original question kept."); }}>Keep original</button><button type="button" className="mod-cta" onClick={() => { if (update(replacement.after)) setStatus("Replacement accepted."); }}>Accept replacement</button></section>}
+    {mode === "json" ? <label className="qm-field"><span>Quiz JSON</span><textarea className="qm-json-input" rows={24} spellCheck={false} maxLength={MAX_QUIZ_BYTES} value={json} disabled={locked} onChange={event => { setJson(event.currentTarget.value); setDirty(true); setError(""); setStatus(""); }} /></label> : <>
       <div className="qm-editor-layout">
         <aside className="qm-editor-outline" aria-label="Questions">
-          <ol>{draft.questions.map((question, index) => <li key={question.id ?? index}><button type="button" className={`qm-editor-question-link${index === selection ? " is-active" : ""}`} aria-current={index === selection ? "true" : undefined} disabled={Boolean(busy)} onClick={() => choose(index)}><span>{index + 1}</span><span>{question.question || "Untitled question"}</span></button></li>)}</ol>
-          <label className="qm-field"><span>Add question</span><select value={newType} disabled={Boolean(busy)} onChange={event => setNewType(event.currentTarget.value as QuestionType)}>{questionTypes.map(type => <option key={type} value={type}>{questionTypeLabels[type]}</option>)}</select></label>
-          <button type="button" disabled={Boolean(busy) || draft.questions.length >= MAX_QUESTIONS || Boolean(questionJsonError) || questionJsonPending} onClick={() => { update({ ...draft, questions: [...draft.questions, createQuestion(newType)] }); setSelection(draft.questions.length); }}>Add question</button>
+          <details className="qm-editor-manage" open={bulkMode} onToggle={event => { const open = event.currentTarget.open; setBulkMode(open); if (!open) setBulk([]); }}><summary>Select questions</summary>
+          {bulkMode && <div className="qm-editor-bulk" aria-label="Selected questions"><p>{bulk.length} selected</p><button type="button" disabled={locked || questionJsonPending || Boolean(questionJsonError)} onClick={() => setBulk(draft.questions.map((_, index) => index))}>Select all</button><label className="qm-field"><span>Add tags</span><input value={bulkTags} onChange={event => setBulkTags(event.currentTarget.value)} placeholder="Separate with commas" /></label><button type="button" disabled={!bulk.length || !bulkTags.trim() || locked || questionJsonPending || Boolean(questionJsonError)} onClick={() => applyBulk({ kind: "tags", tags: bulkTags.split(",") })}>Apply tags</button><label className="qm-field"><span>Difficulty</span><select value={bulkDifficulty} onChange={event => setBulkDifficulty(event.currentTarget.value as Difficulty)}><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></select></label><button type="button" disabled={!bulk.length || locked || questionJsonPending || Boolean(questionJsonError)} onClick={() => applyBulk({ kind: "difficulty", difficulty: bulkDifficulty })}>Apply difficulty</button><details><summary>Remove selected</summary><p>Remove {bulk.length} questions? Undo remains available.</p><button type="button" disabled={!bulk.length || bulk.length === draft.questions.length || locked || questionJsonPending || Boolean(questionJsonError)} onClick={() => applyBulk({ kind: "remove" })}>Remove {bulk.length} questions</button></details></div>}
+          </details>
+          <ol>{draft.questions.map((question, index) => <li key={question.id ?? index}>{bulkMode && <input type="checkbox" aria-label={`Select question ${index + 1}`} checked={bulk.includes(index)} disabled={locked} onChange={event => setBulk(event.currentTarget.checked ? [...bulk, index] : bulk.filter(value => value !== index))} />}<button type="button" className={`qm-editor-question-link${index === selection ? " is-active" : ""}`} aria-current={index === selection ? "true" : undefined} disabled={locked} onClick={() => choose(index)}><span>{index + 1}</span><span>{question.question || "Untitled question"}</span></button></li>)}</ol>
+          <label className="qm-field"><span>Add question</span><select value={newType} disabled={locked} onChange={event => setNewType(event.currentTarget.value as QuestionType)}>{questionTypes.map(type => <option key={type} value={type}>{questionTypeLabels[type]}</option>)}</select></label>
+          <button type="button" disabled={locked || draft.questions.length >= MAX_QUESTIONS || Boolean(questionJsonError) || questionJsonPending} onClick={() => { if (update({ ...draft, questions: [...draft.questions, createQuestion(newType)] })) setSelection(draft.questions.length); }}>Add question</button>
         </aside>
         <main className="qm-editor-detail">
-          {selected && <fieldset className="qm-editor-fields" disabled={Boolean(busy)}>
+          {selected && <fieldset className="qm-editor-fields" disabled={locked}>
             <legend>Question {selection + 1} · {questionTypeLabels[selected.type]}</legend>
-            <div className="qm-editor-question-actions">
+            <details className="qm-editor-question-menu"><summary>Question actions</summary><div className="qm-editor-question-actions">
               <button type="button" className="qm-icon-button" aria-label="Move up" title="Move up" disabled={selection === 0 || Boolean(questionJsonError) || questionJsonPending} onClick={() => { update(moveQuestion(draft, selection, selection - 1)); setSelection(selection - 1); }}><Icon name="chevron-up" /></button>
               <button type="button" className="qm-icon-button" aria-label="Move down" title="Move down" disabled={selection === draft.questions.length - 1 || Boolean(questionJsonError) || questionJsonPending} onClick={() => { update(moveQuestion(draft, selection, selection + 1)); setSelection(selection + 1); }}><Icon name="chevron-down" /></button>
-              <button type="button" disabled={draft.questions.length >= MAX_QUESTIONS || Boolean(questionJsonError) || questionJsonPending} onClick={() => { update(duplicateQuestion(draft, selection)); setSelection(selection + 1); }}><Icon name="plus" />Duplicate</button>
+              <button type="button" disabled={draft.questions.length >= MAX_QUESTIONS || Boolean(questionJsonError) || questionJsonPending} onClick={() => { if (update(duplicateQuestion(draft, selection))) setSelection(selection + 1); }}><Icon name="plus" />Duplicate</button>
               <button type="button" onClick={() => setConfirmRemove(true)}><Icon name="trash" />Remove</button>
-              {draft.sources.length > 0 && <button type="button" disabled={!valid} onClick={() => {
+              {draft.sources.length > 0 && !draft.sourceSelection && <button type="button" disabled={!valid} onClick={() => {
                 const provider = context.settings.provider;
                 setConfirmRegenerate({ provider, config: { ...context.settings.providers[provider] } });
               }}><Icon name="refresh" />Regenerate</button>}
-            </div>
+            </div></details>
             {confirmRemove && <div ref={removePrompt} className="qm-editor-confirm" role="alert"><p>Remove this question?</p><button type="button" onClick={() => setConfirmRemove(false)}>Keep question</button><button type="button" onClick={() => { update(removeQuestion(draft, selection)); setSelection(Math.max(0, Math.min(selection, draft.questions.length - 2))); setConfirmRemove(false); }}>Remove question</button></div>}
             {confirmRegenerate && <div ref={regeneratePrompt} className="qm-editor-confirm" role="alert"><p>Send these notes to {providerNames[confirmRegenerate.provider]} to replace this question?</p><ul>{draft.sources.map(path => <li key={path}>{path}</li>)}</ul><button type="button" onClick={() => setConfirmRegenerate(null)}>Cancel</button><button type="button" className="mod-cta" onClick={() => { void regenerate(); }}>Regenerate question</button></div>}
+            {draft.sourceSelection && <p className="qm-muted">To regenerate, select the source passage again. This quiz uses selected text.</p>}
             <label className="qm-field"><span>Question</span><textarea rows={3} value={selected.question} onChange={event => update(replaceQuestion(draft, selection, { ...selected, question: event.currentTarget.value }))} /></label>
             <QuestionFields question={selected} onChange={question => update(replaceQuestion(draft, selection, question))} />
+            <details className="qm-editor-question-details"><summary>Question details</summary><div className="qm-editor-question-metadata"><label className="qm-field"><span>Tags</span><TagInput values={selected.tags ?? []} onChange={tags => update(replaceQuestion(draft, selection, { ...selected, tags }))} /></label><label className="qm-field"><span>Topic</span><input value={selected.topic ?? ""} onChange={event => { const next = { ...selected }; if (event.currentTarget.value.trim()) next.topic = event.currentTarget.value; else delete next.topic; update(replaceQuestion(draft, selection, next)); }} /></label><label className="qm-field"><span>Difficulty</span><select value={selected.difficulty ?? ""} onChange={event => { const next = { ...selected }; if (event.currentTarget.value) next.difficulty = event.currentTarget.value as Difficulty; else delete next.difficulty; update(replaceQuestion(draft, selection, next)); }}><option value="">Not set</option><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></select></label></div>
+            <details><summary>Images{selected.media?.length ? ` · ${selected.media.length}` : ""}</summary>{selected.media?.map((media, index) => <div key={`${media.path}-${index}`}><QuestionImage path={media.path} alt={media.alt} /><button type="button" onClick={() => update(replaceQuestion(draft, selection, { ...selected, media: selected.media?.filter((_, position) => position !== index) }))}>Remove image {index + 1}</button></div>)}<label className="qm-field"><span>Image path in this vault</span><input value={imagePath} placeholder="Attachments/diagram.png" onChange={event => setImagePath(event.currentTarget.value)} /></label><label className="qm-field"><span>Image description</span><input value={imageAlt} onChange={event => setImageAlt(event.currentTarget.value)} /></label><button type="button" disabled={!imagePath.trim() || !imageAlt.trim() || (selected.media?.length ?? 0) >= 8} onClick={() => {
+              const path = imagePath.trim();
+              const file = localImagePath(path) ? context.app.vault.getAbstractFileByPath(path) : null;
+              if (!(file instanceof TFile)) { setError("Choose an existing PNG, JPEG, WebP or GIF inside this vault."); return; }
+              if (file.stat.size > 10 * 1024 * 1024) { setError("This image exceeds 10 MiB. Choose a smaller image."); return; }
+              update(replaceQuestion(draft, selection, { ...selected, media: [...selected.media ?? [], { path, alt: imageAlt.trim() }] })); setImagePath(""); setImageAlt("");
+            }}>Attach image</button><p className="qm-muted">Images stay in your vault and are not sent for generation.</p></details>
             <details><summary>Hint, explanation and source</summary>{(["hint", "explanation", "source"] as const).map(key => <label key={key} className="qm-field"><span>{key === "hint" ? "Hint" : key === "explanation" ? "Explanation" : "Source note"}</span><textarea rows={key === "explanation" ? 3 : 2} value={selected[key] ?? ""} onChange={event => { const next = { ...selected }; if (event.currentTarget.value) next[key] = event.currentTarget.value; else delete next[key]; update(replaceQuestion(draft, selection, next)); }} /></label>)}</details>
             <details className="qm-editor-advanced"><summary>Question JSON</summary><label className="qm-field"><span>Structured question data</span><textarea className="qm-json-input" rows={12} spellCheck={false} maxLength={MAX_QUIZ_BYTES} value={questionJson ?? JSON.stringify(selected, null, 2)} onChange={event => {
               setQuestionJson(event.currentTarget.value); setDirty(true); setStatus(""); setQuestionJsonError(""); setError("");
             }} /></label></details>
+            </details>
           </fieldset>}
           {!selected && <p>Add a question to begin.</p>}
         </main>
@@ -334,11 +386,18 @@ function QuizEditor({ context, initial, control, close }: { context: PluginConte
     <footer className="qm-editor-footer">
       <span className="qm-editor-validation" role="status" aria-live="polite">{status || (pending ? "Checking JSON…" : valid ? `${valid.questions.length} ${valid.questions.length === 1 ? "question" : "questions"}${dirty ? " · Unsaved changes" : ""}` : "Fix the errors before saving.")}</span>
       {busy === "regenerate" && <button type="button" data-qm-cancel-regenerate onClick={() => abort.current?.abort()}>Cancel regeneration</button>}
-      {mode === "json" && <button type="button" disabled={!valid || Boolean(busy)} onClick={() => { if (valid) { try { exportQuiz(valid, context); } catch (issue) { setError(errorMessage(issue)); } } }}>Export JSON</button>}
-      <button type="button" disabled={!valid || Boolean(busy)} onClick={() => { void save(true); }}>Save and study</button>
-      <button type="button" className="mod-cta" disabled={!valid || Boolean(busy)} onClick={() => { void save(); }}>{busy === "save" ? "Saving…" : "Save quiz"}</button>
+
+      <button type="button" disabled={!valid || quality?.valid === false || locked} onClick={() => { void save(true); }}>Save and study</button>
+      <button type="button" className="mod-cta" disabled={!valid || quality?.valid === false || locked} onClick={() => { void save(); }}>{busy === "save" ? "Saving…" : "Save quiz"}</button>
     </footer>
   </section>;
+}
+
+function TagInput({ values, onChange }: { values: string[]; onChange(this: void, tags: string[]): void }): ReactNode {
+  const [text, setText] = useState(values.join(", "));
+  const focused = useRef(false);
+  useEffect(() => { if (!focused.current) setText(values.join(", ")); }, [values]);
+  return <input value={text} placeholder="Separate with commas" onFocus={() => { focused.current = true; }} onBlur={() => { focused.current = false; setText(values.join(", ")); }} onChange={event => { setText(event.currentTarget.value); onChange([...new Set(event.currentTarget.value.split(",").map(tag => tag.trim()).filter(Boolean))]); }} />;
 }
 
 function TextList({ label, values, onChange }: { label: string; values: string[]; onChange(this: void, values: string[]): void }): ReactNode {

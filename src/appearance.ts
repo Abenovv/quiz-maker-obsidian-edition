@@ -19,8 +19,9 @@ export function subscribeAppearance(context: PluginContext, listener: () => void
 
 export function bindAppearance(context: PluginContext, root: HTMLElement): () => void {
   const apply = (): void => {
-    root.dataset.theme = context.settings.theme;
-    root.dataset.motion = context.settings.motion;
+    const data = root.dataset;
+    if (data.theme !== context.settings.theme) data.theme = context.settings.theme;
+    if (data.motion !== context.settings.motion) data.motion = context.settings.motion;
   };
   apply();
   return subscribeAppearance(context, apply);

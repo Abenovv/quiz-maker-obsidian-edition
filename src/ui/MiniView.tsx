@@ -11,6 +11,7 @@ import { isAnswered } from "../session/grading";
 import { QuestionView } from "./questions/QuestionView";
 import { EmptyState, InlineError, PluginReactContext, errorMessage } from "./shared";
 import { Icon } from "./Icon";
+import { FocusControl, StudySources } from "./session/StudyTools";
 
 export const MINI_VIEW_TYPE = "quiz-maker-mini";
 
@@ -74,6 +75,7 @@ export function MiniStudy({ context }: { context: PluginContext }): ReactNode {
   const [storageIssue, setStorageIssue] = useState(context.store.loadIssue || context.store.writeIssue || "");
   const [loading, setLoading] = useState(false);
   const [confirmFinish, setConfirmFinish] = useState(false);
+  const [focused, setFocused] = useState(false);
   const confirmButton = useRef<HTMLButtonElement>(null);
   const finishButton = useRef<HTMLButtonElement>(null);
   const confirmationWasOpen = useRef(false);
@@ -106,9 +108,15 @@ export function MiniStudy({ context }: { context: PluginContext }): ReactNode {
     const attempt = ++writeAttempt.current;
     sessionRef.current = next;
     setSession(next);
-    const operation = next.phase === "finished"
-      ? context.store.completeSession(next, summarizeSession(next))
-      : context.store.saveSession(next, immediate);
+    let operation: Promise<void>;
+    try {
+      operation = next.phase === "finished"
+        ? context.store.completeSession(next, summarizeSession(next))
+        : context.store.saveSession(next, immediate);
+    } catch (reason) {
+      if (alive.current && attempt === writeAttempt.current) setError(errorMessage(reason, "Could not save this session. Retry before closing."));
+      return;
+    }
     void operation.then(() => { if (alive.current && attempt === writeAttempt.current) setError(""); }).catch(reason => {
       if (alive.current && attempt === writeAttempt.current) setError(errorMessage(reason, "Could not save this session. Retry before closing."));
     });
@@ -157,7 +165,7 @@ export function MiniStudy({ context }: { context: PluginContext }): ReactNode {
   const act = (action: SessionAction): void => dispatch(action, session.id);
   const mode = { practice: "Practice", "timed-practice": "Timed practice", exam: "Exam", flashcards: "Flashcards", review: "Review" }[session.config.mode];
 
-  return <section className="qm-mini" aria-label="Compact quiz">
+  return <section className="qm-mini" data-focus={focused || undefined} aria-label="Compact quiz">
     <header className="qm-mini-header">
       <div className="qm-mini-title"><h2>{session.quiz.title}</h2><span className="qm-mini-mode">{mode}</span></div>
       <button type="button" className="qm-quiet qm-icon-button" aria-label="Open full view" title="Open full view" onClick={openFull}><Icon name="expand" /></button>
@@ -179,14 +187,18 @@ export function MiniStudy({ context }: { context: PluginContext }): ReactNode {
       <p>Quiz paused.</p>
       <button type="button" className="mod-cta" onClick={() => act({ type: "resume" })}><Icon name="play" />Resume</button>
     </div> : session.phase === "setup" ? <button type="button" className="mod-cta" onClick={openFull}>Set up quiz</button> : <>
-      <div className="qm-mini-markers">
-        <button type="button" className="qm-quiet qm-icon-button" aria-label="Flag question" title="Flag question" aria-pressed={session.flags.includes(index)} onClick={() => act({ type: "flag", questionIndex: index })}><Icon name="flag" /></button>
-        <button type="button" className="qm-quiet qm-icon-button" aria-label="Bookmark question" title="Bookmark question" aria-pressed={session.bookmarks.includes(index)} onClick={() => act({ type: "bookmark", questionIndex: index })}><Icon name="bookmark" /></button>
-      </div>
+      <details className="qm-mini-more qm-study-options"><summary>More</summary>
+        <FocusControl focused={focused} onChange={setFocused} />
+        {context.settings.shortcutGuideEnabled && <p className="qm-help">Use Back and Next to move between questions. Open full view for keyboard shortcuts.</p>}
+        <div className="qm-mini-markers">
+        <button type="button" className="qm-quiet" aria-label="Flag question" title="Flag question" aria-pressed={session.flags.includes(index)} onClick={() => act({ type: "flag", questionIndex: index })}><Icon name="flag" />Flag</button>
+        <button type="button" className="qm-quiet" aria-label="Bookmark question" title="Bookmark question" aria-pressed={session.bookmarks.includes(index)} onClick={() => act({ type: "bookmark", questionIndex: index })}><Icon name="bookmark" />Bookmark</button>
+      </div></details>
       <div className="qm-mini-question">
         <QuestionView question={question} response={session.responses[index]} onChange={onChange}
           reveal={reveal} disabled={!canAnswer(session, index)} mode={session.config.mode} />
       </div>
+      <StudySources context={context} session={session} questionIndex={index} />
       {(flashcards || showCheck) && <div className="qm-mini-actions">
         {flashcards ? reveal ? <>
           <button type="button" onClick={() => act({ type: "rate", rating: "again" })}>Again</button>
@@ -220,6 +232,7 @@ export function MiniStudy({ context }: { context: PluginContext }): ReactNode {
 export class MiniQuizView extends ItemView {
   private root: Root | undefined;
   private opened = false;
+  private openVersion = 0;
   private stopAppearance: (() => void) | undefined;
 
   constructor(leaf: WorkspaceLeaf, private readonly context: PluginContext) { super(leaf); }
@@ -228,22 +241,24 @@ export class MiniQuizView extends ItemView {
   getIcon(): string { return "quiz-maker"; }
 
   refreshAppearance(): void {
-    this.contentEl.dataset.theme = this.context.settings.theme;
-    this.contentEl.dataset.motion = this.context.settings.motion;
+    const data = this.contentEl.dataset;
+    if (data.theme !== this.context.settings.theme) data.theme = this.context.settings.theme;
+    if (data.motion !== this.context.settings.motion) data.motion = this.context.settings.motion;
   }
 
   async onOpen(): Promise<void> {
     this.opened = true;
+    const version = ++this.openVersion;
     this.contentEl.addClass("qm-root", "qm-mini-host");
     this.stopAppearance?.();
     this.stopAppearance = bindAppearance(this.context, this.contentEl);
     try {
       await this.context.store.load();
-      if (!this.opened) return;
+      if (!this.opened || version !== this.openVersion) return;
       this.root ??= createRoot(this.contentEl);
       this.root.render(<PluginReactContext.Provider value={this.context}><MiniStudy context={this.context} /></PluginReactContext.Provider>);
     } catch (reason) {
-      if (!this.opened) return;
+      if (!this.opened || version !== this.openVersion) return;
       this.root ??= createRoot(this.contentEl);
       this.root.render(<div className="qm-mini"><InlineError>{errorMessage(reason, "Could not load your quiz.")}</InlineError>
         <button type="button" onClick={() => { void this.onOpen(); }}>Retry</button></div>);
@@ -252,6 +267,7 @@ export class MiniQuizView extends ItemView {
 
   async onClose(): Promise<void> {
     this.opened = false;
+    this.openVersion++;
     this.stopAppearance?.();
     this.stopAppearance = undefined;
     this.root?.unmount();

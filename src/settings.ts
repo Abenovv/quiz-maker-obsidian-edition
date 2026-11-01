@@ -15,7 +15,7 @@ const endpoints = DEFAULT_BASE_URLS;
 export const DEFAULT_SETTINGS: Settings = {
   provider: "google",
   providers: Object.fromEntries(providers.map(provider => [provider, { apiKey: "", model: "", baseUrl: endpoints[provider] }])) as Settings["providers"],
-  theme: "midnight", soundEnabled: false, extraCommands: false, motion: "system", language: "English",
+  theme: "obsidian", soundEnabled: false, extraCommands: false, sourceEvidenceEnabled: false, shortcutGuideEnabled: false, motion: "system", language: "English",
   saveFolder: "Quizzes", defaultPreset: "student-pack", saveFormat: "callouts"
 };
 
@@ -61,10 +61,12 @@ export function normalizeSettings(value: unknown): Settings {
     provider: providers.includes(input.provider as Provider) ? input.provider as Provider : DEFAULT_SETTINGS.provider,
     theme: ["obsidian", "paper", "midnight", "contrast"].includes(input.theme as string) ? input.theme as Settings["theme"] : DEFAULT_SETTINGS.theme,
     soundEnabled: input.soundEnabled === true,
-    extraCommands: input.extraCommands === true,
+    extraCommands: typeof input.extraCommands === "boolean" ? input.extraCommands : DEFAULT_SETTINGS.extraCommands,
+    sourceEvidenceEnabled: typeof input.sourceEvidenceEnabled === "boolean" ? input.sourceEvidenceEnabled : DEFAULT_SETTINGS.sourceEvidenceEnabled,
+    shortcutGuideEnabled: typeof input.shortcutGuideEnabled === "boolean" ? input.shortcutGuideEnabled : DEFAULT_SETTINGS.shortcutGuideEnabled,
     motion: input.motion === "reduced" ? "reduced" : "system",
     language: boundedText(input.language, 80) || DEFAULT_SETTINGS.language,
-    defaultPreset: boundedText(input.defaultPreset, 80) || DEFAULT_SETTINGS.defaultPreset,
+    defaultPreset: boundedText(input.defaultPreset, 128) || DEFAULT_SETTINGS.defaultPreset,
     saveFormat: input.saveFormat === "spaced-repetition" ? "spaced-repetition" : "callouts",
     saveFolder: DEFAULT_SETTINGS.saveFolder
   };
@@ -135,7 +137,7 @@ export function settingsSaveMessage(error: unknown): string {
 export class QuizMakerSettingsTab extends PluginSettingTab {
   private readonly context: PluginContext;
   private section: Section = "General";
-  private readonly id = "qm-settings-" + ++settingsId;
+  private readonly panelId = "qm-settings-" + ++settingsId;
   private task: AbortController | undefined;
   private modelControls: ButtonComponent[] = [];
   private renderVersion = 0;
@@ -195,15 +197,15 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
         { type: "page", name: "Advanced connection", items: rows("Models", models.slice(-1)) }
       ] },
       { type: "page", name: "Quizzes", items: [
-        { type: "group", heading: "Defaults", cls: "qm-settings-group", items: rows("Quizzes", quizzes.slice(0, 2)) },
-        { type: "group", heading: "Saved notes", cls: "qm-settings-group", items: rows("Quizzes", quizzes.slice(2)) }
+        { type: "group", heading: "Defaults", cls: "qm-settings-group", items: rows("Quizzes", quizzes.slice(0, 3)) },
+        { type: "group", heading: "Saved notes", cls: "qm-settings-group", items: rows("Quizzes", quizzes.slice(3)) }
       ] }
     ];
   }
 
   private applyAppearance(): void {
     this.containerEl.classList.add("qm-root", "qm-settings");
-    this.containerEl.dataset.theme = this.context.settings.theme;
+    this.containerEl.dataset.theme = "obsidian";
     this.containerEl.dataset.motion = this.context.settings.motion;
   }
 
@@ -261,11 +263,11 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
     for (const section of sections) {
       const tab = navigation.createEl("button");
       tab.type = "button";
-      tab.id = this.id + "-" + section.toLowerCase();
+      tab.id = this.panelId + "-" + section.toLowerCase();
       tab.textContent = section;
       tab.setAttribute("role", "tab");
       tab.setAttribute("aria-selected", String(this.section === section));
-      tab.setAttribute("aria-controls", this.id + "-panel");
+      tab.setAttribute("aria-controls", this.panelId + "-panel");
       tab.tabIndex = this.section === section ? 0 : -1;
       tab.onclick = () => this.selectSection(section);
       tab.onkeydown = event => {
@@ -277,9 +279,9 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
       };
     }
     const panel = this.containerEl.createEl("section");
-    panel.id = this.id + "-panel";
+    panel.id = this.panelId + "-panel";
     panel.setAttribute("role", "tabpanel");
-    panel.setAttribute("aria-labelledby", this.id + "-" + this.section.toLowerCase());
+    panel.setAttribute("aria-labelledby", this.panelId + "-" + this.section.toLowerCase());
     panel.className = "qm-settings-panel";
     if (this.section === "General") this.renderGeneral(panel);
     else if (this.section === "Models") this.renderModels(panel);
@@ -384,13 +386,13 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
 
   private generalDefinitions(): SearchableSetting[] {
     return [
-      { name: "Theme", aliases: ["appearance", "dark", "light", "contrast"], render: setting => {
+      { name: "Theme", desc: "Quiz views only. Settings follow Obsidian.", aliases: ["appearance", "dark", "light", "contrast"], render: setting => {
         setting.addDropdown(select => labelDropdown(select, "Theme")
           .addOptions({ obsidian: "Obsidian", paper: "Paper", midnight: "Midnight", contrast: "High contrast" })
           .setValue(this.context.settings.theme).onChange(value => {
             if (!["obsidian", "paper", "midnight", "contrast"].includes(value)) return;
             this.context.settings.theme = value as Settings["theme"];
-            this.containerEl.dataset.theme = value;
+            this.containerEl.dataset.theme = "obsidian";
             this.scheduleSave();
           }));
       } },
@@ -421,6 +423,15 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
           toggle.toggleEl.setAttribute("aria-label", "Extra commands");
           toggle.setValue(this.context.settings.extraCommands).onChange(value => {
             this.context.settings.extraCommands = value;
+            this.scheduleSave();
+          });
+        });
+      } },
+      { name: "Shortcut guide", desc: "Show keyboard shortcuts during study.", aliases: ["keyboard", "hotkeys", "help"], render: setting => {
+        setting.addToggle(toggle => {
+          toggle.toggleEl.setAttribute("aria-label", "Shortcut guide");
+          toggle.setValue(this.context.settings.shortcutGuideEnabled).onChange(value => {
+            this.context.settings.shortcutGuideEnabled = value;
             this.scheduleSave();
           });
         });
@@ -458,7 +469,6 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
     let modelError: HTMLElement | undefined;
     let manual: TextComponent;
     let find: ButtonComponent;
-    let check: ButtonComponent;
     let finder: HTMLElement | undefined;
     let search: HTMLInputElement | undefined;
     let results: HTMLElement | undefined;
@@ -469,7 +479,7 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
     const fieldError = (host: HTMLElement, name: string): HTMLElement => {
       host.classList.add("qm-setting-with-error");
       return host.createEl("p", {
-        cls: "qm-settings-field-error", attr: { id: this.id + "-" + name + "-error", role: "alert" }
+        cls: "qm-settings-field-error", attr: { id: this.panelId + "-" + name + "-error", role: "alert" }
       });
     };
     const clearFinder = (): void => {
@@ -487,7 +497,6 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
     const updateControls = (): void => {
       const needsKey = provider !== "ollama" && !config.apiKey;
       find?.setDisabled(invalidKey || invalidEndpoint || needsKey || this.task !== undefined);
-      check?.setDisabled(invalidKey || invalidEndpoint || needsKey || this.task !== undefined);
       if (refresh) refresh.disabled = invalidKey || invalidEndpoint || needsKey || this.task !== undefined;
       if (!status) return;
       if (needsKey && !invalidKey) {
@@ -566,30 +575,22 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
       results = finder.createEl("ul", { cls: "qm-model-results", attr: { "aria-label": "Available models" } });
       panel.insertBefore(finder, status);
     };
-    const discover = async (fresh = false, connectionOnly = false): Promise<void> => {
+    const discover = async (fresh = false): Promise<void> => {
       if (invalidKey || invalidEndpoint || provider !== "ollama" && !config.apiKey || this.task) return;
       this.cancelModelTask();
       const controller = new AbortController();
       this.task = controller;
       const snapshot = { ...config };
-      if (connectionOnly) clearFinder();
-      else ensureFinder();
+      ensureFinder();
       availableModels = [];
       account = undefined;
       if (results) results.replaceChildren();
       if (this.modelCancel) this.modelCancel.buttonEl.hidden = false;
       status.setAttribute("aria-busy", "true");
       status.dataset.state = "loading";
-      status.textContent = connectionOnly ? "Checking connection…" : "Finding models…";
+      status.textContent = "Finding models…";
       updateControls();
       try {
-        if (connectionOnly) {
-          await this.context.models.test(provider, snapshot, controller.signal);
-          if (controller.signal.aborted || version !== this.renderVersion || config.apiKey !== snapshot.apiKey || config.baseUrl !== snapshot.baseUrl) return;
-          status.dataset.state = "ready";
-          status.textContent = "Model metadata is reachable. Generation access depends on the model and account.";
-          return;
-        }
         const models = await this.context.models.list(provider, snapshot, { signal: controller.signal, refresh: fresh });
         if (controller.signal.aborted || version !== this.renderVersion || config.apiKey !== snapshot.apiKey || config.baseUrl !== snapshot.baseUrl) return;
         availableModels = models;
@@ -622,7 +623,7 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
           input.inputEl.maxLength = 4096;
           input.inputEl.setAttribute("autocapitalize", "off");
           input.inputEl.setAttribute("aria-label", providerNames[provider] + " API key");
-          input.inputEl.setAttribute("aria-describedby", this.id + "-key-error");
+          input.inputEl.setAttribute("aria-describedby", this.panelId + "-key-error");
           input.onChange(value => {
             const key = value.trim();
             this.cancelModelTask();
@@ -641,13 +642,13 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
         });
       keyError = fieldError(keySetting.settingEl, "key");
     } };
-    const modelDefinition: SearchableSetting = { name: "Model ID", desc: "Enter an ID or find models. Connection checks read metadata only.", aliases: ["find models", "model search", "refresh models", "test connection"], render: modelSetting => {
+    const modelDefinition: SearchableSetting = { name: "Model ID", desc: "Choose a model or enter its ID. Finding models reads metadata only.", aliases: ["find models", "model search", "refresh models", "test connection"], render: modelSetting => {
       clearFinder();
       invalidKey = false;
       invalidEndpoint = false;
       version = this.renderVersion;
       panel = modelSetting.settingEl.parentElement!;
-      status = panel.createEl("p", { cls: "qm-model-status", attr: { id: this.id + "-model-status", role: "status" } });
+      status = panel.createEl("p", { cls: "qm-model-status", attr: { id: this.panelId + "-model-status", role: "status" } });
       this.modelStatus = status;
       modelSetting.setClass("qm-model-setting")
       .addText(input => {
@@ -658,7 +659,7 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
         input.inputEl.autocomplete = "off";
         input.inputEl.setAttribute("autocapitalize", "off");
         input.inputEl.setAttribute("aria-label", "Model ID");
-        input.inputEl.setAttribute("aria-describedby", this.id + "-model-error");
+        input.inputEl.setAttribute("aria-describedby", this.panelId + "-model-error");
         input.onChange(value => {
           const id = value.trim();
           const invalid = id.length > 200 || /\s/.test(id) || hasControlCharacter(value);
@@ -680,10 +681,6 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
         });
       })
       .addButton(button => {
-        check = button;
-        button.setButtonText("Test connection").onClick(() => { void discover(true, true); });
-      })
-      .addButton(button => {
         this.modelCancel = button;
         button.setButtonText("Cancel").onClick(() => {
           this.cancelModelTask();
@@ -694,13 +691,13 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
         button.buttonEl.hidden = true;
       });
       modelError = fieldError(modelSetting.settingEl, "model");
-      this.modelControls = [find!, check!];
+      this.modelControls = [find!];
       updateControls();
     } };
     const endpointDefinition: SearchableSetting = { name: "Endpoint", desc: provider === "ollama" ? "On a phone, use your Ollama server's local network address." : "Change this only for a proxy or a different server.", aliases: ["base URL", "proxy", "server", "connection"], render: endpointSetting => {
       endpointSetting.addText(input => {
         input.inputEl.setAttribute("aria-label", "Endpoint");
-        input.inputEl.setAttribute("aria-describedby", this.id + "-endpoint-error");
+        input.inputEl.setAttribute("aria-describedby", this.panelId + "-endpoint-error");
         input.inputEl.maxLength = 2048;
         input.inputEl.spellcheck = false;
         input.inputEl.autocomplete = "off";
@@ -742,14 +739,14 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
   private quizDefinitions(): SearchableSetting[] {
     return [
       { name: "Language", aliases: ["question language", "translation"], render: languageSetting => {
-        const suggestions = languageSetting.settingEl.createEl("datalist", { attr: { id: this.id + "-languages" } });
+        const suggestions = languageSetting.settingEl.createEl("datalist", { attr: { id: this.panelId + "-languages" } });
         for (const language of languages) suggestions.createEl("option", { attr: { value: language } });
         let languageStatus: HTMLElement;
         languageSetting.addText(input => {
           input.setValue(this.context.settings.language).setPlaceholder("Language");
           input.inputEl.maxLength = 80;
           input.inputEl.setAttribute("aria-label", "Language");
-          input.inputEl.setAttribute("aria-describedby", this.id + "-language-error");
+          input.inputEl.setAttribute("aria-describedby", this.panelId + "-language-error");
           input.inputEl.setAttribute("list", suggestions.id);
           input.onChange(value => {
             const language = value.trim();
@@ -765,14 +762,27 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
           });
         });
         languageSetting.settingEl.classList.add("qm-setting-with-error");
-        languageStatus = languageSetting.settingEl.createEl("p", { cls: "qm-settings-field-error", attr: { id: this.id + "-language-error", role: "alert" } });
+        languageStatus = languageSetting.settingEl.createEl("p", { cls: "qm-settings-field-error", attr: { id: this.panelId + "-language-error", role: "alert" } });
       } },
       { name: "Study pack", aliases: ["preset", "question template"], render: setting => {
         setting.addDropdown(select => {
           labelDropdown(select, "Study pack");
-          if (!presets.some(preset => preset.id === this.context.settings.defaultPreset)) select.addOption(this.context.settings.defaultPreset, this.context.settings.defaultPreset);
-          for (const preset of presets) select.addOption(preset.id, preset.name);
+          const packs = new Map(presets.map(preset => [preset.id, preset.name]));
+          for (const preset of this.context.store.getWorkspace?.().customPacks ?? []) {
+            if (!packs.has(preset.id)) packs.set(preset.id, preset.name);
+          }
+          if (!packs.has(this.context.settings.defaultPreset)) packs.set(this.context.settings.defaultPreset, this.context.settings.defaultPreset);
+          for (const [id, name] of packs) select.addOption(id, name);
           select.setValue(this.context.settings.defaultPreset).onChange(value => { this.context.settings.defaultPreset = value; this.scheduleSave(); });
+        });
+      } },
+      { name: "Source evidence", desc: "Include source excerpts with generated questions.", aliases: ["citations", "excerpts", "provenance"], render: setting => {
+        setting.addToggle(toggle => {
+          toggle.toggleEl.setAttribute("aria-label", "Source evidence");
+          toggle.setValue(this.context.settings.sourceEvidenceEnabled).onChange(value => {
+            this.context.settings.sourceEvidenceEnabled = value;
+            this.scheduleSave();
+          });
         });
       } },
       { name: "Format", aliases: ["saved notes", "callouts", "spaced repetition", "flashcards"], render: setting => {
@@ -787,7 +797,7 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
         let status: HTMLElement;
         folderSetting.addText(input => {
           input.inputEl.setAttribute("aria-label", "Notes folder");
-          input.inputEl.setAttribute("aria-describedby", this.id + "-folder-status");
+          input.inputEl.setAttribute("aria-describedby", this.panelId + "-folder-status");
           input.setValue(this.context.settings.saveFolder).setPlaceholder("Quizzes").onChange(value => {
             try {
               this.context.settings.saveFolder = normalizeSaveFolder(value);
@@ -801,16 +811,16 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
           });
         });
         folderSetting.settingEl.classList.add("qm-setting-with-error");
-        status = folderSetting.settingEl.createEl("p", { cls: "qm-settings-field-error", attr: { id: this.id + "-folder-status", role: "alert" } });
+        status = folderSetting.settingEl.createEl("p", { cls: "qm-settings-field-error", attr: { id: this.panelId + "-folder-status", role: "alert" } });
       } }
     ];
   }
 
   private renderQuestions(panel: HTMLElement): void {
-    this.renderRows(settingsGroup(panel, "Defaults"), this.quizDefinitions().slice(0, 2));
+    this.renderRows(settingsGroup(panel, "Defaults"), this.quizDefinitions().slice(0, 3));
   }
 
   private renderSaving(panel: HTMLElement): void {
-    this.renderRows(settingsGroup(panel, "Saved notes"), this.quizDefinitions().slice(2));
+    this.renderRows(settingsGroup(panel, "Saved notes"), this.quizDefinitions().slice(3));
   }
 }

@@ -457,3 +457,24 @@ test("one failed Ollama detail request stops sibling workers from starting furth
   await Promise.resolve();
   assert.equal(detailRequests, 4);
 });
+
+test("duplicate local catalog IDs share one capability request", async () => {
+  let showCalls = 0;
+  const service = new ModelService({ http: async request => {
+    if (new URL(request.url).pathname.endsWith("/api/tags")) return ok({ models: Array.from({ length: 101 }, () => ({ name: "local-future:latest" })) });
+    showCalls++;
+    return ok({ capabilities: ["completion"] });
+  } });
+  const models = await service.list("ollama", settings("http://localhost:11434/api/tags"));
+  assert.deepEqual(models.map(model => model.id), ["local-future:latest"]);
+  assert.equal(showCalls, 1);
+});
+
+test("copied Cohere discovery endpoint uses v1 catalog and reuses its cache", async () => {
+  const requests: HttpRequest[] = [];
+  const service = new ModelService({ http: async request => { requests.push(request); return ok({ models: [{ name: "command-future", endpoints: ["chat"] }] }); } });
+  await service.list("cohere", settings("https://api.cohere.com/v1/models"));
+  await service.list("cohere", settings("https://api.cohere.com/v2"));
+  assert.equal(requests.length, 1);
+  assert.equal(new URL(requests[0].url).pathname, "/v1/models");
+});

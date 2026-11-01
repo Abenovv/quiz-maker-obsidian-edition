@@ -3,6 +3,12 @@
  * Images become links; HTML and executable Markdown extensions stay literal.
  */
 export function sanitizeQuizMarkdown(text: string): string {
+  return prepareQuizMarkdown(text).text;
+}
+
+/** Language metadata is consumed only by our inert highlighter, never a code processor. */
+export function prepareQuizMarkdown(text: string): { text: string; languages: string[] } {
+  const languages: string[] = [];
   const lines = text.match(/[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+$/g) ?? [];
   const output: string[] = [];
   let fence: { character: string; length: number } | undefined;
@@ -25,6 +31,7 @@ export function sanitizeQuizMarkdown(text: string): string {
     }
     if (marker && !(marker[2][0] === "`" && marker[3].includes("`"))) {
       fence = { character: marker[2][0], length: marker[2].length };
+      languages.push(codeLanguage(marker[3].trim().split(/\s+/)[0]));
       // A model must not invoke Dataview, Templater, or another code processor.
       output.push(`${marker[1]}${marker[2]}text${marker[4] ?? ""}`);
       continue;
@@ -33,6 +40,7 @@ export function sanitizeQuizMarkdown(text: string): string {
     // Use explicit display fences: indentation can mean paragraph continuation.
     if (/^(?: {4}|\t)/.test(line)) {
       const content = line.replace(/^(?: {4}|\t)/, "");
+      languages.push("text");
       const length = Math.max(3, ...[...content.matchAll(/`+/g)].map(match => match[0].length + 1));
       const delimiter = "`".repeat(length);
       output.push(`${delimiter}text\n${content}${content.endsWith("\n") ? "" : "\n"}${delimiter}\n`);
@@ -47,7 +55,7 @@ export function sanitizeQuizMarkdown(text: string): string {
     output.push(sanitizeInline(line));
   }
   if (math) output.push(literalMarkdown(math.join("")));
-  return output.join("");
+  return { text: output.join(""), languages };
 }
 
 function sanitizeInline(text: string): string {
@@ -194,4 +202,30 @@ function decodeDestination(value: string): string {
 
 function literalMarkdown(value: string): string {
   return value.replace(/([\\`*_{}[\]()#+.!$|<>])/g, "\\$1");
+}
+
+const codeAliases: Record<string, string> = { js: "javascript", ts: "typescript", py: "python", sh: "bash", yml: "yaml", "c++": "cpp", "c#": "csharp" };
+const staticLanguages = new Set(["javascript", "typescript", "python", "bash", "json", "yaml", "sql", "css", "html", "xml", "java", "c", "cpp", "csharp", "go", "rust", "text"]);
+export function codeLanguage(value: string): string {
+  const normalized = value.toLowerCase();
+  const language = codeAliases[normalized] ?? normalized;
+  return staticLanguages.has(language) ? language : "text";
+}
+export interface CodeToken { text: string; kind?: "comment" | "string" | "number" | "keyword" }
+/** A bounded display lexer. Tokens are inserted as text nodes, never HTML. */
+export function codeTokens(source: string, language: string): CodeToken[] {
+  if (codeLanguage(language) === "text" || source.length > 20000) return [{ text: source }];
+  const pattern = /(?:\/\/[^\r\n]*|\/\*[\s\S]*?\*\/|#[^\r\n]*)|(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)|\b(?:\d+(?:\.\d+)?)\b|\b(?:const|let|var|function|return|if|else|for|while|class|import|from|export|def|async|await|true|false|null|None|True|False|SELECT|FROM|WHERE|AND|OR|public|private|static|void|int|new|try|catch|throw|interface|type)\b/g;
+  const result: CodeToken[] = [];
+  let offset = 0;
+  for (const match of source.matchAll(pattern)) {
+    const index = match.index;
+    if (index > offset) result.push({ text: source.slice(offset, index) });
+    const text = match[0];
+    const kind = /^(?:\/\/|\/\*|#)/.test(text) ? "comment" : /^["'`]/.test(text) ? "string" : /^\d/.test(text) ? "number" : "keyword";
+    result.push({ text, kind });
+    offset = index + text.length;
+  }
+  if (offset < source.length) result.push({ text: source.slice(offset) });
+  return result;
 }

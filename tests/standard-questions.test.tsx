@@ -101,7 +101,7 @@ test("practice hints and authorized reference sections appear only in their expe
   assert.match(front, /class="qm-hint"/);
   assert.doesNotMatch(front, /class="qm-reference"/);
   assert.match(back, /aria-label="Reference answer"/);
-  assert.match(back, /class="qm-explanation"/);
+  assert.ok([...back.matchAll(/class="([^"]*)"/g)].some(([, classes]) => classes.split(/\s+/).includes("qm-explanation")), "revealed explanation retains its styling class");
   assert.match(back, /class="qm-source"/);
   assert.doesNotMatch(back, /class="qm-hint"/);
 });

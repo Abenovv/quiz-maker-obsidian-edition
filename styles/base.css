@@ -1,4 +1,4 @@
-/* Quiz maker: native surfaces, one blue accent, and restrained feedback. */
+/* Host appearance by default; named palettes are explicit local overrides. */
 .qm-root {
   --qm-bg: var(--background-primary, #f7f9fd);
   --qm-surface: var(--background-secondary, #eef3fb);
@@ -6,23 +6,23 @@
   --qm-surface-hover: var(--background-modifier-hover, #e2eafa);
   --qm-text: var(--text-normal, #182641);
   --qm-muted: var(--text-muted, #52617b);
-  --qm-accent: #245bd2;
-  --qm-accent-hover: #1948b1;
-  --qm-accent-border: #245bd2;
-  --qm-on-accent: #ffffff;
-  --qm-link: #245bd2;
+  --qm-accent: var(--interactive-accent, #7c5cff);
+  --qm-accent-hover: var(--interactive-accent-hover, var(--interactive-accent, #7c5cff));
+  --qm-accent-border: var(--interactive-accent, #7c5cff);
+  --qm-on-accent: var(--text-on-accent, #ffffff);
+  --qm-link: var(--text-accent, var(--interactive-accent, #7c5cff));
   --qm-border: var(--background-modifier-border, #d2dceb);
-  --qm-control-border: #7284a6;
+  --qm-control-border: var(--background-modifier-border-hover, var(--background-modifier-border, #7284a6));
   --qm-positive: var(--text-success, #28704f);
   --qm-danger: var(--text-error, #a83636);
   --qm-warning: var(--text-warning, #885b11);
-  --qm-focus: #245bd2;
+  --qm-focus: var(--background-modifier-border-focus, var(--interactive-accent, #7c5cff));
   --qm-font: var(--font-interface, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif);
   --qm-font-content: var(--font-text, var(--qm-font));
   --qm-font-mono: var(--font-monospace, ui-monospace, "SFMono-Regular", Consolas, monospace);
   --qm-font-sm: 13px;
-  --qm-font-ui: 15px;
-  --qm-font-body: 16px;
+  --qm-font-ui: var(--font-ui-medium, 15px);
+  --qm-font-body: var(--font-text-size, 16px);
   --qm-font-question: 18px;
   --qm-leading-ui: 1.45;
   --qm-leading-body: 1.6;
@@ -42,14 +42,7 @@
   --qm-shadow: 0 18px 56px rgb(8 21 46 / 18%);
   --qm-duration: 140ms;
   --qm-easing: cubic-bezier(.2, .7, .25, 1);
-  /* Obsidian's native Setting controls inherit these within this plugin only. */
-  --interactive-accent: var(--qm-accent);
-  --interactive-accent-hover: var(--qm-accent-hover);
-  --text-on-accent: var(--qm-on-accent);
-  --checkbox-color: var(--qm-accent);
-  --checkbox-color-hover: var(--qm-accent-hover);
-  --checkbox-border-color: var(--qm-control-border);
-  --checkbox-marker-color: var(--qm-on-accent);
+
 
   min-width: 0;
   min-height: 0;
@@ -63,14 +56,33 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-.theme-dark .qm-root {
-  --qm-link: #99bdff;
-  --qm-focus: #99bdff;
-  --qm-control-border: #8297bb;
-  --qm-accent-border: #7eaaff;
-  color-scheme: dark;
-}
+.theme-dark .qm-root { color-scheme: dark; }
 .theme-light .qm-root { color-scheme: light; }
+
+.qm-root:is([data-theme="paper"], [data-theme="midnight"], [data-theme="contrast"]) {
+  /* Native controls follow the explicitly selected local palette. */
+  --color-accent: var(--qm-accent);
+  --color-accent-1: var(--qm-accent);
+  --color-accent-2: var(--qm-accent-hover);
+  --accent-h: var(--qm-accent-h);
+  --accent-s: var(--qm-accent-s);
+  --accent-l: var(--qm-accent-l);
+  --color-accent-hsl: var(--qm-accent-h), var(--qm-accent-s), var(--qm-accent-l);
+  --interactive-accent-hsl: var(--color-accent-hsl);
+  --interactive-accent: var(--qm-accent);
+  --interactive-accent-hover: var(--qm-accent-hover);
+  --text-on-accent: var(--qm-on-accent);
+  --text-accent: var(--qm-link);
+  --text-accent-hover: var(--qm-link);
+  --background-modifier-border-focus: var(--qm-focus);
+  --background-modifier-border-hover: var(--qm-control-border);
+  --background-modifier-active-hover: var(--qm-surface-hover);
+  --text-selection: hsla(var(--color-accent-hsl), .22);
+  --checkbox-color: var(--qm-accent);
+  --checkbox-color-hover: var(--qm-accent-hover);
+  --checkbox-border-color: var(--qm-control-border);
+  --checkbox-marker-color: var(--qm-on-accent);
+}
 
 .qm-root[data-theme="paper"] {
   --qm-bg: #f7f9fd;
@@ -80,6 +92,9 @@
   --qm-text: #182641;
   --qm-muted: #52617b;
   --qm-accent: #245bd2;
+  --qm-accent-h: 221;
+  --qm-accent-s: 71%;
+  --qm-accent-l: 48%;
   --qm-accent-hover: #1948b1;
   --qm-accent-border: #245bd2;
   --qm-on-accent: #ffffff;
@@ -101,6 +116,9 @@
   --qm-text: #edf3ff;
   --qm-muted: #b1bfd7;
   --qm-accent: #2f6bdb;
+  --qm-accent-h: 219;
+  --qm-accent-s: 71%;
+  --qm-accent-l: 52%;
   --qm-accent-hover: #326fde;
   --qm-accent-border: #7eaaff;
   --qm-on-accent: #ffffff;
@@ -123,6 +141,9 @@
   --qm-text: #fff;
   --qm-muted: #d8e4f8;
   --qm-accent: #a8c8ff;
+  --qm-accent-h: 218;
+  --qm-accent-s: 100%;
+  --qm-accent-l: 83%;
   --qm-accent-hover: #c4dbff;
   --qm-accent-border: #a8c8ff;
   --qm-on-accent: #0c2045;
@@ -227,6 +248,7 @@
   min-height: var(--qm-control-height);
   max-width: 100%;
   height: auto;
+  overflow: visible;
   padding: 9px 14px;
   border: 1px solid var(--qm-control-border);
   border-radius: var(--qm-radius-sm);
@@ -278,7 +300,7 @@
   min-height: var(--qm-control-height);
   max-width: 100%;
   height: auto;
-  padding: 9px 11px;
+  padding: 10px 11px;
   border: 1px solid var(--qm-control-border);
   border-radius: var(--qm-radius-sm);
   background: var(--qm-surface);
@@ -333,7 +355,10 @@
 .qm-root pre { max-width: 100%; margin-block: var(--qm-space-4); padding: var(--qm-space-4); overflow-x: auto; border: 1px solid var(--qm-border); border-radius: var(--qm-radius-sm); background: var(--qm-surface); line-height: 1.6; white-space: pre; overscroll-behavior-inline: contain; }
 .qm-root :not(pre) > code { padding: 1px 4px; border-radius: 3px; background: var(--qm-surface-alt); overflow-wrap: anywhere; white-space: break-spaces; }
 .qm-root pre code { padding: 0; background: none; white-space: inherit; }
-.qm-root :is(img, video, svg) { max-width: 100%; }
+.qm-root :is(img, video) { max-width: 100%; }
+.qm-root .qm-icon svg { display: block; overflow: visible; }
+.qm-root :is(.math, .math-inline, .math-block) { min-inline-size: 0; line-height: normal; }
+.qm-root .math-block { max-inline-size: 100%; padding-block: 4px; overflow-x: auto; overflow-y: visible; }
 .qm-root .qm-table-wrap { max-width: 100%; overflow-x: auto; }
 .qm-root table { width: 100%; border-collapse: collapse; line-height: 1.6; }
 .qm-root :is(th, td) { padding: 10px 12px; border-bottom: 1px solid var(--qm-border); text-align: start; vertical-align: top; }

@@ -1,7 +1,7 @@
 import {
   providers, questionTypes,
   type Question, type QuestionType, type Quiz, type Provenance, type SessionConfig,
-  type QuestionBase, type QuestionRevision
+  type QuestionBase, type QuestionRevision, type SourceEvidence, type QuestionMedia, type SourceSelection, type AnkiImportData
 } from "./types";
 
 export { questionTypes } from "./types";
@@ -59,6 +59,70 @@ function indexes(value: unknown, length: number, path: string, count?: number, d
 function optionalText(value: Data, key: string, path: string, max = 5000): string | undefined {
   return value[key] === undefined ? undefined : text(value[key], path + "." + key, max);
 }
+export function safeId(value: unknown, path = "id"): string {
+  const result = text(value, path, 128);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(result) || ["__proto__", "constructor", "prototype"].includes(result)) fail(path, "use a plain identifier without reserved names");
+  return result;
+}
+function localPath(value: unknown, path: string): string {
+  const result = text(value, path, 2000);
+  if (result !== result.trim() || /[\\:?#]/.test(result) || Array.from(result).some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127) || result.startsWith("/")
+    || result.split("/").some(part => !part || part.startsWith("."))) fail(path, "use a visible vault-relative path without traversal or a URL");
+  return result;
+}
+export function validateSourceSelection(input: unknown, path = "quiz.sourceSelection"): SourceSelection {
+  const value = record(input, path);
+  keys(value, ["path", "fromLine", "toLine", "fromOffset", "toOffset"], path);
+  for (const key of ["fromLine", "toLine"] as const) if (!Number.isSafeInteger(value[key]) || Number(value[key]) < 1) fail(path + "." + key, "expected a positive line number");
+  if (Number(value.toLine) < Number(value.fromLine)) fail(path, "selection end must follow its start");
+  const result: SourceSelection = { path: localPath(value.path, path + ".path"), fromLine: Number(value.fromLine), toLine: Number(value.toLine) };
+  for (const key of ["fromOffset", "toOffset"] as const) if (value[key] !== undefined) {
+    if (!Number.isSafeInteger(value[key]) || Number(value[key]) < 0) fail(path + "." + key, "expected a non-negative text offset");
+    result[key] = Number(value[key]);
+  }
+  if (result.fromOffset !== undefined && result.toOffset !== undefined && result.toOffset < result.fromOffset) fail(path, "selection end must follow its start");
+  return result;
+}
+function ankiImportData(input: unknown, path: string): AnkiImportData {
+  const value = record(input, path);
+  keys(value, ["format", "noteId", "noteType", "fields", "cardCount", "scheduling"], path);
+  if (value.format !== "anki") fail(path + ".format", "expected anki");
+  if (!Number.isSafeInteger(value.cardCount) || Number(value.cardCount) < 1 || Number(value.cardCount) > 100000) fail(path + ".cardCount", "expected 1–100000 cards");
+  const fields = array(value.fields, path + ".fields", 1, 32).map((raw, i) => {
+    const fieldPath = path + ".fields[" + i + "]";
+    const field = record(raw, fieldPath);
+    keys(field, ["name", "value"], fieldPath);
+    if (typeof field.value !== "string" || field.value.length > 50000 || field.value.includes("\u0000")) fail(fieldPath + ".value", "expected up to 50000 characters");
+    return { name: text(field.name, fieldPath + ".name", 200), value: field.value };
+  });
+  if (new Set(fields.map(field => field.name)).size !== fields.length) fail(path + ".fields", "field names must be distinct");
+  return { format: "anki", noteId: text(value.noteId, path + ".noteId", 128), noteType: text(value.noteType, path + ".noteType", 200), fields, cardCount: Number(value.cardCount),
+    ...(value.scheduling === undefined ? {} : { scheduling: text(value.scheduling, path + ".scheduling", 16000) }) };
+}
+function sourceEvidence(input: unknown, path: string): SourceEvidence {
+  const value = record(input, path);
+  keys(value, ["path", "quote", "locator", "status"], path);
+  if (!["verified", "unverified", "missing"].includes(String(value.status))) fail(path + ".status", "expected verified, unverified, or missing");
+  const quote = value.status === "missing" && value.quote === "" ? "" : text(value.quote, path + ".quote", 4000);
+  return { path: localPath(value.path, path + ".path"), quote, status: value.status as SourceEvidence["status"],
+    ...(value.locator === undefined ? {} : { locator: text(value.locator, path + ".locator", 240) }) };
+}
+function questionMedia(input: unknown, path: string): QuestionMedia {
+  const value = record(input, path);
+  keys(value, ["path", "alt", "mimeType", "width", "height"], path);
+  const result: QuestionMedia = { path: localPath(value.path, path + ".path"), alt: text(value.alt, path + ".alt", 500) };
+  const expected = /\.png$/i.test(result.path) ? "image/png" : /\.jpe?g$/i.test(result.path) ? "image/jpeg" : /\.webp$/i.test(result.path) ? "image/webp" : /\.gif$/i.test(result.path) ? "image/gif" : undefined;
+  if (!expected) fail(path + ".path", "choose a PNG, JPEG, WebP, or GIF image");
+  if (value.mimeType !== undefined) {
+    if (value.mimeType !== expected) fail(path + ".mimeType", "image type must match the file extension");
+    result.mimeType = expected;
+  }
+  for (const key of ["width", "height"] as const) if (value[key] !== undefined) {
+    if (!Number.isSafeInteger(value[key]) || Number(value[key]) < 1 || Number(value[key]) > 16384) fail(path + "." + key, "expected 1–16384 pixels");
+    result[key] = Number(value[key]);
+  }
+  return result;
+}
 function inspectJson(value: unknown): void {
   let nodes = 0;
   const seen = new Set<object>();
@@ -101,7 +165,7 @@ function detectType(value: Data, path: string): QuestionType {
   return fail(path, "question format could not be identified");
 }
 
-const commonFields = ["id", "type", "question", "answer", "hint", "explanation", "source", "difficulty"];
+const commonFields = ["id", "type", "question", "answer", "hint", "explanation", "source", "difficulty", "contentRevision", "tags", "topic", "evidence", "media", "importData"];
 const extras: Record<QuestionType, readonly string[]> = {
   "true-false": [], "multiple-choice": ["options"], "select-all": ["options"], "fill-in-the-blank": [],
   matching: [], "short-answer": [], "long-answer": [], "branching-scenario": ["steps"],
@@ -121,6 +185,19 @@ export function toQuestion(input: unknown, path = "question"): Question {
     const optional = optionalText(value, key, path, key === "id" ? 128 : key === "source" ? 2000 : 10000);
     if (optional !== undefined) result[key] = optional;
   }
+  if (value.contentRevision !== undefined) {
+    if (!Number.isSafeInteger(value.contentRevision) || Number(value.contentRevision) < 1 || Number(value.contentRevision) > 1_000_000_000) fail(path + ".contentRevision", "expected a revision number from 1 to 1000000000");
+    result.contentRevision = value.contentRevision;
+  }
+  if (value.tags !== undefined) {
+    const tags = texts(value.tags, path + ".tags", 0, 32).map((tag, i) => text(tag.trim(), path + ".tags[" + i + "]", 80));
+    if (new Set(tags).size !== tags.length) fail(path + ".tags", "tags must be distinct");
+    result.tags = tags;
+  }
+  if (value.topic !== undefined) result.topic = text(value.topic, path + ".topic", 200).trim();
+  if (value.evidence !== undefined) result.evidence = array(value.evidence, path + ".evidence", 0, 8).map((item, i) => sourceEvidence(item, path + ".evidence[" + i + "]"));
+  if (value.importData !== undefined) result.importData = ankiImportData(value.importData, path + ".importData");
+  if (value.media !== undefined) result.media = array(value.media, path + ".media", 0, 8).map((item, i) => questionMedia(item, path + ".media[" + i + "]"));
   if (value.difficulty !== undefined) {
     if (typeof value.difficulty !== "string" || !["easy", "medium", "hard"].includes(value.difficulty)) fail(path + ".difficulty", "choose easy, medium, or hard");
     result.difficulty = value.difficulty;
@@ -283,7 +360,7 @@ function newId(): string {
 export function validateQuiz(input: unknown): Quiz {
   inspectJson(input);
   const value = Array.isArray(input) ? { questions: input } : record(input, "quiz");
-  keys(value, ["schemaVersion", "id", "title", "description", "questions", "sources", "createdAt", "updatedAt", "provenance", "revisions", "runConfig"], "quiz");
+  keys(value, ["schemaVersion", "id", "title", "description", "questions", "sources", "createdAt", "updatedAt", "provenance", "revisions", "runConfig", "variant", "sourceSelection"], "quiz");
   if (value.schemaVersion !== undefined && value.schemaVersion !== 1 && value.schemaVersion !== 2) fail("quiz.schemaVersion", "supported versions are 1 and 2");
   const questions = array(value.questions, "quiz.questions", 1, MAX_QUESTIONS).map((question, index) => toQuestion(question, "quiz.questions[" + index + "]"));
   const ids = questions.flatMap(question => question.id ? [question.id] : []);
@@ -313,6 +390,14 @@ export function validateQuiz(input: unknown): Quiz {
     });
   }
   if (value.runConfig !== undefined) result.runConfig = validateSessionConfig(value.runConfig);
+  if (value.sourceSelection !== undefined) result.sourceSelection = validateSourceSelection(value.sourceSelection);
+  if (value.variant !== undefined) {
+    const variant = record(value.variant, "quiz.variant");
+    keys(variant, ["familyId", "version", "parentQuizId"], "quiz.variant");
+    const familyId = safeId(variant.familyId, "quiz.variant.familyId");
+    if (!Number.isSafeInteger(variant.version) || Number(variant.version) < 1 || Number(variant.version) > 1_000_000) fail("quiz.variant.version", "expected a version from 1 to 1000000");
+    result.variant = { familyId, version: Number(variant.version), ...(variant.parentQuizId === undefined ? {} : { parentQuizId: safeId(variant.parentQuizId, "quiz.variant.parentQuizId") }) };
+  }
   return result;
 }
 

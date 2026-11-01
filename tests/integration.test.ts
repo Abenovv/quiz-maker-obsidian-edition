@@ -4,6 +4,7 @@ import { createQuestion, createQuiz, parseQuiz, serializeQuiz } from "../src/cor
 import { questionTypes, type Question, type Quiz } from "../src/core/types";
 import { canExport, canReveal, createReviewSession, createSession, reduceSession, remainingSeconds, resumeSession, summarizeSession, tickSession } from "../src/session/engine";
 import { QuizStore } from "../src/storage/store";
+import { ensureQuestionIds } from "../src/core/workspace";
 import { MemoryAdapter } from "./helpers/obsidian";
 
 const studyPath = ".obsidian/plugins/quiz-maker/study.json";
@@ -32,10 +33,16 @@ test("all seventeen formats round-trip through export, storage, completed study,
   const adapter = new MemoryAdapter();
   const store = new QuizStore(adapter, studyPath, { now: () => instant + 30_000 });
   await store.load();
-  const exported = serializeQuiz(fixtureQuiz());
+  const baseline = ensureQuestionIds(fixtureQuiz());
+  assert.equal(new Set(baseline.questions.map(question => question.id)).size, questionTypes.length);
+  assert.ok(baseline.questions.every(question => question.id && question.contentRevision === 1));
+  const exported = serializeQuiz(baseline);
   const imported = parseQuiz(exported);
   assert.deepEqual(imported.questions.map(question => question.type), [...questionTypes]);
+  assert.deepEqual(imported, baseline);
   assert.deepEqual(await store.saveQuiz(imported), imported);
+  const repeated = await store.saveQuiz(parseQuiz(serializeQuiz(store.getQuiz(imported.id)!)));
+  assert.deepEqual(repeated, imported, "Repeated save/export/import must preserve IDs, revisions, answers and order");
 
   let session = createSession(imported, { mode: "practice", timerMode: "none", randomizeQuestions: false }, { now: instant, id: "integration-attempt" });
   for (let index = 0; index < imported.questions.length; index++) {

@@ -64,3 +64,19 @@ test("source policy keeps broad vault scans and clipboard access out of the runt
   assert.equal(sourceIssues('navigator.clipboard.readText();').length, 1);
   assert.equal(sourceIssues('const items = selectedFolder.children; app.vault.cachedRead(selectedFile);').length, 0);
 });
+
+test("AWS credential scanning requires a complete token rather than a base64 substring", () => {
+  const key = "AK" + "IA" + "A".repeat(16);
+  assert.equal(hasPotentialSecret(JSON.stringify({ accessKeyId: key })), true);
+  assert.equal(hasPotentialSecret("access-key=" + key + "\n"), true);
+  assert.equal(hasPotentialSecret("https://example.invalid/" + key + "/item"), true);
+  assert.equal(hasPotentialSecret(key.slice(0, -1)), false);
+  assert.equal(hasPotentialSecret("base64data" + key + "remainingBase64"), false);
+});
+
+test("Obsidian imports use the host plugin loader rather than the browser module resolver", () => {
+  assert.equal(sourceIssues('import { requestUrl } from "obsidian";').length, 0);
+  assert.equal(sourceIssues('const { requestUrl } = require("obsidian");').length, 0);
+  assert.equal(sourceIssues('const api = await import("obsidian");').length, 1);
+  assert.equal(sourceIssues(`const example = 'import("obsidian")';`).length, 0);
+});

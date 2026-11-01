@@ -1,7 +1,7 @@
 {
   "id": "quiz-maker",
   "name": "Quiz maker",
-  "version": "1.2.3",
+  "version": "2.0.0",
   "minAppVersion": "1.8.7",
   "description": "Create quizzes from your notes, choose study presets, and practice with timers, flashcards, and readable answers.",
   "author": "Yerkebulan Abenov",

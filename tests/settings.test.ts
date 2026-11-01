@@ -9,7 +9,7 @@ test("defaults are silent, provider-specific, and independently mutable", () => 
   assert.equal(first.soundEnabled, false);
   assert.equal(first.extraCommands, false);
   assert.equal(first.motion, "system");
-  assert.equal(first.theme, "midnight");
+  assert.equal(first.theme, "obsidian");
   assert.equal(first.defaultPreset, "student-pack");
   assert.equal(first.saveFormat, "callouts");
   for (const provider of providers) {
@@ -24,18 +24,40 @@ test("defaults are silent, provider-specific, and independently mutable", () => 
   assert.equal(second.providers.ollama.model, "");
 });
 
-test("fresh installs use Midnight while every saved appearance remains a choice", () => {
-  assert.equal(normalizeSettings(undefined).theme, "midnight");
+test("fresh installs follow Obsidian while every saved appearance remains a choice", () => {
+  assert.equal(normalizeSettings(undefined).theme, "obsidian");
   for (const theme of ["obsidian", "paper", "midnight", "contrast"] as const) {
     assert.equal(normalizeSettings({ theme }).theme, theme);
   }
 });
 
-test("extra commands are opt-in and only an explicit saved boolean enables them", () => {
+test("extra commands default off while explicit saved choices survive normalization", () => {
+  assert.equal(DEFAULT_SETTINGS.extraCommands, false);
   assert.equal(normalizeSettings(undefined).extraCommands, false);
-  assert.equal(normalizeSettings({ extraCommands: true }).extraCommands, true);
-  for (const extraCommands of [false, "true", 1, null, {}]) {
+  assert.equal(normalizeSettings({}).extraCommands, false);
+  for (const extraCommands of [true, false]) {
+    assert.equal(normalizeSettings({ extraCommands }).extraCommands, extraCommands);
+  }
+  for (const extraCommands of ["true", "false", 1, null, {}]) {
     assert.equal(normalizeSettings({ extraCommands }).extraCommands, false);
+  }
+});
+
+test("optional study controls default off and upgrades preserve every explicit saved preference", () => {
+  for (const key of ["sourceEvidenceEnabled", "shortcutGuideEnabled"] as const) {
+    assert.equal(DEFAULT_SETTINGS[key], false);
+    assert.equal(normalizeSettings(undefined)[key], false);
+    for (const value of [true, false]) assert.equal(normalizeSettings({ [key]: value })[key], value);
+    for (const value of ["true", 1, null, {}]) assert.equal(normalizeSettings({ [key]: value })[key], false);
+  }
+  for (const defaultPreset of ["quick-recall", "my-custom-exam-pack", "unknown-pack-retained", "p".repeat(128)]) {
+    const saved = normalizeSettings({
+      provider: "ollama", theme: "paper", motion: "reduced", language: "Қазақша", saveFolder: "", saveFormat: "spaced-repetition",
+      defaultPreset, soundEnabled: true, extraCommands: true, sourceEvidenceEnabled: true, shortcutGuideEnabled: true,
+      providers: { ollama: { model: "local-model", apiKey: "fixture-local", baseUrl: "http://192.168.1.5:11434" } }
+    });
+    assert.equal(saved.defaultPreset, defaultPreset);
+    assert.deepEqual(normalizeSettings(JSON.parse(JSON.stringify(saved))), saved);
   }
 });
 
@@ -124,11 +146,14 @@ type Control = {
   toggleEl: HTMLElement;
   selectEl: HTMLElement;
   buttonEl: HTMLElement & { disabled: boolean };
+  choices: Array<[string, string]>;
   change?: (value: string | boolean) => void;
   click?: () => void;
   setValue(value: string | boolean): Control;
   setDisabled(value: boolean): Control;
   setButtonText(value: string): Control;
+  addOption(value: string, label: string): Control;
+  addOptions(value: Record<string, string>): Control;
   onChange(callback: (value: string | boolean) => void): Control;
   onClick(callback: () => void): Control;
 };
@@ -158,6 +183,7 @@ async function settingsHarness(options: {
   list?: (provider: string, config: { apiKey: string; model: string; baseUrl: string }, options: { signal?: AbortSignal; refresh?: boolean }) => Promise<Array<{ id: string; name: string; provider: "google" }>>;
   save?: () => Promise<void>;
   test?: (provider: string, config: { apiKey: string; model: string; baseUrl: string }, signal?: AbortSignal) => Promise<void>;
+  workspace?: () => { customPacks: Array<{ id: string; name: string }> };
 } = {}) {
   const { Setting, App } = await import("obsidian");
   const { QuizMakerSettingsTab } = await import("../src/settings");
@@ -169,6 +195,9 @@ async function settingsHarness(options: {
   prototype.addText = function (callback) {
     const setting = this as unknown as { nameEl: HTMLElement };
     return original.call(this, control => {
+      control.choices = [];
+      control.addOption = (value, label) => { control.choices.push([value, label]); return control; };
+      control.addOptions = values => { for (const [value, label] of Object.entries(values)) control.addOption(value, label); return control; };
       control.setValue = value => { control.inputEl.value = String(value); return control; };
       control.setDisabled = value => { control.buttonEl.disabled = value; return control; };
       control.setButtonText = value => { control.buttonEl.textContent = value; return control; };
@@ -180,7 +209,7 @@ async function settingsHarness(options: {
   };
   const settings = normalizeSettings({ providers: { google: { apiKey: "fixture-key", model: "manual-model" } } });
   const context = {
-    app: new App(), settings, pluginVersion: "1.2.0",
+    app: new App(), manifest: { id: "quiz-maker" }, settings, pluginVersion: "1.2.0", store: { getWorkspace: options.workspace ?? (() => ({ customPacks: [] })) },
     models: { clear() {}, list: options.list ?? (async () => []), test: options.test ?? (async () => { throw new Error("Unexpected connection test."); }) },
     saveSettings: options.save ?? (async () => {}), showNotice() {}
   };
@@ -208,6 +237,37 @@ function indexedSettings(definitions: NativeDefinition[], path: string[] = []): 
     : indexedSettings(definition.items, "name" in definition ? [...path, definition.name] : path));
 }
 
+test("settings follow the host theme without replacing the saved quiz appearance", async () => {
+  const harness = await settingsHarness();
+  try {
+    harness.settings.theme = "midnight";
+    harness.tab.display();
+    assert.equal(harness.tab.containerEl.dataset.theme, "obsidian");
+    const theme = harness.groups.get("Theme")!.at(-1)!;
+    assert.equal(theme.inputEl.value, "midnight");
+    theme.change!("paper");
+    assert.equal(harness.settings.theme, "paper");
+    assert.equal(harness.tab.containerEl.dataset.theme, "obsidian");
+    harness.section("Models");
+    assert.equal(harness.settings.theme, "paper");
+    assert.equal(harness.tab.containerEl.dataset.theme, "obsidian");
+  } finally { harness.close(); }
+});
+
+test("settings keep the native plugin identifier separate from accessible panel identifiers", async () => {
+  const harness = await settingsHarness();
+  try {
+    const nativeTab = harness.tab as unknown as { id: string };
+    assert.equal(nativeTab.id, "quiz-maker", "Obsidian opens plugin settings by this identifier");
+    const firstPanel = elements(harness.tab.containerEl).find(element => element.getAttribute("role") === "tabpanel")!;
+    assert.match(firstPanel.id, /^qm-settings-\d+-panel$/);
+    assert.notEqual(firstPanel.id, nativeTab.id);
+    harness.section("Models");
+    harness.section("Quizzes");
+    assert.equal(nativeTab.id, "quiz-maker", "switching sections must not change the host identifier");
+  } finally { harness.close(); }
+});
+
 test("declarative indexing exposes every setting with navigation paths and never inspects or requests model data", async () => {
   let requests = 0;
   let saves = 0;
@@ -218,7 +278,7 @@ test("declarative indexing exposes every setting with navigation paths and never
     const entries = indexedSettings(definitions);
     assert.deepEqual(definitions.map(definition => "name" in definition ? definition.name : ""), ["General", "Models", "Quizzes"]);
     assert.deepEqual(entries.map(entry => entry.row.name), [
-      "Theme", "Motion", "Study sounds", "Extra commands", "Provider", "API key", "Model ID", "Endpoint", "Language", "Study pack", "Format", "Notes folder"
+      "Theme", "Motion", "Study sounds", "Extra commands", "Shortcut guide", "Provider", "API key", "Model ID", "Endpoint", "Language", "Study pack", "Source evidence", "Format", "Notes folder"
     ]);
     const pathFor = (name: string) => entries.find(entry => entry.row.name === name)!.path;
     assert.deepEqual(pathFor("Theme"), ["General"]);
@@ -412,6 +472,70 @@ test("extra commands stay behind More options and update the live setting before
   } finally { harness.close(); }
 });
 
+test("optional study controls work through both native definitions and legacy tabs", async () => {
+  const { Setting } = await import("obsidian");
+  let saves = 0;
+  const harness = await settingsHarness({ save: async () => { saves++; } });
+  const flush = harness.tab as unknown as { flushSettings(): Promise<void> };
+  try {
+    const guide = harness.groups.get("Shortcut guide")![0];
+    assert.equal(harness.settings.shortcutGuideEnabled, false);
+    guide.change!(true);
+    assert.equal(harness.settings.shortcutGuideEnabled, true);
+    harness.section("Quizzes");
+    harness.groups.get("Source evidence")![0].change!(true);
+    assert.equal(harness.settings.sourceEvidenceEnabled, true);
+    await flush.flushSettings();
+    assert.equal(saves, 1, "changes share the debounced settings save");
+    const entries = indexedSettings(harness.tab.getSettingDefinitions());
+    for (const [name, key] of [["Source evidence", "sourceEvidenceEnabled"], ["Shortcut guide", "shortcutGuideEnabled"]] as const) {
+      const definition = entries.find(entry => entry.row.name === name)!;
+      assert.deepEqual(definition.path, name === "Source evidence" ? ["Quizzes"] : ["General", "More options"]);
+      definition.row.render(new Setting(harness.tab.containerEl).setName(name));
+      const toggle = harness.groups.get(name)!.at(-1)!;
+      assert.equal(toggle.toggleEl.getAttribute("aria-label"), name);
+      assert.equal(toggle.inputEl.value, "true");
+      toggle.change!(false);
+      assert.equal(harness.settings[key], false);
+    }
+    await flush.flushSettings();
+    assert.equal(saves, 2);
+  } finally { harness.close(); }
+});
+
+test("custom and unavailable saved packs remain selectable without reads during search indexing", async () => {
+  let reads = 0;
+  let saves = 0;
+  const harness = await settingsHarness({
+    workspace: () => { reads++; return { customPacks: [{ id: "my-pack", name: "My exam pack" }, { id: "student-pack", name: "Duplicate" }] }; },
+    save: async () => { saves++; }
+  });
+  try {
+    harness.settings.defaultPreset = "my-pack";
+    harness.tab.getSettingDefinitions();
+    assert.equal(reads, 0, "registration does not inspect workspace state");
+    harness.section("Quizzes");
+    const custom = harness.groups.get("Study pack")!.at(-1)!;
+    assert.equal(custom.inputEl.value, "my-pack");
+    assert.ok(custom.choices.some(([id, name]) => id === "my-pack" && name === "My exam pack"));
+    assert.equal(custom.choices.filter(([id]) => id === "student-pack").length, 1);
+    assert.equal(harness.settings.defaultPreset, "my-pack");
+    harness.settings.defaultPreset = "temporarily-missing-pack";
+    harness.section("General");
+    harness.section("Quizzes");
+    const missing = harness.groups.get("Study pack")!.at(-1)!;
+    assert.equal(missing.inputEl.value, "temporarily-missing-pack");
+    assert.ok(missing.choices.some(([id]) => id === "temporarily-missing-pack"));
+    assert.equal(harness.settings.defaultPreset, "temporarily-missing-pack");
+    assert.equal(saves, 0, "opening settings must not replace a saved selection");
+    missing.change!("my-pack");
+    assert.equal(harness.settings.defaultPreset, "my-pack");
+    const flush = harness.tab as unknown as { flushSettings(): Promise<void> };
+    await flush.flushSettings();
+    assert.equal(saves, 1);
+  } finally { harness.close(); }
+});
+
 test("model search matches names and IDs regardless of case or term order", () => {
   const models = [
     { id: "gemini-flash-v3", name: "Gemini Flash", provider: "google" as const },
@@ -524,51 +648,27 @@ test("model metadata errors have an explicit retry without clearing the selected
   } finally { harness.close(); }
 });
 
-test("connection testing is explicit, cancellable metadata access and never blocks manual model IDs", async () => {
+test("model discovery combines connection metadata and selection in one action", async () => {
   let checks = 0;
-  let signal: AbortSignal | undefined;
-  let resolveCheck: (() => void) | undefined;
-  const harness = await settingsHarness({ test: async (_provider, _config, nextSignal) => {
-    checks++;
-    signal = nextSignal;
-    if (checks === 3) throw new Error("fixture-private-connection-error");
-    return await new Promise<void>(resolve => { resolveCheck = resolve; });
-  } });
+  let lists = 0;
+  const harness = await settingsHarness({
+    test: async () => { checks++; },
+    list: async () => { lists++; return [{ id: "fixture-model", name: "Fixture model", provider: "google" }]; }
+  });
   try {
     harness.section("Models");
     const controls = harness.groups.get("Model ID")!;
-    const check = controls.find(control => control.buttonEl.textContent === "Test connection")!;
+    assert.equal(controls.some(control => control.buttonEl.textContent === "Test connection"), false);
     const find = controls.find(control => control.buttonEl.textContent === "Find models")!;
-    const cancel = controls.find(control => control.buttonEl.textContent === "Cancel")!;
-    const manual = controls[0];
-    const key = harness.groups.get("API key")![0];
-    key.change!("invalid key");
-    assert.equal(check.buttonEl.disabled, true);
-    check.click!();
-    assert.equal(checks, 0);
-    key.change!("safe-fixture");
-    check.click!();
-    assert.equal(check.buttonEl.disabled, true);
-    assert.equal(find.buttonEl.disabled, true);
-    cancel.click!();
-    assert.equal(signal?.aborted, true);
-    resolveCheck!();
+    assert.equal(lists, 0, "opening settings does not contact the provider");
+    find.click!();
     await settle();
-    const status = elements(harness.tab.containerEl).find(element => element.className === "qm-model-status")!;
-    assert.equal(status.textContent, "Cancelled.");
-    check.click!();
-    resolveCheck!();
-    await settle();
-    assert.match(status.textContent ?? "", /metadata is reachable/);
-    assert.match(status.textContent ?? "", /Generation access depends/);
-    assert.equal(harness.settings.providers.google.model, "manual-model");
-    check.click!();
-    await settle();
-    assert.equal(status.dataset.state, "error");
-    assert.doesNotMatch(status.textContent ?? "", /fixture-private/);
-    assert.equal(check.buttonEl.disabled, false);
-    manual.change!("manual-after-error");
-    assert.equal(harness.settings.providers.google.model, "manual-after-error");
+    assert.equal(lists, 1);
+    assert.equal(checks, 0, "selection does not make a second connection request");
+    assert.equal(harness.settings.providers.google.model, "manual-model", "discovery preserves the saved choice");
+    const result = elements(harness.tab.containerEl).find(element => element.className === "qm-model-result")!;
+    activate(result);
+    assert.equal(harness.settings.providers.google.model, "fixture-model");
   } finally { harness.close(); }
 });
 

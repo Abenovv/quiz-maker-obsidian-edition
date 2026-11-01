@@ -18,6 +18,14 @@ function create<K extends keyof HTMLElementTagNameMap>(parent: HTMLElement, tag:
 }
 
 export function installDomExtensions(): void {
+  const globalElement = (tag: keyof HTMLElementTagNameMap, options: ElementOptions | string = {}): HTMLElement => {
+    const holder = document.createElement("div");
+    const element = create(holder, tag, typeof options === "string" ? { cls: options } : options);
+    element.remove(); return element;
+  };
+  Reflect.set(globalThis, "createEl", globalElement);
+  Reflect.set(globalThis, "createDiv", (options: ElementOptions | string = {}) => globalElement("div", options));
+  Reflect.set(globalThis, "createSpan", (options: ElementOptions | string = {}) => globalElement("span", options));
   const methods: Record<string, (...args: any[]) => any> = {
     createEl(this: HTMLElement, tag: keyof HTMLElementTagNameMap, options: ElementOptions = {}) { return create(this, tag, options); },
     createDiv(this: HTMLElement, options: ElementOptions | string = {}) { return create(this, "div", typeof options === "string" ? { cls: options } : options); },
@@ -234,6 +242,7 @@ export const sampleNotes: Record<string, string> = {
 export function makePreviewApp(): App {
   const files = new Map<string, TAbstractFile>();
   const contents = new Map<string, string>(Object.entries(sampleNotes));
+  const binaries = new Map<string, ArrayBuffer>();
   const root = new TFolder(""); files.set("", root);
   const ensureFolder = (path: string): TFolder => {
     const found = files.get(path); if (found instanceof TFolder) return found;
@@ -260,6 +269,23 @@ export function makePreviewApp(): App {
     getAbstractFileByPath: (path: string) => files.get(path) || null,
     cachedRead: async (file: TFile) => contents.get(file.path) || "", read: async (file: TFile) => contents.get(file.path) || "",
     create: async (path: string, text: string) => { const file = new TFile(path); contents.set(path, text); files.set(path, file); const folder = ensureFolder(path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : ""); file.parent = folder; folder.children.push(file); return file; },
+    createBinary: async (path: string, bytes: ArrayBuffer) => {
+      if (files.has(path)) throw new Error("Preview file already exists");
+      const file = new TFile(path); file.stat.size = bytes.byteLength;
+      binaries.set(path, bytes.slice(0)); files.set(path, file);
+      const folder = ensureFolder(path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
+      file.parent = folder; folder.children.push(file); return file;
+    },
+    readBinary: async (file: TFile) => {
+      const bytes = binaries.get(file.path);
+      if (!bytes) throw new Error("Preview binary file not found");
+      return bytes.slice(0);
+    },
+    getResourcePath: (file: TFile) => {
+      const bytes = binaries.get(file.path);
+      if (!bytes) throw new Error("Preview binary file not found");
+      return URL.createObjectURL(new Blob([bytes]));
+    },
     createFolder: async (path: string) => { ensureFolder(path); },
     append: async (file: TFile, text: string) => { contents.set(file.path, (contents.get(file.path) || "") + text); },
     modify: async (file: TFile, text: string) => { contents.set(file.path, text); },
@@ -339,3 +365,5 @@ export class MarkdownRenderer {
   }
   static async renderMarkdown(source: string, target: HTMLElement, sourcePath = "", component?: Component): Promise<void> { await this.render(new App(), source, target, sourcePath, component); }
 }
+
+export async function finishRenderMath(): Promise<void> {}

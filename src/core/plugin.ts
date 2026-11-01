@@ -71,6 +71,22 @@ export default class QuizMakerPlugin extends Plugin implements PluginContext {
       }
     });
     this.addCommand({
+      id: "quiz-selection", name: "Quiz selected text",
+      editorCheckCallback: (checking, editor, view) => {
+        if (!this.ready || !editor.somethingSelected() || !view.file || view.file.extension !== "md") return false;
+        if (!checking) {
+          const start = editor.getCursor("from");
+          const end = editor.getCursor("to");
+          openGenerator(this, this.settings.defaultPreset, { selection: {
+            path: view.file.path, content: editor.getSelection(),
+            fromLine: start.line + 1, toLine: end.line + 1,
+            fromOffset: start.ch, toOffset: end.ch
+          } });
+        }
+        return true;
+      }
+    });
+    this.addCommand({
       id: "generate-quiz", name: "Generate quiz",
       checkCallback: checking => {
         if (!this.settings.extraCommands) return false;
@@ -80,11 +96,7 @@ export default class QuizMakerPlugin extends Plugin implements PluginContext {
     });
     this.addCommand({
       id: "new-quiz", name: "New quiz",
-      checkCallback: checking => {
-        if (!this.settings.extraCommands) return false;
-        if (!checking) this.openEditor();
-        return true;
-      }
+      callback: () => this.openEditor()
     });
     this.addCommand({
       id: "import-quiz", name: "Import quiz",

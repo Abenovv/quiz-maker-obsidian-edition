@@ -1,5 +1,19 @@
 # Release notes
 
+## 2.0.0
+
+Personal study packs, reviewable editing and local interchange, with a simpler Obsidian-native setup.
+
+- Keep Extra commands off by default and make New quiz always available. Preserve saved preferences.
+- Scope native accent and focus variables to the quiz theme to prevent inherited purple highlights.
+- Add saved personal packs, topic allocations, selection generation, reviewable replacements, editor undo/redo, question-bank organization and optional study aids.
+- Add bounded study backups and content revisions, keeping saved preferences and packs separate from plugin update files.
+- Add reviewed Anki text/package interchange with explicit conversion reports, local image attachments, inert code presentation and image-backed PDF export.
+- Follow Obsidian appearance by default, simplify import/export and use one model finder for discovery and connection feedback.
+- Add an English walkthrough with real native captures, captions and a transcript.
+
+Local validation: 620 tests pass on Linux and Windows, along with typecheck, official lint, source/release checks, reproducible builds and a zero-vulnerability dependency audit. All 20 native Obsidian workflow checks pass, including model selection, PDF cancellation and readable equation/image capture. Anki application, physical-device and external community-review checks remain separate; see the development plan.
+
 ## 1.2.3
 
 Simplify setup and address specific community-review findings.

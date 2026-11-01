@@ -1,12 +1,16 @@
 import { FuzzySuggestModal, TFile, TFolder } from "obsidian";
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { questionTypeLabels } from "../core/schema";
-import { providers, questionTypes, type Difficulty, type GenerationConnection, type GenerationRequest, type ModelInfo, type PluginContext, type Provider, type Quiz, type RequestedMethod, type SessionConfig } from "../core/types";
-import { MAX_GENERATED_QUESTIONS, MAX_GENERATION_SOURCES, MAX_SOURCE_CHARACTERS } from "../ai/generation";
+import { providers, questionTypes, type BlueprintAllocation, type Difficulty, type GenerationConnection, type GenerationRequest, type ModelInfo, type PluginContext, type Provider, type Quiz, type RequestedMethod, type SessionConfig } from "../core/types";
+import { MAX_GENERATED_QUESTIONS, MAX_GENERATION_SOURCES, MAX_SOURCE_CHARACTERS, estimateGenerationOutput } from "../ai/generation";
 import { modelDiscoveryMessage } from "../ai/models";
-import { DEFAULT_PRESET_ID, findPreset, presets } from "../presets";
+import { DEFAULT_PRESET_ID, findPreset } from "../presets";
+import { availablePresets, findUserPreset } from "../presets/user";
+import { detectLanguage } from "../ai/language";
+import { blueprintError, openPackEditor } from "./PackModal";
+import { ModelPicker } from "./ModelPicker";
 import { Icon, InlineError, errorMessage, openReactModal } from "./shared";
-import { mergeSelectedNotes, notesInFolder, readSelectedNotes, sourceBrowseItems, sourceBrowseLabel, type SourceBrowseItem } from "./generator/sources";
+import { mergeSelectedNotes, notesInFolder, readSelectedNotes, sourceBrowseItems, sourceBrowseLabel, selectionSources, type SourceBrowseItem } from "./generator/sources";
 
 const providerNames: Record<Provider, string> = {
   openai: "OpenAI", google: "Google", anthropic: "Anthropic", mistral: "Mistral", cohere: "Cohere", perplexity: "Perplexity", ollama: "Ollama"
@@ -32,22 +36,30 @@ function localEndpoint(provider: Provider, baseUrl: string): boolean {
   catch { return false; }
 }
 
-export function Generator({ context, close, presetId }: { context: PluginContext; close(this: void): void; presetId?: string }): ReactNode {
-  const initial = useRef(findPreset(presetId ?? context.settings.defaultPreset) ?? findPreset(DEFAULT_PRESET_ID)!).current;
+export interface GeneratorOptions { selection?: { path: string; content: string; fromLine: number; toLine: number; fromOffset?: number; toOffset?: number } }
+
+export function Generator({ context, close, presetId, options }: { context: PluginContext; close(this: void): void; presetId?: string; options?: GeneratorOptions }): ReactNode {
+  const selection = useRef(options?.selection ? { ...options.selection } : undefined).current;
+  const [initial] = useState(() => findUserPreset(context, presetId ?? context.settings.defaultPreset) ?? findPreset(DEFAULT_PRESET_ID)!);
+  const [packs, setPacks] = useState(() => availablePresets(context));
+  const [blueprint, setBlueprint] = useState<BlueprintAllocation[]>(initial.blueprint?.map(row => ({ ...row })) ?? []);
   const [packId, setPackId] = useState(initial.id);
+  const [packBase, setPackBase] = useState(initial);
   const [methods, setMethods] = useState<RequestedMethod[]>(initial.methods.map(method => ({ ...method })));
   const [config, setConfig] = useState<SessionConfig>({ ...initial.config });
   const [files, setFiles] = useState<TFile[]>(() => {
+    if (selection) return [];
     const active = context.app.workspace.getActiveFile();
     return active instanceof TFile && active.extension === "md" ? [active] : [];
   });
   const [title, setTitle] = useState("");
   const [topic, setTopic] = useState("");
   const [difficulty, setDifficulty] = useState<Difficulty>(initial.difficulty);
-  const [language, setLanguage] = useState(context.settings.language || "English");
+  const [language, setLanguage] = useState(initial.language || context.settings.language || "English");
   const [includeHints, setIncludeHints] = useState(initial.includeHints);
   const [includeExplanations, setIncludeExplanations] = useState(initial.includeExplanations);
-  const [includeSources, setIncludeSources] = useState(true);
+  const [includeSources, setIncludeSources] = useState(context.settings.sourceEvidenceEnabled);
+  const [languageMessage, setLanguageMessage] = useState("");
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [provider, setProvider] = useState<Provider>(context.settings.provider);
   const [model, setModel] = useState(context.settings.providers[context.settings.provider].model);
@@ -64,12 +76,13 @@ export function Generator({ context, close, presetId }: { context: PluginContext
   const activeRequest = useRef<{ id: number; controller: AbortController } | null>(null);
   const requestSequence = useRef(0);
   const discovery = useRef<AbortController | null>(null);
-  const modelListId = useId();
   const notesHeadingId = useId();
   const methodIdPrefix = useId();
   const total = methods.reduce((sum, method) => sum + method.count, 0);
   const validCounts = methods.length > 0 && methods.every(method => Number.isInteger(method.count) && method.count >= 1 && method.count <= 20) && total <= MAX_GENERATED_QUESTIONS;
-  const selectedPack = findPreset(packId);
+  const selectedPack = packs.find(pack => pack.id === packId);
+  const blueprintIssue = blueprintError(blueprint, total);
+  const estimate = estimateGenerationOutput({ methods, includeHints, includeExplanations, includeSources });
 
   useEffect(() => {
     alive.current = true;
@@ -131,14 +144,30 @@ export function Generator({ context, close, presetId }: { context: PluginContext
 
   const selectPack = (id: string): void => {
     if (id === "custom") { setPackId(id); return; }
-    const preset = findPreset(id);
+    const preset = findUserPreset(context, id);
     if (!preset) return;
     setPackId(preset.id);
+    setPackBase(preset);
     setMethods(preset.methods.map(method => ({ ...method })));
     setConfig({ ...preset.config });
     setDifficulty(preset.difficulty);
     setIncludeHints(preset.includeHints);
     setIncludeExplanations(preset.includeExplanations);
+    setBlueprint(preset.blueprint?.map(row => ({ ...row })) ?? []);
+    if (preset.language) setLanguage(preset.language);
+  };
+
+  const suggestLanguage = async (): Promise<void> => {
+    const controller = new AbortController();
+    try {
+      const sources = selection ? selectionSources(selection, MAX_SOURCE_CHARACTERS) : await readSelectedNotes(files, file => context.app.vault.cachedRead(file), { maxNotes: MAX_GENERATION_SOURCES, maxCharacters: MAX_SOURCE_CHARACTERS, signal: controller.signal });
+      if (!alive.current) return;
+      const suggestion = detectLanguage(sources.map(source => source.content));
+      if (suggestion.language && !suggestion.uncertain) {
+        setLanguage(suggestion.language);
+        setLanguageMessage(`Suggested ${suggestion.language}. You can change it.`);
+      } else setLanguageMessage("Language is uncertain. Choose the language for your questions.");
+    } catch (failure) { if (alive.current) setLanguageMessage(errorMessage(failure)); }
   };
 
   const cancel = (): void => {
@@ -185,7 +214,8 @@ export function Generator({ context, close, presetId }: { context: PluginContext
     if (activeRequest.current) return;
     setError("");
     if (!validCounts) { setError(`Choose 1–${MAX_GENERATED_QUESTIONS} questions, with 1–20 per format.`); return; }
-    if (!files.length) { setError("Choose at least one note."); return; }
+    if (blueprintIssue) { setError(blueprintIssue); return; }
+    if (!files.length && !selection) { setError("Choose at least one note."); return; }
     const account = context.settings.providers[provider];
     const connection: GenerationConnection = { provider, config: { ...account, model: model.trim() } };
     if (!account.apiKey && !localEndpoint(provider, account.baseUrl)) { setModelOpen(true); setError(`Add your ${providerNames[provider]} API key in Settings → Quiz maker.`); return; }
@@ -198,7 +228,7 @@ export function Generator({ context, close, presetId }: { context: PluginContext
     setBusy(true);
     setStatus("Reading notes…");
     try {
-      const sources = await readSelectedNotes(files, file => context.app.vault.cachedRead(file), { maxNotes: MAX_GENERATION_SOURCES, maxCharacters: MAX_SOURCE_CHARACTERS, signal: controller.signal });
+      const sources = selection ? selectionSources(selection, MAX_SOURCE_CHARACTERS) : await readSelectedNotes(files, file => context.app.vault.cachedRead(file), { maxNotes: MAX_GENERATION_SOURCES, maxCharacters: MAX_SOURCE_CHARACTERS, signal: controller.signal });
       if (!current()) return;
       if (context.settings.provider !== provider || context.settings.providers[provider].model !== connection.config.model) {
         context.settings.provider = provider;
@@ -208,7 +238,9 @@ export function Generator({ context, close, presetId }: { context: PluginContext
       if (!current()) return;
       const request: GenerationRequest = {
         sources, methods: methods.map(method => ({ ...method })),
-        title: title.trim() || files[0]?.basename || "Study quiz",
+        title: title.trim() || files[0]?.basename || selection?.path.split("/").pop()?.replace(/\.md$/i, "") || "Study quiz",
+        ...(blueprint.length ? { blueprint: blueprint.map(row => ({ ...row })) } : {}),
+        ...(selection ? { selection: { path: selection.path, fromLine: selection.fromLine, toLine: selection.toLine, ...(selection.fromOffset !== undefined ? { fromOffset: selection.fromOffset } : {}), ...(selection.toOffset !== undefined ? { toOffset: selection.toOffset } : {}) } } : {}),
         difficulty, language: language.trim(),
         ...(topic.trim() ? { topic: topic.trim() } : {}),
         includeHints, includeExplanations, includeSources,
@@ -235,13 +267,13 @@ export function Generator({ context, close, presetId }: { context: PluginContext
   return <div className="qm-generator">
     <div className="qm-generator-columns">
       <section className="qm-panel qm-generator-sources" aria-labelledby={notesHeadingId}>
-        <header className="qm-section-heading"><h3 id={notesHeadingId}>Notes</h3><span className="qm-muted" aria-label={`${files.length} of ${MAX_GENERATION_SOURCES} notes selected`}>{files.length}/{MAX_GENERATION_SOURCES}</span></header>
+        <header className="qm-section-heading"><h3 id={notesHeadingId}>{selection ? "Selected text" : "Notes"}</h3>{!selection && <span className="qm-muted" aria-label={`${files.length} of ${MAX_GENERATION_SOURCES} notes selected`}>{files.length}/{MAX_GENERATION_SOURCES}</span>}</header>
         <div className="qm-toolbar">
-          <button type="button" onClick={chooseNotes} disabled={busy}><Icon name="plus"/>Add note</button>
+          {!selection && <><button type="button" onClick={chooseNotes} disabled={busy}><Icon name="plus"/>Add note</button>
           <button type="button" onClick={chooseFolder} disabled={busy}><Icon name="folder"/>Add folder</button>
-          {files.length > 1 && <button type="button" className="qm-quiet" onClick={() => setFiles([])} disabled={busy}>Clear all</button>}
+          {files.length > 1 && <button type="button" className="qm-quiet" onClick={() => setFiles([])} disabled={busy}>Clear all</button>}</>}
         </div>
-        {!files.length ? <p className="qm-empty-description">Choose your source notes.</p> : <ul className="qm-source-list">{files.map(file => <li className="qm-source-row" key={file.path}>
+        {selection ? <p className="qm-source-path">{selection.path} · Selected text ({selection.content.length.toLocaleString()} characters)</p> : !files.length ? <p className="qm-empty-description">Choose your source notes.</p> : <ul className="qm-source-list">{files.map(file => <li className="qm-source-row" key={file.path}>
           <span className="qm-source-path" title={file.path}>{file.path}</span>
           <button type="button" className="qm-icon-button qm-quiet" aria-label={`Remove ${file.path}`} disabled={busy} onClick={() => setFiles(current => current.filter(item => item.path !== file.path))}><Icon name="close"/></button>
         </li>)}</ul>}
@@ -249,8 +281,9 @@ export function Generator({ context, close, presetId }: { context: PluginContext
 
       <section className="qm-panel qm-generator-configuration" aria-label="Question settings">
         <label className="qm-field">Study pack<select value={packId} onChange={event => selectPack(event.currentTarget.value)} disabled={busy}>
-          <option value="custom">Custom</option>{presets.map(pack => <option key={pack.id} value={pack.id}>{pack.name}</option>)}
+          <option value="custom">Custom</option>{packs.map(pack => <option key={pack.id} value={pack.id}>{pack.name}</option>)}
         </select></label>
+        <button type="button" className="qm-quiet qm-pack-edit" disabled={busy} onClick={() => openPackEditor(context, { ...(selectedPack ?? packBase), methods: methods.map(method => ({ ...method })), config: { ...config }, difficulty, language, includeHints, includeExplanations, blueprint: blueprint.map(row => ({ ...row })) }, pack => { if (!alive.current) return; setPacks(availablePresets(context)); selectPack(pack.id); })}>Customize pack</button>
         {selectedPack && <p className="qm-muted qm-pack-description">{selectedPack.description}</p>}
         <details className="qm-generator-details qm-question-mix">
         <summary>Question mix <span className="qm-muted">{total} questions</span></summary>
@@ -272,12 +305,15 @@ export function Generator({ context, close, presetId }: { context: PluginContext
         <label className="qm-field">Quiz title<input value={title} onChange={event => setTitle(event.currentTarget.value)} placeholder={files[0]?.basename || "Optional"} maxLength={200} disabled={busy}/></label>
         <div className="qm-form-row">
           <label className="qm-field">Difficulty<select value={difficulty} disabled={busy} onChange={event => { setDifficulty(event.currentTarget.value as Difficulty); setPackId("custom"); }}><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></select></label>
-          <label className="qm-field">Language<input value={language} maxLength={80} disabled={busy} onChange={event => setLanguage(event.currentTarget.value)}/></label>
+          <label className="qm-field">Language<input value={language} maxLength={80} disabled={busy} onChange={event => { setLanguage(event.currentTarget.value); setLanguageMessage(""); }}/></label>
         </div>
+        <button type="button" className="qm-quiet" disabled={busy || (!selection && !files.length)} onClick={() => { void suggestLanguage(); }}>Suggest language</button>
+        {languageMessage && <p className="qm-muted" role="status">{languageMessage}</p>}
           <label className="qm-field">Topic<input value={topic} maxLength={300} disabled={busy} placeholder="Optional focus" onChange={event => setTopic(event.currentTarget.value)}/></label>
           <label className="qm-check"><input type="checkbox" checked={includeHints} disabled={busy} onChange={event => setIncludeHints(event.currentTarget.checked)}/>Hints</label>
           <label className="qm-check"><input type="checkbox" checked={includeExplanations} disabled={busy} onChange={event => setIncludeExplanations(event.currentTarget.checked)}/>Explanations</label>
           <label className="qm-check"><input type="checkbox" checked={includeSources} disabled={busy} onChange={event => setIncludeSources(event.currentTarget.checked)}/>Source references</label>
+          <p className="qm-muted">About {estimate.toLocaleString()} output tokens. Actual usage varies.</p>
         </details>
       </section>
     </div>
@@ -286,24 +322,22 @@ export function Generator({ context, close, presetId }: { context: PluginContext
     <summary>Model <span className="qm-muted">{providerNames[provider]}{model ? " · " + model : " · Choose a model"}</span></summary>
     <section className="qm-generator-model" aria-label="Generation model">
       <label className="qm-field">Provider<select value={provider} disabled={busy} onChange={event => { const next = event.currentTarget.value as Provider; setProvider(next); setModel(context.settings.providers[next].model); setModelsError(""); }}>{providers.map(item => <option value={item} key={item}>{providerNames[item]}</option>)}</select></label>
-      <label className="qm-field qm-model-field">Model<input list={modelListId} value={model} maxLength={200} disabled={busy} autoComplete="off" spellCheck={false} placeholder="Select or enter a model ID" onChange={event => { setModel(event.currentTarget.value); setModelsError(""); }}/><datalist id={modelListId}>{models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</datalist></label>
-      <button type="button" disabled={busy || modelsBusy} onClick={() => { void refreshModels(true); }}><Icon name="search"/>{modelsBusy ? "Finding…" : "Find models"}</button>
+      <ModelPicker key={provider} value={model} onChange={value => { setModel(value); setModelsError(""); }} models={models} loading={modelsBusy} error={modelsError} disabled={busy} onRefresh={() => { void refreshModels(true); }}/>
     </section>
-    <InlineError>{modelsError}</InlineError>
     </details>
     <footer className="qm-generator-footer">
-      <p className="qm-muted qm-network-note">Selected notes go to your configured {providerNames[provider]} {provider === "ollama" ? "server" : "endpoint"}.</p>
+      <p className="qm-muted qm-network-note">{selection ? "Your selection is" : "Selected notes are"} sent to your configured {providerNames[provider]} endpoint.</p>
       <div className="qm-status" role="status" aria-live="polite">{status}</div>
-      <InlineError>{error}</InlineError>
+      <InlineError>{error || blueprintIssue}</InlineError>
       {pendingQuiz && !busy && <p className="qm-muted">{pendingQuiz.questions.length} generated questions are kept here. Save again without another model request.</p>}
       <div className="qm-footer-actions">
         <button type="button" className="qm-quiet" disabled={busy} onClick={() => { close(); context.openEditor(pendingQuiz ?? undefined); }}>{pendingQuiz ? "Edit draft" : "Create manually"}</button>
-        {busy ? <button type="button" disabled={saving} onClick={cancel}>{saving ? "Saving…" : "Cancel"}</button> : pendingQuiz ? <button type="button" className="mod-cta qm-primary" onClick={() => { void retrySave(); }}>Save and start</button> : <button type="button" className="mod-cta qm-primary" disabled={!validCounts || !files.length} onClick={() => { void generate(); }}>Generate {total} {total === 1 ? "question" : "questions"}</button>}
+        {busy ? <button type="button" disabled={saving} onClick={cancel}>{saving ? "Saving…" : "Cancel"}</button> : pendingQuiz ? <button type="button" className="mod-cta qm-primary" onClick={() => { void retrySave(); }}>Save and start</button> : <button type="button" className="mod-cta qm-primary" disabled={!validCounts || Boolean(blueprintIssue) || (!files.length && !selection)} onClick={() => { void generate(); }}>Generate {total} {total === 1 ? "question" : "questions"}</button>}
       </div>
     </footer>
   </div>;
 }
 
-export function openGenerator(context: PluginContext, presetId?: string): void {
-  openReactModal(context, close => <Generator context={context} close={close} presetId={presetId}/>, { title: "Make a quiz", className: "qm-generator-modal" });
+export function openGenerator(context: PluginContext, presetId?: string, options?: GeneratorOptions): void {
+  openReactModal(context, close => <Generator context={context} close={close} presetId={presetId} options={options}/>, { title: "Make a quiz", className: "qm-generator-modal" });
 }

@@ -9,7 +9,7 @@ import { registerNoteFeatures } from "../src/notes";
 import { normalizeSettings } from "../src/settings";
 
 function context(): PluginContext {
-  return { settings: normalizeSettings(undefined) } as PluginContext;
+  return { settings: normalizeSettings({ theme: "midnight" }) } as PluginContext;
 }
 
 function root(): HTMLElement {
@@ -143,4 +143,43 @@ test("embedded quiz appearance follows its Markdown component lifecycle", async 
   const roots = target.querySelectorAll<HTMLElement>(".qm-note");
   assert.equal(roots[roots.length - 1].dataset.theme, "contrast", "a replacement render applies current settings immediately");
   scopes[1].unload();
+});
+
+test("unchanged appearance does not rewrite registered root attributes", () => {
+  const owner = context();
+  const writes: string[] = [];
+  const data: Record<string, string> = {};
+  const element = {
+    dataset: new Proxy(data, { set(target, name: string, value: string) {
+      writes.push(name);
+      target[name] = value;
+      return true;
+    } })
+  } as unknown as HTMLElement;
+  const unbind = bindAppearance(owner, element);
+  assert.deepEqual(writes, ["theme", "motion"]);
+  refreshAppearance(owner);
+  refreshAppearance(owner);
+  assert.equal(writes.length, 2, "saving unrelated settings must not invalidate appearance attributes");
+  owner.settings.motion = "reduced";
+  refreshAppearance(owner);
+  assert.deepEqual(writes, ["theme", "motion", "motion"]);
+  owner.settings.theme = "obsidian";
+  refreshAppearance(owner);
+  assert.deepEqual(writes, ["theme", "motion", "motion", "theme"]);
+  unbind();
+});
+
+test("switching to Obsidian leaves host colors to CSS inheritance", () => {
+  const owner = context();
+  const element = root();
+  Object.defineProperty(element, "style", { get() { throw new Error("Appearance must not freeze host colors inline"); } });
+  const unbind = bindAppearance(owner, element);
+  for (const theme of ["paper", "obsidian", "contrast", "obsidian"] as const) {
+    owner.settings.theme = theme;
+    refreshAppearance(owner);
+    assert.equal(element.dataset.theme, theme);
+  }
+  assert.deepEqual(Object.keys(element.dataset).sort(), ["motion", "theme"]);
+  unbind();
 });

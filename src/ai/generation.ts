@@ -1,8 +1,8 @@
-import { createQuestion, createQuiz, validateQuiz } from "../core/schema";
+import { createQuestion, createQuiz, validateQuiz, validateSourceSelection } from "../core/schema";
 import { providers, questionTypes } from "../core/types";
 import type {
   GenerationConnection, GenerationRequest, GenerationServicePort, Provider, ProviderSettings, Question, QuestionType,
-  Quiz, RequestedMethod, Settings, SourceNote
+  Quiz, RequestedMethod, Settings, SourceNote, BlueprintAllocation, SourceSelection, SourceEvidence
 } from "../core/types";
 import type { GeneratedText, TransportConfig, ChatMessage } from "./transport";
 import { TransportError } from "./transport";
@@ -48,6 +48,8 @@ interface PreparedRequest {
   includeHints: boolean;
   includeExplanations: boolean;
   includeSources: boolean;
+  blueprint?: BlueprintAllocation[];
+  selection?: SourceSelection;
 }
 interface ProviderSnapshot {
   provider: Provider;
@@ -64,7 +66,7 @@ const outputCost: Record<QuestionType, number> = {
 
 /** A conservative planning bound, not a claim about a provider's exact tokenization. */
 export function estimateGenerationOutput(request: Pick<PreparedRequest, "methods" | "includeHints" | "includeExplanations" | "includeSources">): number {
-  const extras = (request.includeHints ? 25 : 0) + (request.includeExplanations ? 60 : 0) + (request.includeSources ? 10 : 0);
+  const extras = (request.includeHints ? 25 : 0) + (request.includeExplanations ? 60 : 0) + (request.includeSources ? 85 : 0);
   return Math.ceil((320 + request.methods.reduce((sum, method) => sum + method.count * (outputCost[method.type] + extras), 0)) * 1.2);
 }
 
@@ -186,6 +188,35 @@ export function prepareGenerationRequest(request: GenerationRequest): PreparedRe
   if (request.title !== undefined && (typeof request.title !== "string" || request.title.length > 200)) {
     throw new GenerationError("Keep the quiz title under 200 characters.", "configuration");
   }
+  let blueprint: BlueprintAllocation[] | undefined;
+  if (request.blueprint !== undefined) {
+    if (!Array.isArray(request.blueprint) || !request.blueprint.length || request.blueprint.length > 50) {
+      throw new GenerationError("Use between 1 and 50 blueprint rows.", "configuration");
+    }
+    const allocations = new Set<string>();
+    blueprint = request.blueprint.map(row => {
+      if (!record(row) || typeof row.topic !== "string" || !row.topic.trim() || row.topic.length > 200
+        || !["easy", "medium", "hard"].includes(row.difficulty)
+        || !Number.isInteger(row.count) || row.count < 1 || row.count > MAX_GENERATED_QUESTIONS) {
+        throw new GenerationError("Each blueprint row needs a topic, difficulty, and question count.", "configuration");
+      }
+      const key = row.topic.trim().toLocaleLowerCase() + ":" + row.difficulty;
+      if (allocations.has(key)) throw new GenerationError("Combine repeated topic and difficulty rows.", "configuration");
+      allocations.add(key);
+      return { topic: row.topic.trim(), difficulty: row.difficulty, count: row.count };
+    });
+    if (blueprint.reduce((sum, row) => sum + row.count, 0) !== total) {
+      throw new GenerationError("Blueprint counts must match the question total.", "configuration");
+    }
+  }
+  let selection: SourceSelection | undefined;
+  if (request.selection !== undefined) {
+    try { selection = validateSourceSelection(request.selection); }
+    catch { throw new GenerationError("Select text in one note before generating.", "configuration"); }
+    if (sources.length !== 1 || selection.path !== sources[0].path) {
+      throw new GenerationError("Select text in one note before generating.", "configuration");
+    }
+  }
   const basename = sources[0].path.split("/").pop()?.replace(/\.md$/i, "") || "Study";
   const prepared: PreparedRequest = {
     sources, methods,
@@ -195,7 +226,9 @@ export function prepareGenerationRequest(request: GenerationRequest): PreparedRe
     topic: request.topic?.trim() || "",
     includeHints: request.includeHints === true,
     includeExplanations: request.includeExplanations === true,
-    includeSources: request.includeSources === true
+    includeSources: request.includeSources === true,
+    ...(blueprint ? { blueprint } : {}),
+    ...(selection ? { selection } : {})
   };
   if (estimateGenerationOutput(prepared) > MAX_OUTPUT_TOKENS) {
     throw new GenerationError("This question mix needs a larger response. Request fewer questions or shorter answer formats.", "configuration");
@@ -232,7 +265,7 @@ export function generationMessages(request: PreparedRequest): ChatMessage[] {
   const optional = [
     request.includeHints ? "One short hint per question is allowed." : "Omit hints.",
     request.includeExplanations ? "Include a brief explanation, usually one sentence." : "Omit explanations.",
-    request.includeSources ? "For source, use only the source ID (S1, S2, and so on) that supports the answer." : "Omit source fields."
+    request.includeSources ? 'For source, use only a supporting source ID (S1, S2, and so on). Include one short excerpt (up to 240 characters): evidence: [{"path":"S1","quote":"an exact short excerpt"}]. Do not supply verification status or invent quotations.' : "Omit source and evidence fields."
   ].join(" ");
   const system = [
     "Create a quiz using only the reference notes in the user message.",
@@ -246,6 +279,7 @@ export function generationMessages(request: PreparedRequest): ChatMessage[] {
     "For sequencing, answer is a permutation of every item index. For categorization, each item has one category index.",
     "For matching, answer contains leftOption/rightOption pairs. For concept maps, answer has one relationship-option index per link.",
     "For fill-in-the-blank, use one ____ marker per answer. For two-stage questions, reasonAnswer indexes reasons.",
+    ...(request.blueprint ? ["Each question must include topic and difficulty matching one blueprint row exactly. Meet every row count as well as format counts."] : []),
     optional,
     "If the notes cannot support the requested quiz, return only {\"error\":\"insufficient-source\"}. Never invent answers.",
     "Question shapes: " + JSON.stringify(examples)
@@ -255,6 +289,7 @@ export function generationMessages(request: PreparedRequest): ChatMessage[] {
       formats: request.methods,
       difficulty: request.difficulty,
       language: request.language,
+      ...(request.blueprint ? { blueprint: request.blueprint } : {}),
       ...(request.topic ? { topic: request.topic } : {})
     },
     referenceNotes: request.sources.map(({ id, text }) => ({ id, text }))
@@ -316,6 +351,27 @@ function allowedObject(value: unknown, names: readonly string[]): unknown {
   return record(value) ? Object.fromEntries(Object.entries(value).filter(([key]) => names.includes(key))) : value;
 }
 
+/** Verification means an exact excerpt match, not a check that the answer is factual. */
+export function verifySourceEvidence(
+  evidence: unknown[], sources: ReadonlyArray<{ id?: string; path: string; text: string }>, selection?: SourceSelection
+): SourceEvidence[] {
+  if (evidence.length > 8) throw new GenerationError("Use up to eight source excerpts per question.", "invalid-output");
+  return evidence.map(item => {
+    if (!record(item) || typeof item.path !== "string" || typeof item.quote !== "string"
+      || !item.quote.trim() || item.quote.length > 4_000) {
+      throw new GenerationError("A source excerpt is invalid. Generate the quiz again.", "invalid-output");
+    }
+    const source = sources.find(source => source.id === item.path || source.path === item.path);
+    // Unknown paths are never retained as links into the user's vault.
+    if (!source) throw new GenerationError("A source excerpt refers to an unselected note. Generate the quiz again.", "invalid-output");
+    const at = source.text.indexOf(item.quote);
+    if (at < 0) return { path: source.path, quote: item.quote, status: "unverified" };
+    const line = source.text.slice(0, at).split("\n").length + (selection?.path === source.path ? selection.fromLine - 1 : 0);
+    const endLine = line + item.quote.split("\n").length - 1;
+    return { path: source.path, quote: item.quote, status: "verified", locator: line === endLine ? "Line " + line : "Lines " + line + "–" + endLine };
+  });
+}
+
 function cleanQuestion(value: unknown, request: PreparedRequest): JsonObject {
   if (!record(value) || typeof value.question !== "string" || value.answer === undefined || value.answer === null) {
     throw new GenerationError("A generated question is missing its text or answer. Generate the quiz again.", "invalid-output");
@@ -325,10 +381,16 @@ function cleanQuestion(value: unknown, request: PreparedRequest): JsonObject {
   if (typeof type !== "string" || !questionTypes.includes(type as QuestionType)) {
     throw new GenerationError("A generated question has an unsupported format. Generate the quiz again.", "invalid-output");
   }
-  const permitted = ["type", "question", "answer", "hint", "explanation", "source", "difficulty", ...fields[type as QuestionType]];
+  const permitted = ["type", "question", "answer", "hint", "explanation", "source", "difficulty", "topic", ...fields[type as QuestionType]];
   const question = allowedObject(value, permitted) as JsonObject;
   question.type = type;
-  question.difficulty = request.difficulty;
+  if (request.blueprint) {
+    const row = request.blueprint.find(item => item.topic === question.topic && item.difficulty === question.difficulty);
+    if (!row) throw new GenerationError("A generated question does not match the blueprint. Generate it again.", "invalid-output");
+  } else {
+    question.difficulty = request.difficulty;
+    delete question.topic;
+  }
   for (const name of ["hint", "explanation", "source"] as const) {
     if (typeof question[name] === "string") {
       const trimmed = question[name].trim();
@@ -341,6 +403,9 @@ function cleanQuestion(value: unknown, request: PreparedRequest): JsonObject {
   const source = request.sources.find(item => item.id === question.source || item.path === question.source);
   if (request.includeSources && source) question.source = source.path;
   else delete question.source;
+  if (request.includeSources && Array.isArray(value.evidence)) {
+    question.evidence = verifySourceEvidence(value.evidence, request.sources, request.selection);
+  }
   if (type === "matching" && Array.isArray(question.answer)) {
     question.answer = question.answer.map(pair => allowedObject(pair, ["leftOption", "rightOption"]));
   }
@@ -361,7 +426,7 @@ function identity(value: unknown): string {
 
 function questionIdentity(question: Question): string {
   const comparable = Object.fromEntries(Object.entries(question).filter(([key]) =>
-    !["id", "answer", "reasonAnswer", "hint", "explanation", "source", "difficulty"].includes(key)));
+    !["id", "answer", "reasonAnswer", "hint", "explanation", "source", "difficulty", "evidence", "topic", "tags", "contentRevision", "media"].includes(key)));
   if (question.type === "matching") {
     comparable.leftTerms = question.answer.map(pair => pair.leftOption);
   }
@@ -403,10 +468,15 @@ export function normalizeGeneratedQuiz(response: string, request: PreparedReques
   if (request.methods.some(method => counts.get(method.type) !== method.count)) {
     throw new GenerationError("The model returned too few distinct questions. Request fewer questions or add source notes.", "invalid-output");
   }
+  if (request.blueprint?.some(row => questions.filter(question =>
+    question.topic === row.topic && question.difficulty === row.difficulty).length !== row.count)) {
+    throw new GenerationError("The model did not meet the blueprint counts. Generate it again.", "invalid-output");
+  }
   const generatedAt = date.toISOString();
   return createQuiz(questions, {
     title: request.title,
     sources: request.sources.map(source => source.path),
+    ...(request.selection ? { sourceSelection: { ...request.selection } } : {}),
     createdAt: generatedAt,
     updatedAt: generatedAt,
     provenance: { kind: "ai", provider: origin.provider, model: origin.config.model, generatedAt }
@@ -508,17 +578,24 @@ export class GenerationService implements GenerationServicePort {
 
   async regenerate(quiz: Quiz, questionIndex: number, request: GenerationRequest, connection?: GenerationConnection): Promise<Quiz> {
     const original = validateQuiz(quiz);
+    if (original.sourceSelection) {
+      throw new GenerationError("This quiz uses selected text. Select the passage again before generating a replacement.", "configuration");
+    }
     if (!Number.isInteger(questionIndex) || questionIndex < 0 || questionIndex >= original.questions.length) {
       throw new GenerationError("Select a question before regenerating.", "configuration");
     }
     const confirmedConnection = connection ? snapshotConnection(connection) : snapshotSettings(this.getSettings());
     const replacement = await this.generate({
       ...request, title: original.title,
-      methods: [{ type: original.questions[questionIndex].type, count: 1 }]
+      methods: [{ type: original.questions[questionIndex].type, count: 1 }],
+      blueprint: undefined
     }, confirmedConnection);
     const questions = [...original.questions];
     questions[questionIndex] = {
       ...replacement.questions[0],
+      contentRevision: (questions[questionIndex].contentRevision ?? 1) + 1,
+      ...(questions[questionIndex].tags ? { tags: [...questions[questionIndex].tags] } : {}),
+      ...(questions[questionIndex].topic ? { topic: questions[questionIndex].topic } : {}),
       ...(questions[questionIndex].id ? { id: questions[questionIndex].id } : {})
     };
     const origin = replacement.provenance;

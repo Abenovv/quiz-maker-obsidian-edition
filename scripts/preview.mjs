@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
+import { sqliteBrowserRuntime } from "./browser-runtime.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const port = 4318;
@@ -14,14 +15,14 @@ async function bundle() {
     format: "esm", platform: "browser", target: "es2022", jsx: "automatic", logLevel: "silent",
     define: { "process.env.NODE_ENV": '"development"' },
     loader: { ".svg": "text" },
-    plugins: [{ name: "preview-obsidian", setup(build) { build.onResolve({ filter: /^obsidian$/ }, () => ({ path: join(root, "preview/obsidian.ts") })); } }]
+    plugins: [sqliteBrowserRuntime, { name: "preview-obsidian", setup(build) { build.onResolve({ filter: /^obsidian$/ }, () => ({ path: join(root, "preview/obsidian.ts") })); } }]
   });
 }
 
 const server = createServer(async (request, response) => {
   const url = new URL(request.url || "/", "http://127.0.0.1");
   response.setHeader("Cache-Control", "no-store");
-  response.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'");
+  response.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'");
   try {
     if (url.pathname === "/preview.js") { const output = await bundle(); response.setHeader("Content-Type", contentTypes[".js"]); response.end(output.outputFiles[0].contents); return; }
     if (url.pathname === "/plugin.css") {

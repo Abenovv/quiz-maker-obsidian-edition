@@ -1,0 +1,79 @@
+WEBVTT
+
+00:00:02.000 --> 00:00:04.311
+Quiz maker turns notes into practice.
+
+00:00:04.311 --> 00:00:08.162
+This walkthrough uses public sample notes and a demo provider.
+
+00:00:08.162 --> 00:00:12.784
+Open a note, then use the command palette to choose Quick quiz.
+
+00:00:12.784 --> 00:00:15.480
+To write questions yourself, choose New quiz.
+
+00:00:15.720 --> 00:00:17.866
+The current note is selected for you.
+
+00:00:17.866 --> 00:00:20.318
+Choose a study pack and a question mix.
+
+00:00:20.318 --> 00:00:24.304
+Keep the defaults for a quick start, or open the optional controls when
+
+00:00:24.304 --> 00:00:25.224
+you need them.
+
+00:00:25.464 --> 00:00:28.414
+In settings, choose your provider and endpoint.
+
+00:00:28.414 --> 00:00:31.785
+Add an API key for a hosted provider.
+
+00:00:31.785 --> 00:00:35.999
+Find models checks the connection and loads the available list.
+
+00:00:35.999 --> 00:00:38.106
+Search, then select a model.
+
+00:00:38.106 --> 00:00:40.213
+Manual model IDs remain available.
+
+00:00:40.454 --> 00:00:41.682
+Generate your quiz.
+
+00:00:41.682 --> 00:00:45.368
+Only the selected notes go to the configured provider.
+
+00:00:45.368 --> 00:00:49.873
+Review generated questions and reference answers against your source before studying.
+
+00:00:50.113 --> 00:00:53.327
+Answer a question, check your response, and move on.
+
+00:00:53.327 --> 00:00:57.970
+Choose an exam when you want a timer and answers hidden until submission.
+
+00:00:57.970 --> 00:01:00.113
+Your progress stays in the vault.
+
+00:01:00.352 --> 00:01:03.718
+The mini view shares the same session beside your notes.
+
+00:01:03.718 --> 00:01:06.746
+Use the full view when you want more space.
+
+00:01:06.746 --> 00:01:09.102
+Quiz appearance can follow your Obsidian theme.
+
+00:01:09.342 --> 00:01:12.233
+Edit questions and undo changes when needed.
+
+00:01:12.233 --> 00:01:15.125
+Export JSON, Anki cards, or a PDF.
+
+00:01:15.125 --> 00:01:18.842
+Saved packs and preferences stay in place across updates.
+
+00:01:18.842 --> 00:01:22.146
+The written guide is linked in the repository.

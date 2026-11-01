@@ -37,7 +37,7 @@ export function moveQuestion(quiz: Quiz, from: number, to: number): Quiz {
   return { ...quiz, questions, ...(revisions ? { revisions } : {}) };
 }
 
-export function duplicateQuestion(quiz: Quiz, index: number, id = crypto.randomUUID()): Quiz {
+export function duplicateQuestion(quiz: Quiz, index: number, id: string = crypto.randomUUID()): Quiz {
   const original = quiz.questions[index];
   if (!original) return quiz;
   const question = structuredClone(original);

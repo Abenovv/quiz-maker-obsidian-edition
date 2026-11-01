@@ -101,6 +101,7 @@ test("generation preflight validates formats, counts, languages, titles, and dif
 test("output planning accounts for format complexity and requested teaching fields", () => {
   const simple = request(["true-false"]);
   simple.methods[0].count = 100;
+  simple.includeSources = false;
   const prepared = prepareGenerationRequest(simple);
   assert.ok(estimateGenerationOutput(prepared) <= MAX_OUTPUT_TOKENS);
   const allTypes = prepareGenerationRequest({ ...request([...questionTypes]), includeHints: true, includeExplanations: true });

@@ -377,3 +377,144 @@ test("a legacy import exceeding library capacity leaves all current quizzes unch
   assert.equal(adapter.writes.length, 0);
   await store.dispose();
 });
+
+test("workspace packs survive updates and are isolated from caller edits", async () => {
+  const adapter = new MemoryAdapter();
+  const store = new QuizStore(adapter, path);
+  const workspace = store.getWorkspace();
+  workspace.customPacks.push({ id: "my-pack", name: "My pack", description: "", methods: [{ type: "true-false", count: 3 }], difficulty: "easy", config: { mode: "practice", timerMode: "none", durationSeconds: 600, allowPause: true, randomizeQuestions: false }, includeHints: false, includeExplanations: true });
+  await store.saveWorkspace(workspace);
+  workspace.customPacks[0].name = "Outside mutation";
+  const reloaded = new QuizStore(adapter, path); await reloaded.load();
+  assert.equal(reloaded.getWorkspace().customPacks[0].name, "My pack");
+  assert.equal(JSON.parse(adapter.files.get(path)!).version, 2);
+  await store.dispose(); await reloaded.dispose();
+});
+
+test("version one migration verifies a bounded backup before replacing live bytes", async () => {
+  const adapter = new MemoryAdapter();
+  const original = JSON.stringify({ version: 1, quizzes: [quiz()], history: [], reviews: [], bookmarks: {} });
+  adapter.files.set(path, original);
+  const store = new QuizStore(adapter, path, { now: () => 1000 }); await store.load();
+  assert.equal(adapter.files.get(path), original);
+  await store.saveQuiz({ ...quiz(), title: "New title" });
+  const backups = await store.listBackups();
+  assert.equal(backups.length, 1);
+  assert.equal(JSON.parse(adapter.files.get(backups[0].path)!).data.version, 1);
+  await store.restoreBackup(backups[0].path);
+  assert.equal(store.getQuiz("quiz-a")?.title, "Orbital motion");
+  await store.dispose();
+});
+
+test("future library versions refuse writes and retain exact recovery bytes", async () => {
+  const adapter = new MemoryAdapter(); const original = JSON.stringify({ version: 99, privateFutureField: "preserve" });
+  adapter.files.set(path, original);
+  const store = new QuizStore(adapter, path); await store.load();
+  assert.match(store.loadIssue || "", /newer Quiz maker/);
+  await assert.rejects(store.saveQuiz(quiz()), /newer Quiz maker/);
+  assert.equal(store.getRecoveryText(), original);
+  assert.equal(adapter.files.get(path), original);
+  await store.dispose();
+});
+
+test("revisions restore content and preserve the replaced version", async () => {
+  const adapter = new MemoryAdapter(); const store = new QuizStore(adapter, path, { now: () => 1000 });
+  await store.saveQuiz(quiz());
+  await store.saveQuiz({ ...store.getQuiz("quiz-a")!, title: "Revised" });
+  const version = store.getRevisions("quiz-a")[0];
+  assert.equal(version.quiz.title, "Orbital motion");
+  await store.restoreRevision(version.id);
+  assert.equal(store.getQuiz("quiz-a")?.title, "Orbital motion");
+  assert.equal(store.getRevisions("quiz-a")[0].quiz.title, "Revised");
+  await store.dispose();
+});
+
+test("backup rotation stays within exact owned paths and rejects arbitrary restore", async () => {
+  const adapter = new MemoryAdapter(); const store = new QuizStore(adapter, path, { now: () => 1000 });
+  await store.saveQuiz(quiz());
+  for (let index = 0; index < 5; index++) await store.createBackup();
+  assert.equal((await store.listBackups()).length, 3);
+  await assert.rejects(store.restoreBackup("Other.md"), /belonging/);
+  assert.equal(adapter.files.has("Other.md"), false);
+  await store.dispose();
+});
+
+test("failed migration backup never overwrites live version one data", async () => {
+  const adapter = new MemoryAdapter();
+  const original = JSON.stringify({ version: 1, quizzes: [quiz()], history: [], reviews: [], bookmarks: {} });
+  adapter.files.set(path, original);
+  const store = new QuizStore(adapter, path); await store.load(); adapter.failures = 1;
+  await assert.rejects(store.saveQuiz({ ...quiz(), title: "Changed" }), /could not be saved/);
+  assert.equal(adapter.files.get(path), original);
+  await store.flush();
+  assert.equal(JSON.parse(adapter.files.get(path)!).version, 2);
+  await store.dispose();
+});
+
+test("concurrent workspace snapshots merge independent bank and pack edits", async () => {
+  const adapter = new MemoryAdapter(); const store = new QuizStore(adapter, path);
+  await store.load();
+  const first = store.getWorkspace(); const second = store.getWorkspace();
+  first.bank.push({ id: "bank-one", question: quiz().questions[0], createdAt: quiz().createdAt, updatedAt: quiz().updatedAt });
+  second.bank.push({ id: "bank-two", question: quiz().questions[1], createdAt: quiz().createdAt, updatedAt: quiz().updatedAt });
+  await Promise.all([store.saveWorkspace(first), store.saveWorkspace(second)]);
+  assert.equal(store.getWorkspace().bank.length, 2);
+  await store.dispose();
+});
+
+test("answer edits clear stale review schedules including old-session ratings", async () => {
+  const adapter = new MemoryAdapter(); const store = new QuizStore(adapter, path);
+  await store.saveQuiz(quiz()); await store.rateCard("quiz-a", 0, "good", 1000);
+  const old = session("old", store.getQuiz("quiz-a")!);
+  const edited = store.getQuiz("quiz-a")!;
+  if (edited.questions[0].type === "true-false") edited.questions[0].answer = false;
+  await store.saveQuiz(edited);
+  assert.equal(store.getReviews().length, 0);
+  const finished = { ...old, phase: "finished" as const, completedAt: 2000, ratings: { 0: "easy" as const } };
+  await store.completeSession(finished, result(finished));
+  assert.equal(store.getReviews().length, 0);
+  await store.dispose();
+});
+
+test("backup verification failure blocks migration and retains original library", async () => {
+  const adapter = new MemoryAdapter();
+  const original = JSON.stringify({ version: 1, quizzes: [quiz()], history: [], reviews: [], bookmarks: {} });
+  adapter.files.set(path, original);
+  const write = adapter.write.bind(adapter);
+  adapter.write = async (name, text) => write(name, name.includes(".backup-") ? "damaged write" : text);
+  const store = new QuizStore(adapter, path); await store.load();
+  await assert.rejects(store.saveQuiz({ ...quiz(), title: "Changed" }), /could not be saved/);
+  assert.equal(adapter.files.get(path), original);
+  adapter.write = write;
+  await store.flush();
+  assert.equal(JSON.parse(adapter.files.get(path)!).version, 2);
+  await store.dispose();
+});
+
+test("repeated ID-less imports preserve unique question identity and bookmarks", async () => {
+  const adapter = new MemoryAdapter(); const store = new QuizStore(adapter, path);
+  const imported = quiz(); imported.questions = imported.questions.map(({ id: _id, ...question }) => question);
+  const first = await store.saveQuiz(imported);
+  await store.setBookmarks(imported.id, [0]);
+  const second = await store.saveQuiz(imported);
+  assert.deepEqual(second.questions, first.questions);
+  assert.deepEqual(store.getBookmarks(imported.id), [0]);
+  const reopened = new QuizStore(adapter, path); await reopened.load();
+  assert.deepEqual(reopened.getQuiz(imported.id)?.questions, first.questions);
+  await store.dispose(); await reopened.dispose();
+});
+
+test("workspace baseline remains private while stale snapshots merge additions and removals", async () => {
+  const adapter = new MemoryAdapter(); const store = new QuizStore(adapter, path);
+  const first = store.getWorkspace();
+  first.bank.push({ id: "one", question: quiz().questions[0], createdAt: quiz().createdAt, updatedAt: quiz().updatedAt });
+  await store.saveWorkspace(first);
+  const stale = store.getWorkspace(); const independent = store.getWorkspace();
+  stale.bank = [];
+  independent.bank.push({ id: "two", question: quiz().questions[1], createdAt: quiz().createdAt, updatedAt: quiz().updatedAt });
+  await store.saveWorkspace(independent); await store.saveWorkspace(stale);
+  assert.deepEqual(store.getWorkspace().bank.map(item => item.id), ["two"]);
+  independent.bank[0].question.question = "Changed outside the store";
+  assert.equal(store.getWorkspace().bank[0].question.question, quiz().questions[1].question);
+  await store.dispose();
+});

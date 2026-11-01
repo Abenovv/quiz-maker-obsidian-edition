@@ -6,7 +6,8 @@ import { TFile, TFolder } from "obsidian";
 import type { PluginContext, Quiz, SessionSummary } from "../src/core/types";
 import { createWelcomeQuiz } from "../src/presets";
 import { createSession, summarizeSession } from "../src/session/engine";
-import { filterLibrary, libraryEntries, libraryPage, reviewSource, scoreLabel } from "../src/ui/studioData";
+import { addQuizToBank, filterBank, filterLibrary, libraryEntries, libraryPage, quizFromBank, reviewSource, scoreLabel, shuffledVariant } from "../src/ui/studioData";
+import { createWorkspace } from "../src/core/workspace";
 import { closeStudioDisclosure, positionStudioDisclosure, studioMenuPlacement, Studio } from "../src/ui/StudioModal";
 
 test("a last-row menu opens above the trigger when the scroll pane clips its lower actions", () => {
@@ -177,14 +178,14 @@ test("recovery offers an explicit local file export without exposing damaged dat
   }
 });
 
-test("studio groups creation into one closed disclosure without losing its three paths", () => {
+test("studio groups creation into one closed disclosure with one import entry", () => {
   const html = studioMarkup(null);
   const header = html.slice(html.indexOf("<header"), html.indexOf("</header>"));
   assert.equal(header.match(/Create quiz/g)?.length, 1);
   assert.match(header, /From notes/);
   assert.match(header, /Write questions/);
-  assert.match(header, /Import JSON/);
-  assert.doesNotMatch(header, />Generate<|>New quiz<|>Import</);
+  assert.match(header, />Import</);
+  assert.doesNotMatch(header, />Generate<|>New quiz<|Import JSON|Import cards/);
   const disclosure = header.match(/<details[^>]*class="qm-studio-create"[^>]*>/)?.[0];
   assert.ok(disclosure);
   assert.doesNotMatch(disclosure, /\sopen(?:=|\s|>)/);
@@ -220,4 +221,47 @@ test("all seven study packs and existing history remain reachable behind quiet d
   assert.doesNotMatch(recent, /\sopen(?:=|\s|>)/);
   assert.match(html, /Recent sessions/);
   assert.match(studioMarkup(null, [], history), /class="qm-studio-disclosure qm-history" open=""/);
+});
+
+test("bank additions preserve the workspace snapshot identity and isolate saved questions", () => {
+  const workspace = createWorkspace();
+  const source = quiz();
+  source.questions[0].id = "question-one";
+  const saved = addQuizToBank(workspace, source);
+  assert.equal(saved.workspace, workspace);
+  assert.equal(saved.added, source.questions.length);
+  assert.notEqual(workspace.bank[0].question, source.questions[0]);
+  source.questions[0].question = "Changed original";
+  assert.notEqual(workspace.bank[0].question.question, source.questions[0].question);
+});
+
+test("bank filters tags and reused questions receive independent IDs without losing evidence", () => {
+  const workspace = createWorkspace();
+  const source = quiz();
+  source.questions[0] = { ...source.questions[0], id: "source-one", tags: ["orbit"], source: "Astronomy/Week 2.md", evidence: [{ path: "Astronomy/Week 2.md", quote: "Gravity", status: "verified" }] };
+  addQuizToBank(workspace, source);
+  const selected = filterBank(workspace.bank, "ORBIT", "orbit");
+  assert.equal(selected.length, 1);
+  const draft = quizFromBank(selected);
+  assert.notEqual(draft.questions[0].id, source.questions[0].id);
+  assert.deepEqual(draft.sources, ["Astronomy/Week 2.md"]);
+  assert.deepEqual(draft.questions[0].evidence, source.questions[0].evidence);
+  assert.throws(() => quizFromBank([]), /Select at least/);
+  assert.throws(() => quizFromBank(Array.from({ length: 501 }, () => selected[0])), /at most 500/);
+});
+
+test("alternate quiz versions shuffle intact questions with fresh IDs and family metadata", () => {
+  const source = quiz();
+  source.questions.forEach((question, index) => { question.id = `original-${index}`; });
+  const variant = shuffledVariant(source, [], () => 0);
+  assert.equal(variant.variant?.familyId, source.id);
+  assert.equal(variant.variant?.parentQuizId, source.id);
+  assert.equal(variant.variant?.version, 2);
+  for (const question of variant.questions) {
+    const original = source.questions.find(item => item.question === question.question)!;
+    assert.deepEqual(question.answer, original.answer);
+    assert.notEqual(question.id, original.id);
+  }
+  assert.deepEqual(source.questions.map(question => question.id), ["original-0", "original-1", "original-2"]);
+  assert.equal(shuffledVariant(variant, [source, variant], () => 0).variant?.version, 3);
 });

@@ -1,3 +1,4 @@
+import { requestUrl } from "obsidian";
 import type { Provider, ProviderSettings } from "../core/types";
 
 export interface HttpRequest {
@@ -94,9 +95,22 @@ export function resolveBaseUrl(provider: Provider, baseUrl = ""): string {
   if (url.search) throw new TransportError("configuration", "Use an API base URL without query parameters.");
   const official = new URL(DEFAULT_BASE_URLS[provider]);
   if (url.origin === official.origin && url.pathname === "/") url.pathname = official.pathname;
-  const base = url.toString().replace(/\/+$/, "");
-  // Ollama documents its native base with /api; internal routes add that segment.
-  return provider === "ollama" ? base.replace(/\/api$/, "") : base;
+  // Accept a copied API endpoint without appending its route a second time.
+  // Keep proxy prefixes, and never change the origin or move credentials into a URL.
+  const routes: Readonly<Record<Provider, RegExp>> = {
+    openai: /\/(?:models|responses|chat\/completions)\/?$/,
+    google: /\/models(?:\/[^/]+:generateContent)?\/?$/,
+    anthropic: /\/(?:models|messages)\/?$/,
+    mistral: /\/(?:models|chat\/completions)\/?$/,
+    cohere: /\/(?:models|chat)\/?$/,
+    perplexity: /\/(?:models|responses|chat\/completions)\/?$/,
+    ollama: /\/api(?:\/(?:tags|show|chat|generate))?\/?$/
+  };
+  url.pathname = url.pathname.replace(routes[provider], "") || "/";
+  if (url.origin === official.origin && url.pathname === "/") url.pathname = official.pathname;
+  // Cohere discovery uses v1; generation always uses the v2 message shape.
+  if (provider === "cohere" && url.origin === official.origin && url.pathname === "/v1") url.pathname = "/v2";
+  return url.toString().replace(/\/+$/, "");
 }
 
 export function providerHeaders(provider: Provider, apiKey: string): Record<string, string> {
@@ -112,7 +126,6 @@ export function providerHeaders(provider: Provider, apiKey: string): Record<stri
 
 /** Obsidian performs this request on desktop and mobile. It has no physical abort API. */
 export const defaultHttpClient: HttpClient = async request => {
-  const { requestUrl } = await import("obsidian");
   throwIfAborted(request.signal);
   const response = await requestUrl({
     url: request.url,

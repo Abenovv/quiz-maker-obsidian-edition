@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="assets/app-icon.png" width="88" height="88" alt="Quiz maker icon">
+  <img src="assets/app-icon.png" width="80" height="80" alt="Quiz maker icon">
 </p>
 <h1 align="center">Quiz maker</h1>
-<p align="center">Quizzes and flashcards from your Obsidian notes.</p>
+<p align="center">Create, study and review quizzes inside Obsidian.</p>
 
 <p align="center">
-  <a href="https://github.com/Abenovv/quiz-maker-obsidian-edition/releases/latest"><img src="assets/badges/release.svg" height="26" alt="Release 1.2.3"></a>
+  <a href="https://github.com/Abenovv/quiz-maker-obsidian-edition/releases/latest"><img src="assets/badges/release.svg" height="26" alt="Version 2.0.0"></a>
   <a href="#install"><img src="assets/badges/platform.svg" height="26" alt="Obsidian 1.8.7 or newer"></a>
   <a href="LICENSE"><img src="assets/badges/license.svg" height="26" alt="MIT license"></a>
 </p>
@@ -17,117 +17,96 @@
   <a href="https://github.com/Abenovv/quiz-maker-obsidian-edition/issues">Report a bug</a>
 </p>
 
-![Blue quiz cards and an open book; original brand illustration](assets/hero.png)
+Start with your notes, import existing questions or write them yourself. Save a study pack, review the questions, then practise at your own pace or take a timed exam. AI generation is optional.
 
-Start with a study pack, import JSON, or write your own questions. Check answers as you go, use a timer, or take an exam with answers hidden until submission.
+![Quiz maker practice view in native Obsidian](docs/images/native-study-2.0.png)
 
-**Create → Edit → Study → Review**
-
-**17 question formats · 7 study packs · 5 study modes**
-
-AI is optional. Hosted providers may charge for usage and receive the notes you select. [Provider and privacy details](#models-cost-and-privacy).
-
-## Inside Quiz maker
-
-![Quiz maker 1.2.3 interface preview with public sample data](docs/images/interface-preview.png)
-
-Current interface preview with public sample data. Earlier native captures are available below.
-
-<details>
-<summary>Native Obsidian captures from 1.1.0</summary>
-
-![Quiz maker practice and answer review in Obsidian](docs/images/obsidian-practice.png)
-
-![Quiz maker library and study packs in Obsidian](docs/images/obsidian-studio.png)
-
-![Quiz maker mini view in Obsidian](docs/images/obsidian-mini.png)
-
-![Quiz maker settings in Obsidian](docs/images/obsidian-settings.png)
-
-![A saved quiz with collapsible answers in Obsidian](docs/images/obsidian-note.png)
-
-</details>
-
-These native Obsidian captures use the public [JavaScript sample quiz](docs/examples/javascript-essentials.json). Open **Quiz maker: Open**, then choose **Create quiz → Import JSON** to try it without an API key.
-
-## Choose a study pack
-
-**Student pack** starts with ten questions: six multiple choice, two short answers, one matching question, and one prediction. Other packs cover quick recall, exam prep, deeper understanding, language practice, coding practice, and interview prep. Adjust their question mix, difficulty, language, and timing before starting.
-
-| Mode | What happens |
-| --- | --- |
-| Practice | Check answers as you go and read explanations. |
-| Timed practice | Limit the whole quiz or each question. |
-| Exam | Review answers after submission. |
-| Flashcards | Reveal answers and rate recall with Again, Good, or Easy. |
-| Review | Return to missed questions, bookmarks, or due cards. |
-
-The mini view shares your active answers and timer. Save quizzes as readable notes with collapsed answers; structured data stays with the note so you can reopen advanced questions. The library keeps unfinished attempts and session history.
-
-<details>
-<summary>Question formats and JSON</summary>
-
-Seven familiar formats: true/false, multiple choice, multiple answers, fill in the blanks, matching, short answer, and long answer.
-
-Ten more: branching scenarios, sequencing, categorization, error correction, assertion and reason, prediction, evidence selection, answer and justification, concept maps, and what-if questions.
-
-Edit questions in the form or JSON editor. Imports accept older question arrays, versioned quiz documents, and compatible library backups. Preview library imports before saving; existing quizzes are kept. Keys, session history, and review schedules are not migrated.
-
-Validation checks structure, answer indexes, and size limits. Generation checks requested formats and counts and records the provider, model, and creation time. Broken output produces an error rather than a guessed answer. Check generated facts against your notes.
-
-</details>
+Native Obsidian capture using public test questions. Private workspace content is masked; provider requests were mocked.
 
 ## Install
 
-Requires **Obsidian 1.8.7 or newer**. Available from GitHub; community-directory acceptance is pending.
+Requires **Obsidian 1.8.7 or newer**. GitHub installation is available; community-directory acceptance is separate.
 
-1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/Abenovv/quiz-maker-obsidian-edition/releases/latest).
-2. Put those three files in `.obsidian/plugins/quiz-maker/` inside your vault.
+1. Download `main.js`, `manifest.json` and `styles.css` from the [latest release](https://github.com/Abenovv/quiz-maker-obsidian-edition/releases/latest).
+2. Put the three files in `.obsidian/plugins/quiz-maker/` inside your vault.
 3. Reload Obsidian and enable **Quiz maker** in **Settings → Community plugins**.
-4. Run **Quiz maker: Open** from the command palette. Choose **Create quiz** to generate from notes, write questions, or import JSON. Use **Quiz maker: Quick quiz** to start from the active Markdown note with your default study pack.
+4. Run **Quiz maker: Open** from the command palette.
 
-After updating, check for **1.2.3** at the bottom of Quiz maker settings. If an older version still appears, reload Obsidian before testing the changes.
+To update, replace only those three files and reload Obsidian. Keep your local settings and study data. Your saved packs, defaults and quizzes remain in their separate data files. Check the loaded version at the bottom of Quiz maker settings.
 
-Install the three release files. The release notes include their [checksums and build-provenance link](docs/submission.md#license-and-release-evidence); automatic source archives are for development. Quiz maker has its own plugin ID and settings; it does not replace Quiz Generator or import credentials automatically.
+## Make your first quiz
 
-Other palette actions and their hotkeys are available through **General → More options → Extra commands** in Quiz maker settings. They are off by default.
+**From a note:** open a Markdown note and run **Quiz maker: Quick quiz**. Choose a study pack, review the sources and question mix, then generate.
 
-## Models, cost, and privacy
+**Without a provider:** run **Quiz maker: New quiz** to write questions. Or choose **Create quiz → Import** and try the public [JavaScript sample](docs/examples/javascript-essentials.json).
 
-Quiz maker is free under the MIT license. **OpenAI, Google Gemini, Anthropic, Mistral, Cohere, Perplexity, and Ollama** are supported. Hosted services may require an account, an API key, and paid API usage. Choose **Find models** in settings to load and search those available to your account, or enter a model ID manually. Provider availability and charges can change.
+**From selected text:** select a passage in the editor and run **Quiz maker: Quiz selected text**. Only that selection is used as source text.
 
-Manual questions, imports, and local Ollama offer alternatives to hosted generation.
+New quiz stays available when **Extra commands** is off. The [guide](docs/guide.md) covers editing, saving readable notes, import/export and recovery.
+
+## Watch the walkthrough
+
+[![Watch the Quiz maker 2.0 walkthrough](docs/media/quiz-maker-2.0-tutorial.jpg)](docs/media/quiz-maker-2.0-tutorial.mp4)
+
+**84 seconds · English narration.** A walkthrough built from real native Obsidian captures, public sample notes and a demo provider. [Watch MP4](docs/media/quiz-maker-2.0-tutorial.mp4) · [Captions](docs/media/quiz-maker-2.0-tutorial.vtt) · [Transcript](docs/media/quiz-maker-2.0-tutorial.md).
+
+## Study your way
+
+| Task | Tools |
+| --- | --- |
+| Build a quiz | 17 question formats, seven built-in packs, saved personal packs and topic allocations. |
+| Review questions | Form or JSON editing, quality diagnostics, replacement previews, undo/redo and content versions. |
+| Organize | Question bank, tags, filters and explicit reuse into another quiz. |
+| Study | Practice, timed practice, exams, flashcards and review of missed or due questions. |
+| Stay focused | Mini view, focus mode, shared answers and timer, keyboard navigation. |
+| Keep or share | Readable Markdown notes, JSON, Anki text/deck interchange and PDF export. |
+
+Source evidence and the shortcut guide are optional and off by default. Written answers use self-review rather than an automatic objective score. Generated facts still need checking against your sources.
 
 <details>
-<summary>What leaves your vault and where data is saved</summary>
+<summary>Import and export limits</summary>
 
-- **Generation and regeneration:** selected note text and quiz instructions go to the configured provider endpoint.
-- **Find models and Test connection:** request model metadata, with authentication where required, without sending note content or generating questions. A successful test does not confirm generation access.
-- **Ollama:** requests go to the configured server, normally on your device. A custom endpoint receives the same request data.
+Anki import supports mapped CSV/TSV, legacy APKG and supported modern schema-18 packages. Preview the conversion report before saving. Original fields and scheduling can be retained as metadata; Anki scheduling is not applied to Quiz maker's scheduler. Custom templates are not executed, and image-occlusion or audio conversion is not supported. Reversed or multiple cards can be represented as one note with a warning.
 
-Provider keys are stored locally in `data.json`. The password field masks them on screen; the file is **not encrypted**. Quizzes and sessions use `study.json`. Keep both files private.
+Text/deck exports retain the original question in a `QuizMakerJSON` field for round trips. Anki displays front/back previews rather than reproducing every Quiz maker interaction. Package images require explicit selection. See the [compatibility details](docs/guide.md#anki-interchange-limits).
 
-**Add note** and **Add folder** open a folder browser at the active note's folder, or the vault root. Each step lists only that folder's direct children using metadata. Selecting a folder collects Markdown notes from its subtree; note contents are read when you generate.
-
-The plugin has no telemetry, advertising, or self-updater. It also reads JSON files you explicitly select for import; it does not scan outside the vault. Installing the plugin, opening settings, and studying imported questions do not send note content.
+PDF pages are images: text is not selectable, searchable or accessible to a screen reader. Keep Markdown when accessible text is needed. [PDF limits](docs/guide.md#recovery-and-exports).
 
 </details>
 
-<details>
-<summary>Appearance, accessibility, and sounds</summary>
+## Connect a model
 
-Choose **Obsidian**, **Paper**, **Midnight**, or **High contrast**, each with a blue accent. Obsidian keeps your vault's surfaces and fonts; the other appearances provide their own colors. Controls support keyboard use and narrow screens. Motion follows your system preference or can be reduced. Optional answer-reveal tones are generated locally and are off by default.
+Open **Settings → Quiz maker → Models**:
+
+1. Choose **OpenAI, Google Gemini, Anthropic, Mistral, Cohere, Perplexity or Ollama**.
+2. Enter the provider's API key when required.
+3. Choose **Find models**, search the results and select a model. You can also enter an exact **Model ID** manually.
+4. Change **Endpoint** under **Advanced connection** only when using a proxy or another server.
+
+**Find models** also checks the connection by requesting model metadata, without generating questions. A successful lookup does not guarantee generation access to every model. Manual IDs remain available when a server cannot list models. On a phone, Ollama needs a reachable server address; the phone's `localhost` is not your computer.
+
+Hosted providers control their accounts, API charges, model availability and usage limits. Quiz maker itself has no purchase requirement.
+
+<details>
+<summary>Privacy and local data</summary>
+
+- Generation sends selected source text and quiz instructions to your configured provider endpoint. Regeneration sends the material needed for that replacement.
+- Find models requests metadata, not note content.
+- Ollama requests go to the server you configure, normally on your device or local network.
+- Provider keys are stored locally in unencrypted `data.json`. Study content, packs and sessions use `study.json`. Keep these files and backups private.
+- Source selection browses folders you open. Note contents are read for generation; importing or studying existing questions does not require provider traffic.
+
+There is no telemetry, advertising or self-updater. Local settings, study data and credentials are excluded from Git and release files.
 
 </details>
 
-## Contribute
+## Appearance
 
-Reproducible bug reports, quiz examples, and improvements to question formats are welcome. [Open an issue](https://github.com/Abenovv/quiz-maker-obsidian-edition/issues) or submit a pull request.
+Quiz views follow Obsidian by default, including your vault's fonts and surfaces. Paper, Midnight and High contrast are also available. Settings follow Obsidian's native appearance. Controls support keyboard use, narrow panes and reduced motion. Optional answer tones are generated locally.
 
-<details>
-<summary>Build and checks</summary>
+## Development
 
-TypeScript and React; networking uses Obsidian's API. Use **Node.js 24 or newer**:
+TypeScript and React, with Obsidian's runtime API. Use **Node.js 24 or newer**:
 
 ```sh
 npm ci
@@ -140,14 +119,10 @@ npm run verify:release
 
 [![Build status](https://github.com/Abenovv/quiz-maker-obsidian-edition/actions/workflows/release.yml/badge.svg)](https://github.com/Abenovv/quiz-maker-obsidian-edition/actions/workflows/release.yml)
 
-Dependabot proposes grouped npm and GitHub Actions updates monthly. Changes go through pull-request review and CI; updates are not merged automatically.
-
-Source and tests are public. Only three files are needed for installation. Local settings, study data, dependencies, and temporary files are excluded from Git. [Community submission notes](docs/submission.md).
-
-</details>
+Use `npm run lint`; its development-only adapter keeps the official lint rules compatible with the patched minimatch engine. Dependabot proposes dependency updates through reviewed pull requests, without automatic merging. [Release and verification notes](docs/submission.md).
 
 ## Credits and license
 
-Created and maintained by **Yerkebulan Abenov**. This independent implementation was inspired by Edward Cui's [Quiz Generator](https://github.com/ECuiDev/obsidian-quiz-generator).
+Developed and maintained by **Yerkebulan Abenov**. This independent implementation was inspired by Edward Cui's [Quiz Generator](https://github.com/ECuiDev/obsidian-quiz-generator).
 
 [MIT license](LICENSE) · [Dependency notices](NOTICE.md)

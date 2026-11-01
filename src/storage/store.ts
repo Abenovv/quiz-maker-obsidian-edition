@@ -1,7 +1,9 @@
 import { validateQuiz } from "../core/schema";
+import { createWorkspace, validateWorkspace, ensureQuestionIds, MAX_SAVED_REVISIONS } from "../core/workspace";
+import { StudyBackups } from "./backups";
 import { scheduleReview, summarizeSession } from "../session/engine";
 import { parseLegacyLibrary, type LegacyLibraryImportResult } from "./legacy";
-import type { Quiz, QuizStorePort, ReviewCard, Session, SessionConfig, SessionSummary } from "../core/types";
+import type { Quiz, QuizStorePort, ReviewCard, Session, SessionConfig, SessionSummary, WorkspaceData, StudyBackup, SavedQuizRevision } from "../core/types";
 
 export const MAX_STUDY_BYTES = 32 * 1024 * 1024;
 export const MAX_LIBRARY_QUIZZES = 200;
@@ -14,6 +16,7 @@ export interface StudyAdapter {
   exists(path: string): Promise<boolean>;
   read(path: string): Promise<string>;
   write(path: string, data: string): Promise<void>;
+  writeAtomic?(path: string, data: string): Promise<void>;
   mkdir(path: string): Promise<void>;
   stat?(path: string): Promise<{ size: number } | null>;
 }
@@ -26,7 +29,8 @@ export interface StoreOptions {
 }
 
 interface StudyData {
-  version: 1;
+  version: 2;
+  workspace: WorkspaceData;
   quizzes: Quiz[];
   history: SessionSummary[];
   reviews: ReviewCard[];
@@ -34,7 +38,7 @@ interface StudyData {
   activeSession?: Session;
 }
 
-const freshData = (): StudyData => ({ version: 1, quizzes: [], history: [], reviews: [], bookmarks: {} });
+const freshData = (): StudyData => ({ version: 2, workspace: createWorkspace(), quizzes: [], history: [], reviews: [], bookmarks: {} });
 const record = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
 const bytes = (value: string): number => new TextEncoder().encode(value).length;
 const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -159,11 +163,12 @@ function validateReview(value: unknown): ReviewCard {
 function decode(text: string): StudyData {
   if (bytes(text) > MAX_STUDY_BYTES) fail("Study data exceeds 32 MiB and was left unchanged.");
   const data: unknown = JSON.parse(text.replace(/^\uFEFF/, ""));
-  if (!record(data) || data.version !== 1 || !Array.isArray(data.quizzes) || data.quizzes.length > MAX_LIBRARY_QUIZZES
+  if (record(data) && typeof data.version === "number" && data.version > 2) fail("This library was saved by a newer Quiz maker version. Update the plugin before changing it.");
+  if (!record(data) || (data.version !== 1 && data.version !== 2) || !Array.isArray(data.quizzes) || data.quizzes.length > MAX_LIBRARY_QUIZZES
     || !Array.isArray(data.history) || data.history.length > MAX_HISTORY_ENTRIES
     || !Array.isArray(data.reviews) || data.reviews.length > MAX_REVIEW_CARDS
     || !record(data.bookmarks)) fail("Study data has an unsupported structure and was left unchanged.");
-  const quizzes = data.quizzes.map(storedQuiz);
+  const quizzes = data.quizzes.map(value => ensureQuestionIds(storedQuiz(value)));
   if (new Set(quizzes.map(quiz => quiz.id)).size !== quizzes.length) fail("Study data contains duplicate quiz identifiers and was left unchanged.");
   const bookmarks: Record<string, number[]> = {};
   for (const [quizId, selected] of Object.entries(data.bookmarks)) {
@@ -172,7 +177,7 @@ function decode(text: string): StudyData {
     bookmarks[quizId] = [...selected];
   }
   return {
-    version: 1, quizzes, history: data.history.map(validateSummary), reviews: data.reviews.map(validateReview), bookmarks,
+    version: 2, workspace: data.version === 1 ? createWorkspace() : validateWorkspace(data.workspace), quizzes, history: data.history.map(validateSummary), reviews: data.reviews.map(validateReview), bookmarks,
     ...(data.activeSession !== undefined ? { activeSession: validateSession(data.activeSession) } : {})
   };
 }
@@ -182,15 +187,16 @@ function sessionIdentity(session: Session): string {
   return JSON.stringify({ ...state, quizId: quiz.id, quizUpdatedAt: quiz.updatedAt });
 }
 
-function questionIdentity(question: Quiz["questions"][number]): string {
-  const { hint: _hint, source: _source, explanation: _explanation, difficulty: _difficulty, ...content } = question;
-  return question.id || JSON.stringify(content);
+function questionIdentity(question: Quiz["questions"][number], useId: boolean): string {
+  const { id: _id, contentRevision: _revision, tags: _tags, topic: _topic, evidence: _evidence, media: _media, hint: _hint, source: _source, explanation: _explanation, difficulty: _difficulty, ...content } = question;
+  return useId && question.id ? question.id : JSON.stringify(content);
 }
 
 /** Build the mapping once, so edits and old sessions follow questions rather than row numbers. */
 function questionPositions(previous: Quiz, next: Quiz): number[] {
-  const keys = previous.questions.map(questionIdentity);
-  const nextKeys = next.questions.map(questionIdentity);
+  const useIds = previous.questions.every(question => question.id) && next.questions.every(question => question.id);
+  const keys = previous.questions.map(question => questionIdentity(question, useIds));
+  const nextKeys = next.questions.map(question => questionIdentity(question, useIds));
   if (keys.length === nextKeys.length && keys.every((key, index) => key === nextKeys[index])) return keys.map((_key, index) => index);
   const positions = new Map<string, number>();
   nextKeys.forEach((key, index) => {
@@ -214,9 +220,12 @@ export class QuizStore implements QuizStorePort {
   private rawRecovery: string | undefined;
   private lastSessionIdentity: string | undefined;
   private readonly quizCache = new WeakMap<Quiz, Quiz>();
+  private readonly workspaceBases = new WeakMap<WorkspaceData, WorkspaceData>();
   private readonly path: string;
   private readonly adapter: StudyAdapter;
   private readonly options: StoreOptions;
+  private readonly backups: StudyBackups;
+  private migrationSource: string | undefined;
   loadIssue: string | undefined;
   writeIssue: string | undefined;
 
@@ -226,6 +235,7 @@ export class QuizStore implements QuizStorePort {
     this.path = normalized;
     this.adapter = adapter;
     this.options = options;
+    this.backups = new StudyBackups(adapter, normalized, decode, options.now);
   }
 
   /** Idempotent: opening the studio cannot replace an unsaved session. */
@@ -243,11 +253,12 @@ export class QuizStore implements QuizStorePort {
         if (stat && stat.size > MAX_STUDY_BYTES) fail("Study data exceeds 32 MiB and was left unchanged.");
         this.rawRecovery = await this.adapter.read(this.path);
         this.data = decode(this.rawRecovery);
+        if ((JSON.parse(this.rawRecovery.replace(/^\uFEFF/, "")) as { version: number }).version === 1) { this.migrationSource = this.rawRecovery; this.revision++; }
         this.loadIssue = undefined;
         this.rawRecovery = undefined;
         this.lastSessionIdentity = this.data.activeSession ? sessionIdentity(this.data.activeSession) : undefined;
       } catch (error) {
-        this.loadIssue = error instanceof Error && error.message === "Study data exceeds 32 MiB and was left unchanged."
+        this.loadIssue = error instanceof Error && (error.message === "Study data exceeds 32 MiB and was left unchanged." || error.message.includes("newer Quiz maker version"))
           ? error.message
           : error instanceof SyntaxError
           ? "Study data could not be read. Export a recovery copy before replacing it. The original file is unchanged."
@@ -270,12 +281,84 @@ export class QuizStore implements QuizStorePort {
   getBookmarks(quizId: string): number[] { return Object.hasOwn(this.data.bookmarks, quizId) ? [...this.data.bookmarks[quizId]] : []; }
   getRecoveryText(): string | undefined { return this.rawRecovery; }
 
+  getWorkspace(): WorkspaceData {
+    const snapshot = copy(this.data.workspace);
+    // Workspace updates replace validated objects, so the internal baseline stays immutable.
+    this.workspaceBases.set(snapshot, this.data.workspace);
+    return snapshot;
+  }
+
+  async saveWorkspace(value: WorkspaceData): Promise<void> {
+    await this.ensureReady();
+    let workspace = validateWorkspace(value);
+    const baseline = this.workspaceBases.get(value);
+    if (baseline && baseline !== this.data.workspace) {
+      const merge = <T extends { id: string }>(before: T[], edited: T[], current: T[]): T[] => {
+        const old = new Map(before.map(item => [item.id, item]));
+        const incoming = new Map(edited.map(item => [item.id, item]));
+        const changed = edited.filter(item => JSON.stringify(old.get(item.id)) !== JSON.stringify(item));
+        const removed = new Set(before.filter(item => !incoming.has(item.id)).map(item => item.id));
+        const updates = new Map(changed.map(item => [item.id, item]));
+        const merged = current.filter(item => !removed.has(item.id)).map(item => updates.get(item.id) ?? item);
+        const present = new Set(merged.map(item => item.id));
+        return [...merged, ...changed.filter(item => !present.has(item.id))];
+      };
+      workspace = validateWorkspace({ version: 1,
+        customPacks: merge(baseline.customPacks, workspace.customPacks, this.data.workspace.customPacks),
+        bank: merge(baseline.bank, workspace.bank, this.data.workspace.bank),
+        revisions: merge(baseline.revisions, workspace.revisions, this.data.workspace.revisions)
+      });
+    }
+    if (bytes(JSON.stringify({ ...this.data, workspace })) > MAX_STUDY_BYTES) fail("The study library is full. Export older content before saving more.");
+    const previous = this.data.workspace;
+    this.data.workspace = workspace;
+    this.changed();
+    const revision = this.revision;
+    try { await this.flush(); }
+    catch (error) { if (this.revision === revision) { this.data.workspace = previous; this.changed(); } throw error; }
+  }
+
+  getRevisions(quizId: string): SavedQuizRevision[] { return copy(this.data.workspace.revisions.filter(item => item.quizId === quizId)); }
+
+  async restoreRevision(id: string): Promise<Quiz> {
+    await this.ensureReady();
+    const revision = this.data.workspace.revisions.find(item => item.id === id);
+    if (!revision) fail("This saved version is unavailable.");
+    return this.saveQuiz({ ...copy(revision.quiz), updatedAt: new Date(this.options.now?.() ?? Date.now()).toISOString() });
+  }
+
+  async createBackup(): Promise<StudyBackup> {
+    await this.ensureReady();
+    await this.flush();
+    return this.backups.create(JSON.stringify(this.data));
+  }
+
+  async listBackups(): Promise<StudyBackup[]> { this.assertOpen(); return this.backups.list(); }
+
+  async restoreBackup(path: string): Promise<void> {
+    this.assertOpen();
+    const text = await this.backups.read(path);
+    await this.load();
+    this.assertOpen();
+    await this.recoverFromJson(text);
+  }
+
+  private captureRevision(quiz: Quiz, reason: string): void {
+    const revisions = this.data.workspace.revisions;
+    if (revisions[0] && JSON.stringify(revisions[0].quiz) === JSON.stringify(quiz)) return;
+    const now = this.options.now?.() ?? Date.now();
+    const revision: SavedQuizRevision = { id: `revision-${now}-${this.revision}`, quizId: quiz.id, quiz: copy(quiz), savedAt: new Date(now).toISOString(), reason };
+    const next = [revision, ...revisions].slice(0, MAX_SAVED_REVISIONS);
+    while (next.length > 1 && bytes(JSON.stringify(next)) > 4 * 1024 * 1024) next.pop();
+    this.data.workspace = validateWorkspace({ ...this.data.workspace, revisions: next });
+  }
+
   /** The caller previews the supplied backup and asks the user before committing. */
   async importLegacyLibrary(text: string): Promise<LegacyLibraryImportResult> {
     await this.ensureReady();
     const preview = parseLegacyLibrary(text);
     if (!preview.quizzes.length) fail("No valid quizzes are ready to import. Check the reported entries.");
-    const incoming = preview.quizzes.filter(quiz => !this.data.quizzes.some(existing => existing.id === quiz.id));
+    const incoming = preview.quizzes.map(quiz => ensureQuestionIds(quiz)).filter(quiz => !this.data.quizzes.some(existing => existing.id === quiz.id));
     if (this.data.quizzes.length + incoming.length > MAX_LIBRARY_QUIZZES) fail("The imported quizzes would exceed the 200-quiz library limit. Export or remove older quizzes first.");
     if (incoming.length) {
       this.data.quizzes.push(...incoming);
@@ -292,19 +375,20 @@ export class QuizStore implements QuizStorePort {
 
   async saveQuiz(value: Quiz): Promise<Quiz> {
     await this.ensureReady();
-    const quiz = storedQuiz(value);
+    const quiz = ensureQuestionIds(storedQuiz(value), this.data.quizzes.find(item => item.id === value.id));
     const index = this.data.quizzes.findIndex(item => item.id === quiz.id);
     if (index < 0 && this.data.quizzes.length >= MAX_LIBRARY_QUIZZES) fail("The library contains 200 quizzes. Export or remove an older quiz before adding another.");
     if (index < 0) this.data.quizzes.push(quiz);
     else {
       const previous = this.data.quizzes[index];
+      this.captureRevision(previous, "Before edit");
       const positions = questionPositions(previous, quiz);
       const remap = (oldIndex: number): number => positions[oldIndex] ?? -1;
       this.data.bookmarks[quiz.id] = [...new Set((this.data.bookmarks[quiz.id] || []).map(remap).filter(item => item >= 0))];
       this.data.reviews = this.data.reviews.flatMap(item => {
         if (item.quizId !== quiz.id) return [item];
         const questionIndex = remap(item.questionIndex);
-        return questionIndex >= 0 ? [{ ...item, questionIndex }] : [];
+        return questionIndex >= 0 && previous.questions[item.questionIndex].contentRevision === quiz.questions[questionIndex].contentRevision ? [{ ...item, questionIndex }] : [];
       });
       this.data.quizzes[index] = quiz;
     }
@@ -385,7 +469,7 @@ export class QuizStore implements QuizStorePort {
     const bookmarks = session.bookmarks.map(index => positions[index]).filter(index => index >= 0);
     const ratings = Object.entries(session.ratings || {}).flatMap(([index, rating]) => {
       const target = positions[Number(index)];
-      return target >= 0 ? [{ index: target, rating }] : [];
+      return target >= 0 && (!savedQuiz || (session.quiz.questions[Number(index)].contentRevision ?? 1) === (savedQuiz.questions[target].contentRevision ?? 1)) ? [{ index: target, rating }] : [];
     });
     const newCards = ratings.filter(({ index }) => !this.data.reviews.some(item => item.quizId === session.quiz.id && item.questionIndex === index)).length;
     if (this.data.reviews.length + newCards > MAX_REVIEW_CARDS) fail("Flashcard review history is full. Remove an older quiz before adding more cards.");
@@ -424,7 +508,10 @@ export class QuizStore implements QuizStorePort {
     const recovered = decode(text);
     await this.flushPendingOnly();
     this.assertOpen();
+    if (!this.loadIssue) { await this.flush(); await this.backups.create(JSON.stringify(this.data)); }
     if (this.loadIssue) {
+      const stat = await this.adapter.stat?.(this.path);
+      if (stat && stat.size > MAX_STUDY_BYTES) fail("Move the oversized study file before restoring a backup. It was left unchanged.");
       const original = await this.adapter.exists(this.path) ? await this.adapter.read(this.path) : this.rawRecovery;
       this.assertOpen();
       if (original !== undefined) {
@@ -432,6 +519,7 @@ export class QuizStore implements QuizStorePort {
         if (await this.adapter.exists(backup)) fail("A recovery copy already exists for this moment. Try again in a moment.");
         this.assertOpen();
         await this.adapter.write(backup, original);
+        if (await this.adapter.read(backup) !== original) fail("The recovery copy could not be verified. The original library was left unchanged.");
         this.assertOpen();
       }
     }
@@ -458,7 +546,12 @@ export class QuizStore implements QuizStorePort {
           const parent = this.path.slice(0, slash);
           if (!(await this.adapter.exists(parent))) await this.adapter.mkdir(parent);
         }
-        await this.adapter.write(this.path, text);
+        if (this.migrationSource !== undefined) {
+          await this.backups.create(this.migrationSource);
+          this.migrationSource = undefined;
+        }
+        if (this.adapter.writeAtomic) await this.adapter.writeAtomic(this.path, text);
+        else await this.adapter.write(this.path, text);
         this.persistedRevision = revision;
       }
       if (this.writeIssue) { this.writeIssue = undefined; this.emit(); }

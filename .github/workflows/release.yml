@@ -27,6 +27,8 @@ jobs:
           package-manager-cache: false
       - name: Install pinned tools
         run: npm ci
+      - name: Audit all dependencies
+        run: npm audit --audit-level=low
       - name: Check types
         run: npm run typecheck
       - name: Check Obsidian guidelines

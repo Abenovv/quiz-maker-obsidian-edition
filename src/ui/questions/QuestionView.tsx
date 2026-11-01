@@ -2,7 +2,7 @@ import { memo } from "react";
 import type { QuestionViewProps } from "../../core/types";
 import { questionTypeLabels } from "../../core/schema";
 import { referenceAnswer } from "../../session/grading";
-import { Markdown } from "../shared";
+import { Markdown, QuestionImage } from "../shared";
 import { AdvancedQuestions } from "./AdvancedQuestions";
 import { StandardQuestions } from "./StandardQuestions";
 
@@ -16,6 +16,7 @@ export const QuestionView = memo(function QuestionView(props: QuestionViewProps)
   const answers = reveal ? referenceAnswer(question) : [];
   return <article className="qm-question" aria-label={questionTypeLabels[question.type]} data-question-type={question.type}>
     <Markdown text={question.question} className="qm-question-prompt" />
+    {question.media?.map((media, index) => <QuestionImage key={`${media.path}-${index}`} path={media.path} alt={media.alt} />)}
     {standardTypes.has(question.type) ? <StandardQuestions {...props} /> : <AdvancedQuestions {...props} />}
     {mode !== "exam" && question.hint && !reveal && <details className="qm-hint">
       <summary>Hint</summary>

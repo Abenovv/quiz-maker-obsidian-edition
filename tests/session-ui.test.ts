@@ -71,7 +71,7 @@ test("active exam markup contains no reference, hint, feedback, or export contro
   assert.match(html, /Finish exam/);
   assert.match(html, /Question 1 of 2/);
   assert.doesNotMatch(html, /reference-only-hidden-value|hint-only-hidden-value|explanation-only-hidden-value/);
-  assert.doesNotMatch(html, /Reference answer|Check answer|Show reference|Edit quiz/);
+  assert.doesNotMatch(html, /Reference answer|Check answer|Show reference|Edit quiz|>Export</);
 });
 
 test("submitted exams expose answer review and export through the editor", () => {
@@ -81,6 +81,8 @@ test("submitted exams expose answer review and export through the editor", () =>
   assert.match(html, /Reference answer/);
   assert.match(html, /Edit quiz/);
   assert.match(html, /Save note/);
+  assert.match(html, /More actions/);
+  assert.match(html, />Export</);
 });
 
 test("flashcard fronts keep recall ratings hidden until a reveal", () => {
@@ -131,4 +133,25 @@ test("question navigation stays collapsed instead of rendering hundreds of hidde
   assert.match(html, /qm-question-navigation/);
   assert.match(html, /Question 1 of 500/);
   assert.doesNotMatch(html, /aria-label="Question 2, unanswered"|aria-label="Question 500, unanswered"/);
+});
+
+test("source excerpts obey the user switch and remain hidden during an exam", () => {
+  const sourced: Quiz = { ...quiz, questions: [{ ...quiz.questions[0], evidence: [{ path: "Sources/Orbit.md", quote: "source-only-hidden-value", locator: "Line 4", status: "verified" }] }] };
+  const enabled = { ...context, settings: { ...context.settings, sourceEvidenceEnabled: true } } as PluginContext;
+  const render = (session: ReturnType<typeof createSession>, currentContext = enabled): string => renderToStaticMarkup(createElement(SessionContent, { context: currentContext, quiz: sourced, resume: session, close: noop }));
+  const exam = createSession(sourced, { mode: "exam" });
+  assert.doesNotMatch(render(exam), /source-only-hidden-value|Sources\/Orbit.md/);
+  const submitted = reduceSession(exam, { type: "finish" });
+  assert.match(render(submitted), /source-only-hidden-value/);
+  assert.match(render(submitted), /Matched selected source/);
+  assert.doesNotMatch(render(submitted, { ...enabled, settings: { ...enabled.settings, sourceEvidenceEnabled: false } }), /source-only-hidden-value|Sources\/Orbit.md/);
+});
+
+test("optional study shortcut guide describes implemented actions only", () => {
+  const running = createSession(quiz);
+  const render = (enabled: boolean): string => renderToStaticMarkup(createElement(SessionContent, { context: { ...context, settings: { ...context.settings, shortcutGuideEnabled: enabled } } as PluginContext, quiz, resume: running, close: noop }));
+  assert.doesNotMatch(render(false), /Find a study shortcut|Ctrl \/ ⌘/);
+  assert.match(render(true), /Find a study shortcut/);
+  assert.match(render(true), /Check or reveal answer/);
+  assert.match(render(true), /Focus mode/);
 });

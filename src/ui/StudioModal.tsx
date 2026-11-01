@@ -1,11 +1,14 @@
 import { useDeferredValue, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { TFile } from "obsidian";
 import type { PluginContext, SessionConfig, SessionSummary } from "../core/types";
-import { createWelcomeQuiz, presetQuestionCount, presets } from "../presets";
+import { createWelcomeQuiz, presetQuestionCount } from "../presets";
+import { availablePresets } from "../presets/user";
+import { BackupTools, LocalTrends, QuestionBank } from "./LibraryTools";
 import { createReviewSession } from "../session/engine";
-import { openImport, exportQuiz, saveVaultExport } from "./EditorModal";
+import { openImport, saveVaultExport } from "./EditorModal";
+import { openInterchange } from "./InterchangeModal";
 import { EmptyState, Icon, InlineError, errorMessage, openReactModal } from "./shared";
-import { filterLibrary, libraryEntries, libraryPage, reviewSource, scoreLabel, type LibraryEntry, type LibraryFilter } from "./studioData";
+import { addQuizToBank, shuffledVariant, filterLibrary, libraryEntries, libraryPage, reviewSource, scoreLabel, type LibraryEntry, type LibraryFilter } from "./studioData";
 
 const PAGE_SIZE = 30;
 
@@ -72,6 +75,7 @@ export function Studio({ context, close }: { context: PluginContext; close(this:
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [query, setQuery] = useState("");
+  const [view, setView] = useState<"quizzes" | "questions">("quizzes");
   const deferredQuery = useDeferredValue(query);
   const [filter, setFilter] = useState<LibraryFilter>("all");
   const [page, setPage] = useState(0);
@@ -83,6 +87,7 @@ export function Studio({ context, close }: { context: PluginContext; close(this:
   const createChoices = useRef<HTMLDetailsElement>(null);
   const tools = useRef<HTMLDetailsElement>(null);
   const store = context.store;
+  const presets = availablePresets(context);
 
   useEffect(() => {
     mounted.current = true;
@@ -183,7 +188,7 @@ export function Studio({ context, close }: { context: PluginContext; close(this:
           <div className="qm-create-panel">
             <button className="qm-create-choice" type="button" disabled={loading || blocked || pending} onClick={() => leave(() => context.openGenerator())}><Icon name="book" /><span className="qm-create-choice-text"><strong>From notes</strong></span></button>
             <button className="qm-create-choice" type="button" disabled={loading || blocked || pending} onClick={() => leave(() => context.openEditor())}><Icon name="edit" /><span className="qm-create-choice-text"><strong>Write questions</strong></span></button>
-            <button className="qm-create-choice" type="button" disabled={loading || blocked || pending} onClick={() => leave(() => openImport(context))}><Icon name="upload" /><span className="qm-create-choice-text"><strong>Import JSON</strong></span></button>
+            <button className="qm-create-choice" type="button" disabled={loading || blocked || pending} onClick={() => leave(() => openImport(context))}><Icon name="upload" /><span className="qm-create-choice-text"><strong>Import</strong></span></button>
           </div>
         </details>
         {hasTools && <details ref={tools} className="qm-studio-tools" onKeyDown={closeStudioDisclosure} onToggle={event => { if (event.currentTarget.open && createChoices.current) createChoices.current.open = false; positionStudioDisclosure(event.currentTarget, 8); }}>
@@ -209,12 +214,12 @@ export function Studio({ context, close }: { context: PluginContext; close(this:
 
     {active && active.phase !== "finished" && !loading && <section className="qm-resume" aria-label="Unfinished session">
       <div><span className="qm-muted">{active.phase === "paused" ? "Paused" : "Unfinished"}</span><h2>{active.quiz.title}</h2><p>Question {Math.min(active.position + 1, active.order.length)} of {active.order.length}</p></div>
-      <button className="mod-cta" type="button" disabled={pending || blocked} onClick={() => leave(() => context.startQuiz(active.quiz, active.config, active))}>Resume</button>
+      <button className="mod-cta" type="button" disabled={pending || blocked} onClick={() => leave(() => context.startQuiz(active.quiz, active.config, active))}>Continue</button>
     </section>}
 
     <section className="qm-library-section" aria-labelledby={`${headingId}-library`}>
-      <div className="qm-section-heading"><h2 id={`${headingId}-library`}>Quizzes</h2>{!loading && !blocked && <span className="qm-muted">{results.length}{deferredQuery || filter !== "all" ? ` of ${entries.length}` : ""}</span>}</div>
-      {loading ? <p className="qm-loading" role="status">Loading quizzes…</p> : blocked ? null : <>
+      <div className="qm-section-heading"><h2 id={`${headingId}-library`}>Library</h2><label><span className="qm-sr-only">Library view</span><select aria-label="Library view" value={view} onChange={event => setView(event.target.value as "quizzes" | "questions")}><option value="quizzes">Quizzes</option><option value="questions">Questions</option></select></label>{!loading && !blocked && <span className="qm-muted">{results.length}{deferredQuery || filter !== "all" ? ` of ${entries.length}` : ""}</span>}</div>
+      {loading ? <p className="qm-loading" role="status">Loading quizzes…</p> : blocked ? null : view === "questions" ? <QuestionBank context={context} /> : <>
         {entries.length > 0 && <div className="qm-library-tools">
           <label className="qm-search"><span className="qm-sr-only">Search title or source</span><Icon name="search" /><input type="search" placeholder="Search title or source" value={query} onChange={event => { setQuery(event.target.value); setPage(0); }} /></label>
           <label><span className="qm-sr-only">Filter quizzes</span><select aria-label="Filter quizzes" value={filter} onChange={event => { setFilter(event.target.value as LibraryFilter); setPage(0); }}><option value="all">All quizzes</option><option value="due">Cards due</option><option value="missed">Missed questions</option><option value="bookmarked">Bookmarked</option></select></label>
@@ -227,6 +232,7 @@ export function Studio({ context, close }: { context: PluginContext; close(this:
     </section>
 
     <div className="qm-studio-bottom">
+      {!blocked && !loading && <><LocalTrends context={context} /><BackupTools context={context} /></>}
       <details className="qm-studio-disclosure qm-presets" aria-labelledby={`${headingId}-presets`}><summary><span id={`${headingId}-presets`}>Study packs</span><span className="qm-muted">{presets.length}</span><Icon name="chevron-down" size={16} /></summary><ul className="qm-preset-list">{presets.map(preset => <li key={preset.id} className={`qm-preset${preset.id === "student-pack" ? " is-featured" : ""}`}><button type="button" disabled={blocked || pending || loading} onClick={() => leave(() => context.openGenerator(preset.id))}><strong>{preset.name}</strong><span>{preset.description}</span><small>{presetQuestionCount(preset)} questions{preset.config.timerMode !== "none" ? ` · ${Math.round(preset.config.durationSeconds / 60)} min` : ""}</small><Icon name="arrow" /></button></li>)}</ul></details>
       {history.length > 0 && <details className="qm-studio-disclosure qm-history" open={entries.length === 0} aria-labelledby={`${headingId}-history`}><summary><span id={`${headingId}-history`}>Recent sessions</span><Icon name="chevron-down" size={16} /></summary><ol>{history.map(result => <HistoryRow key={result.id} result={result} />)}</ol></details>}
     </div>
@@ -280,7 +286,9 @@ function QuizRow({ entry, context, pending, busy, leave, review, run }: QuizRowP
         {entry.missed.length > 0 && <button type="button" disabled={pending} onClick={() => review(entry, "missed")}>Review {entry.missed.length} missed</button>}
         {entry.bookmarked.length > 0 && <button type="button" disabled={pending} onClick={() => review(entry, "bookmarked")}>Bookmarks ({entry.bookmarked.length})</button>}
         <button type="button" disabled={pending} onClick={event => { event.currentTarget.closest("details")?.removeAttribute("open"); setRename(true); setDeleting(false); }}>Rename</button>
-        <button type="button" disabled={pending} onClick={() => exportQuiz(quiz, context)}>Export JSON</button>
+        {context.store.getWorkspace && context.store.saveWorkspace && <button type="button" disabled={pending} onClick={() => { void run(`bank:${quiz.id}`, async () => { const workspace = context.store.getWorkspace?.(); if (!workspace || !context.store.saveWorkspace) throw new Error("Reopen Quiz maker to load the question bank."); const result = addQuizToBank(workspace, quiz); await context.store.saveWorkspace(result.workspace); }, "Questions added to bank."); }}>Add to question bank</button>}
+        <button type="button" disabled={pending} onClick={() => { void run(`variant:${quiz.id}`, async () => { await context.store.saveQuiz(shuffledVariant(quiz, context.store.listQuizzes())); }, "Shuffled version saved. Wording and answers stay unchanged."); }}>Create shuffled version</button>
+        <button type="button" disabled={pending} onClick={() => leave(() => openInterchange(context, quiz))}>Export</button>
         <button type="button" disabled={pending} onClick={event => { event.currentTarget.closest("details")?.removeAttribute("open"); setDeleting(true); setRename(false); }}>Delete</button>
       </div></details>
     </div>

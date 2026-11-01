@@ -188,7 +188,16 @@ export class MarkdownRenderer {
   static async render(_app: App, text: string, target: HTMLElement, _path: string, _component: Component): Promise<void> { target.textContent = text; }
   static async renderMarkdown(text: string, target: HTMLElement, _path: string, _component: Component): Promise<void> { target.textContent = text; }
 }
-export class PluginSettingTab { containerEl = hostElement(); constructor(public app: App, public plugin: unknown) {} display(): void {} hide(): void {} }
+export class PluginSettingTab {
+  containerEl = hostElement();
+  readonly id: string;
+  constructor(public app: App, public plugin: unknown) {
+    const manifest = plugin && typeof plugin === "object" ? Reflect.get(plugin, "manifest") as { id?: string } | undefined : undefined;
+    this.id = manifest?.id ?? "";
+  }
+  display(): void {}
+  hide(): void {}
+}
 class Control {
   inputEl = hostElement(); selectEl = hostElement(); buttonEl = hostElement(); toggleEl = hostElement(); sliderEl = hostElement();
   setValue(_value: unknown): this { return this; } setPlaceholder(_value: string): this { return this; }
@@ -220,4 +229,24 @@ export class Menu { addItem(callback: (item: MenuItem) => void): this { callback
 export const Platform = { isMobile: false, isDesktop: true, isAndroidApp: false, isIosApp: false };
 export function addIcon(): void {}
 export function setIcon(): void {}
-export async function requestUrl(): Promise<never> { throw new Error("Network requests are disabled in tests. Inject a fixture response."); }
+interface RequestUrlFixtureRequest {
+  url: string;
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+  throw?: boolean;
+}
+interface RequestUrlFixtureResponse { status: number; headers: Record<string, string>; json: unknown }
+let requestUrlFixture: ((request: RequestUrlFixtureRequest) => Promise<RequestUrlFixtureResponse>) | undefined;
+/** Test-only injection. The default boundary never accesses the network. */
+export function setRequestUrlFixture(fixture: NonNullable<typeof requestUrlFixture>): () => void {
+  const previous = requestUrlFixture;
+  requestUrlFixture = fixture;
+  return () => { requestUrlFixture = previous; };
+}
+export async function requestUrl(request: RequestUrlFixtureRequest): Promise<RequestUrlFixtureResponse> {
+  if (!requestUrlFixture) throw new Error("Network requests are disabled in tests. Inject a fixture response.");
+  return requestUrlFixture(request);
+}
+
+export async function finishRenderMath(): Promise<void> {}

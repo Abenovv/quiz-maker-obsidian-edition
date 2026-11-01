@@ -206,3 +206,41 @@ test("mobile mini view uses a normal tab instead of a desktop-only split", async
   try { await openMiniView(context); } finally { Platform.isMobile = original; }
   assert.deepEqual(calls, [{ type: MINI_VIEW_TYPE, active: true }, leaf]);
 });
+
+test("mini source disclosure is optional and respects the exam boundary", () => {
+  const sourced: Quiz = { ...quiz, questions: [{ ...quiz.questions[0], evidence: [{ path: "Orbit.md", quote: "private source excerpt", status: "unverified" }] }] };
+  const render = (active: Session, enabled: boolean): string => {
+    const context = contextFor(active);
+    context.settings.sourceEvidenceEnabled = enabled;
+    return renderToStaticMarkup(createElement(MiniStudy, { context }));
+  };
+  const exam = createSession(sourced, { mode: "exam" });
+  assert.doesNotMatch(render(exam, true), /private source excerpt/);
+  const initial = createSession(sourced, { mode: "practice" });
+  assert.doesNotMatch(render(initial, true), /private source excerpt/);
+  const answered = reduceSession(initial, { type: "answer", response: true });
+  const checked = reduceSession(answered, { type: "check" });
+  assert.match(render(checked, true), /private source excerpt/);
+  assert.match(render(checked, true), /Unverified excerpt/);
+  assert.doesNotMatch(render(checked, false), /private source excerpt/);
+  assert.match(render(initial, false), /Focus mode/);
+});
+
+test("an obsolete mini load cannot render a stale error after close and reopen", async () => {
+  const context = contextFor();
+  const pending: Array<{ resolve(): void; reject(reason: Error): void }> = [];
+  context.store.load = () => new Promise<void>((resolve, reject) => pending.push({ resolve, reject }));
+  context.store.flush = async () => undefined;
+  const view = new MiniQuizView({} as WorkspaceLeaf, context);
+  const oldOpen = view.onOpen();
+  await view.onClose();
+  const newOpen = view.onOpen();
+  pending[0].reject(new Error("Obsolete load failure"));
+  await oldOpen;
+  // A stale completion must not create a React root in the newly opened host.
+  assert.equal((view as unknown as { root?: unknown }).root, undefined);
+  await view.onClose();
+  pending[1].resolve();
+  await newOpen;
+  assert.equal((view as unknown as { root?: unknown }).root, undefined);
+});

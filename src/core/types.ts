@@ -8,8 +8,32 @@ export const questionTypes = [
 ] as const;
 export type QuestionType = typeof questionTypes[number];
 export type Difficulty = "easy" | "medium" | "hard";
+export interface SourceEvidence {
+  path: string;
+  quote: string;
+  locator?: string;
+  status: "verified" | "unverified" | "missing";
+}
+export interface QuestionMedia {
+  path: string;
+  alt: string;
+  mimeType?: "image/png" | "image/jpeg" | "image/webp" | "image/gif";
+  width?: number;
+  height?: number;
+}
+export interface BlueprintAllocation { topic: string; difficulty: Difficulty; count: number }
+export interface SourceSelection { path: string; fromLine: number; toLine: number; fromOffset?: number; toOffset?: number }
+export interface AnkiImportData {
+  format: "anki"; noteId: string; noteType: string; fields: Array<{ name: string; value: string }>; cardCount: number; scheduling?: string;
+}
 export interface QuestionBase {
   id?: string;
+  contentRevision?: number;
+  tags?: string[];
+  topic?: string;
+  evidence?: SourceEvidence[];
+  media?: QuestionMedia[];
+  importData?: AnkiImportData;
   question: string;
   hint?: string;
   explanation?: string;
@@ -55,6 +79,8 @@ export interface Settings {
   saveFormat: "callouts" | "spaced-repetition";
   defaultPreset: string;
   extraCommands: boolean;
+  sourceEvidenceEnabled: boolean;
+  shortcutGuideEnabled: boolean;
 }
 export type StudyMode = "practice" | "timed-practice" | "exam" | "flashcards" | "review";
 export type TimerMode = "none" | "whole-quiz" | "per-question";
@@ -83,6 +109,8 @@ export interface Quiz {
   provenance?: Provenance;
   revisions?: QuestionRevision[];
   runConfig?: SessionConfig;
+  sourceSelection?: SourceSelection;
+  variant?: { familyId: string; version: number; parentQuizId?: string };
 }
 export interface QuestionRevision {
   questionIndex: number;
@@ -168,6 +196,13 @@ export interface QuizStorePort {
   flush(): Promise<void>;
   dispose(): Promise<void>;
   subscribe(listener: () => void): () => void;
+  getWorkspace?(): WorkspaceData;
+  saveWorkspace?(data: WorkspaceData): Promise<void>;
+  createBackup?(): Promise<StudyBackup>;
+  listBackups?(): Promise<StudyBackup[]>;
+  restoreBackup?(path: string): Promise<void>;
+  getRevisions?(quizId: string): SavedQuizRevision[];
+  restoreRevision?(revisionId: string): Promise<Quiz>;
 }
 export interface ModelInfo { id: string; name: string; provider: Provider; contextWindow?: number }
 export interface ModelServicePort {
@@ -187,6 +222,8 @@ export interface GenerationRequest {
   includeHints: boolean;
   includeExplanations: boolean;
   includeSources: boolean;
+  blueprint?: BlueprintAllocation[];
+  selection?: SourceSelection;
   signal?: AbortSignal;
   onProgress?: (message: string) => void;
 }
@@ -203,7 +240,30 @@ export interface Preset {
   config: SessionConfig;
   includeHints: boolean;
   includeExplanations: boolean;
+  language?: string;
+  blueprint?: BlueprintAllocation[];
 }
+export interface BankQuestion {
+  id: string;
+  question: Question;
+  createdAt: string;
+  updatedAt: string;
+  sourceQuizId?: string;
+}
+export interface SavedQuizRevision {
+  id: string;
+  quizId: string;
+  quiz: Quiz;
+  savedAt: string;
+  reason: string;
+}
+export interface WorkspaceData {
+  version: 1;
+  customPacks: Preset[];
+  bank: BankQuestion[];
+  revisions: SavedQuizRevision[];
+}
+export interface StudyBackup { path: string; createdAt: number; size: number }
 export interface QuestionViewProps {
   question: Question;
   response: QuestionResponse;

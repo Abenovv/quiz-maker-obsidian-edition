@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { sanitizeQuizMarkdown } from "../src/core/markdown";
+import { sanitizeQuizMarkdown, prepareQuizMarkdown, codeTokens } from "../src/core/markdown";
 
 test("HTML, media and document embeds stay literal without automatic requests", () => {
   const source = '<img src="https://tracker.invalid/pixel"> <iframe src="https://tracker.invalid"></iframe>\n![diagram](https://example.test/image.png) ![[Private note]]';
@@ -69,4 +69,20 @@ test("unmatched or adversarial delimiters do not hide active HTML", () => {
   assert.ok(!sanitizeQuizMarkdown('[safe](https://example.test <img src="https://tracker.invalid">)').includes("<img"));
   assert.ok(!sanitizeQuizMarkdown('!!![image](https://tracker.invalid)').includes("!["));
   assert.equal(sanitizeQuizMarkdown("````python\n```\nif x < y: pass\n````"), "````text\n```\nif x < y: pass\n````");
+});
+
+test("code metadata preserves only static language labels without executable processors", () => {
+  const prepared = prepareQuizMarkdown("```js\nconst value = 42;\n```\n```dataviewjs\ndv.pages()\n```\n");
+  assert.deepEqual(prepared.languages, ["javascript", "text"]);
+  assert.ok(!prepared.text.includes("```js"));
+  assert.equal(prepareQuizMarkdown("```python\nx = 1\n```\n    indented\n").languages.join(","), "python,text");
+});
+
+test("static code tokens reconstruct exact source and never treat HTML as markup", () => {
+  const source = 'const html = "<img src=x onerror=run()>"; // sample\nreturn 42;';
+  const tokens = codeTokens(source, "javascript");
+  assert.equal(tokens.map(token => token.text).join(""), source);
+  assert.ok(tokens.some(token => token.kind === "string" && token.text.includes("<img")));
+  assert.deepEqual(codeTokens(source, "dataviewjs"), [{ text: source }]);
+  assert.deepEqual(codeTokens("a".repeat(20001), "javascript"), [{ text: "a".repeat(20001) }]);
 });

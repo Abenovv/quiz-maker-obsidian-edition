@@ -1,4 +1,6 @@
-import type { Quiz, ReviewCard, SessionSummary } from "../core/types";
+import type { BankQuestion, Quiz, ReviewCard, SessionSummary, WorkspaceData } from "../core/types";
+import { validateQuiz } from "../core/schema";
+import { ensureQuestionIds, validateWorkspace } from "../core/workspace";
 import { gradeQuestion } from "../session/grading";
 
 export type LibraryFilter = "all" | "due" | "missed" | "bookmarked";
@@ -79,4 +81,57 @@ export function libraryPage<T>(items: readonly T[], requestedPage: number, pageS
   const page = Math.max(0, Math.min(pageCount - 1, Number.isFinite(requestedPage) ? Math.floor(requestedPage) : 0));
   const offset = page * size;
   return { items: items.slice(offset, offset + size), page, pageCount, start: items.length ? offset + 1 : 0, end: Math.min(offset + size, items.length) };
+}
+
+function newIdentity(prefix: string): string {
+  return prefix + "-" + (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 12));
+}
+
+/** Shuffle whole questions, never their answer indices. The source remains unchanged. */
+export function shuffledVariant(source: Quiz, siblings: readonly Quiz[] = [], random = Math.random, now = new Date()): Quiz {
+  const familyId = source.variant?.familyId ?? source.id;
+  const version = Math.max(1, source.variant?.version ?? 1, ...siblings.filter(quiz => (quiz.variant?.familyId ?? quiz.id) === familyId).map(quiz => quiz.variant?.version ?? 1)) + 1;
+  const quiz = validateQuiz(source);
+  const questions = quiz.questions.map(question => {
+    const { id: _id, ...copy } = question;
+    return copy;
+  });
+  for (let i = questions.length - 1; i > 0; i--) {
+    const sample = random();
+    if (!Number.isFinite(sample) || sample < 0 || sample >= 1) throw new Error("The shuffle could not be completed. Try again.");
+    const j = Math.floor(sample * (i + 1));
+    [questions[i], questions[j]] = [questions[j], questions[i]];
+  }
+  return ensureQuestionIds({ ...quiz, id: newIdentity("quiz"), title: (source.title.slice(0, 175) + " · version " + version),
+    questions, revisions: undefined, createdAt: now.toISOString(), updatedAt: now.toISOString(),
+    variant: { familyId, version, parentQuizId: source.id } });
+}
+
+export function filterBank(bank: readonly BankQuestion[], query: string, tag = ""): BankQuestion[] {
+  const words = searchable(query.trim()).split(/\s+/).filter(Boolean);
+  return bank.filter(item => (!tag || item.question.tags?.includes(tag)) && words.every(word =>
+    searchable([item.question.question, item.question.topic ?? "", ...(item.question.tags ?? [])].join("\n")).includes(word)));
+}
+
+/** A single validated workspace replacement makes multi-question bank edits atomic. */
+export function addQuizToBank(workspace: WorkspaceData, quiz: Quiz, now = new Date()): { workspace: WorkspaceData; added: number } {
+  const result = validateWorkspace(workspace);
+  let added = 0;
+  for (const question of ensureQuestionIds(quiz).questions) {
+    if (result.bank.some(item => item.sourceQuizId === quiz.id && item.question.id === question.id && item.question.contentRevision === question.contentRevision)) continue;
+    result.bank.push({ id: newIdentity("bank"), question, sourceQuizId: quiz.id, createdAt: now.toISOString(), updatedAt: now.toISOString() });
+    added++;
+  }
+  const validated = validateWorkspace(result);
+  workspace.bank = validated.bank;
+  return { workspace, added };
+}
+
+export function quizFromBank(items: readonly BankQuestion[], now = new Date()): Quiz {
+  if (!items.length) throw new Error("Select at least one question.");
+  if (items.length > 500) throw new Error("Select at most 500 questions for one quiz.");
+  const sources = [...new Set(items.flatMap(item => [...(item.question.source ? [item.question.source] : []), ...(item.question.evidence?.map(evidence => evidence.path) ?? [])]))];
+  return ensureQuestionIds(validateQuiz({ schemaVersion: 2, id: newIdentity("quiz"), title: "Selected questions", sources,
+    createdAt: now.toISOString(), updatedAt: now.toISOString(), provenance: { kind: "manual" },
+    questions: items.map(item => { const { id: _id, ...question } = item.question; return question; }) }));
 }
