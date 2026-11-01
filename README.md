@@ -5,7 +5,7 @@
 <p align="center">Quizzes and flashcards from your Obsidian notes.</p>
 
 <p align="center">
-  <a href="https://github.com/Abenovv/quiz-maker-obsidian-edition/releases/latest"><img src="assets/badges/release.svg" height="26" alt="Release 1.2.2"></a>
+  <a href="https://github.com/Abenovv/quiz-maker-obsidian-edition/releases/latest"><img src="assets/badges/release.svg" height="26" alt="Release 1.2.3"></a>
   <a href="#install"><img src="assets/badges/platform.svg" height="26" alt="Obsidian 1.8.7 or newer"></a>
   <a href="LICENSE"><img src="assets/badges/license.svg" height="26" alt="MIT license"></a>
 </p>
@@ -29,7 +29,7 @@ AI is optional. Hosted providers may charge for usage and receive the notes you 
 
 ## Inside Quiz maker
 
-![Quiz maker 1.2.2 interface preview with public sample data](docs/images/interface-preview.png)
+![Quiz maker 1.2.3 interface preview with public sample data](docs/images/interface-preview.png)
 
 Current interface preview with public sample data. Earlier native captures are available below.
 
@@ -84,13 +84,13 @@ Requires **Obsidian 1.8.7 or newer**. Available from GitHub; community-directory
 1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/Abenovv/quiz-maker-obsidian-edition/releases/latest).
 2. Put those three files in `.obsidian/plugins/quiz-maker/` inside your vault.
 3. Reload Obsidian and enable **Quiz maker** in **Settings → Community plugins**.
-4. Run **Quiz maker: Open** from the command palette. Choose **Create quiz** to generate from notes, write questions, or import JSON.
+4. Run **Quiz maker: Open** from the command palette. Choose **Create quiz** to generate from notes, write questions, or import JSON. Use **Quiz maker: Quick quiz** to start from the active Markdown note with your default study pack.
 
-After updating, check for **1.2.2** at the bottom of Quiz maker settings. If an older version still appears, reload Obsidian before testing the changes.
+After updating, check for **1.2.3** at the bottom of Quiz maker settings. If an older version still appears, reload Obsidian before testing the changes.
 
-Use the three release files, not the automatic source archives. [Checksums and build provenance](docs/submission.md#license-and-release-evidence) accompany the release. Quiz maker has its own plugin ID and settings; it does not replace Quiz Generator or import credentials automatically.
+Install the three release files. The release notes include their [checksums and build-provenance link](docs/submission.md#license-and-release-evidence); automatic source archives are for development. Quiz maker has its own plugin ID and settings; it does not replace Quiz Generator or import credentials automatically.
 
-Individual palette actions and their hotkeys are available through **General → More options → Extra commands** in Quiz maker settings. They are off by default.
+Other palette actions and their hotkeys are available through **General → More options → Extra commands** in Quiz maker settings. They are off by default.
 
 ## Models, cost, and privacy
 
@@ -102,12 +102,14 @@ Manual questions, imports, and local Ollama offer alternatives to hosted generat
 <summary>What leaves your vault and where data is saved</summary>
 
 - **Generation and regeneration:** selected note text and quiz instructions go to the configured provider endpoint.
-- **Model discovery:** requests model metadata, with authentication where required, without sending note content or generating questions.
+- **Find models and Test connection:** request model metadata, with authentication where required, without sending note content or generating questions. A successful test does not confirm generation access.
 - **Ollama:** requests go to the configured server, normally on your device. A custom endpoint receives the same request data.
 
 Provider keys are stored locally in `data.json`. The password field masks them on screen; the file is **not encrypted**. Quizzes and sessions use `study.json`. Keep both files private.
 
-The plugin has no telemetry, advertising, or self-updater. It reads vault notes and JSON files you explicitly select for import; it does not scan outside the vault. Installing the plugin, opening settings, and studying imported questions do not send note content.
+**Add note** and **Add folder** open a folder browser at the active note's folder, or the vault root. Each step lists only that folder's direct children using metadata. Selecting a folder collects Markdown notes from its subtree; note contents are read when you generate.
+
+The plugin has no telemetry, advertising, or self-updater. It also reads JSON files you explicitly select for import; it does not scan outside the vault. Installing the plugin, opening settings, and studying imported questions do not send note content.
 
 </details>
 
@@ -137,6 +139,8 @@ npm run verify:release
 ```
 
 [![Build status](https://github.com/Abenovv/quiz-maker-obsidian-edition/actions/workflows/release.yml/badge.svg)](https://github.com/Abenovv/quiz-maker-obsidian-edition/actions/workflows/release.yml)
+
+Dependabot proposes grouped npm and GitHub Actions updates monthly. Changes go through pull-request review and CI; updates are not merged automatically.
 
 Source and tests are public. Only three files are needed for installation. Local settings, study data, dependencies, and temporary files are excluded from Git. [Community submission notes](docs/submission.md).
 

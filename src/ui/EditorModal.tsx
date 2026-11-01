@@ -43,7 +43,8 @@ export function openImport(context: PluginContext): void {
 export function exportQuiz(quiz: Quiz, context?: PluginContext): void {
   const content = serializeQuiz(quiz);
   if (Platform.isMobile && context) {
-    void saveMobileExport(context, quiz, content).catch(error => context.showNotice(errorMessage(error, "Could not export this quiz.")));
+    void saveVaultExport(context, quiz.title, content).then(file => context.showNotice(`Exported ${file.path}`))
+      .catch(error => context.showNotice(errorMessage(error, "Could not export this quiz.")));
     return;
   }
   const url = URL.createObjectURL(new Blob([content], { type: "application/json;charset=utf-8" }));
@@ -56,7 +57,7 @@ export function exportQuiz(quiz: Quiz, context?: PluginContext): void {
   } finally { anchor.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); }
 }
 
-async function saveMobileExport(context: PluginContext, quiz: Quiz, content: string): Promise<void> {
+export async function saveVaultExport(context: PluginContext, title: string, content: string): Promise<TFile> {
   const folder = context.settings.saveFolder.trim().replace(/\\/g, "/");
   if (folder.startsWith("/") || folder.split("/").some(part => part === ".." || part === ".") || (/[<>:"|?*]/.test(folder) || [...folder].some(character => character.charCodeAt(0) < 32))) {
     throw new Error("Choose a save folder inside this vault before exporting.");
@@ -68,16 +69,18 @@ async function saveMobileExport(context: PluginContext, quiz: Quiz, content: str
     if (existing && !(existing instanceof TFolder)) throw new Error("The save folder points to a file. Choose another folder.");
     if (!existing) await context.app.vault.createFolder(parent);
   }
-  const filename = exportFilename(quiz.title);
+  const filename = exportFilename(title);
   const stem = filename.slice(0, -5);
   for (let suffix = 0; suffix < 1000; suffix++) {
     const candidate = normalizePath(`${parent ? `${parent}/` : ""}${stem}${suffix ? ` ${suffix + 1}` : ""}.json`);
     if (context.app.vault.getAbstractFileByPath(candidate)) continue;
-    await context.app.vault.create(candidate, content);
-    context.showNotice(`Exported ${candidate}`);
-    return;
+    try { return await context.app.vault.create(candidate, content); }
+    catch {
+      if (context.app.vault.getAbstractFileByPath(candidate)) continue;
+      throw new Error("The export could not be saved. Check the save folder and try again.");
+    }
   }
-  throw new Error("There are too many exports with this title. Rename the quiz and try again.");
+  throw new Error("There are too many exports with this title. Choose another title and try again.");
 }
 
 function ImportQuiz({ context, close }: { context: PluginContext; close(this: void): void }): ReactNode {

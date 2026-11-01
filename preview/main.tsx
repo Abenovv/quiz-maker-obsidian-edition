@@ -15,7 +15,7 @@ import { MiniStudy } from "../src/ui/MiniView";
 import { PluginReactContext } from "../src/ui/shared";
 import { openImport } from "../src/ui/EditorModal";
 import { QuizMakerSettingsTab } from "../src/settings";
-import { Component, MarkdownRenderer, Modal, Plugin, installDomExtensions, makePreviewApp, previewState } from "./obsidian";
+import { Component, MarkdownRenderer, Modal, Plugin, Setting, installDomExtensions, makePreviewApp, previewState } from "./obsidian";
 import { previewQuiz, publicQuestions, type PreviewFixture } from "./fixtures";
 
 installDomExtensions();
@@ -92,6 +92,114 @@ function showSettings(): void {
   modal.open();
 }
 
+// A preview of the public declarative API, not an emulation of Obsidian itself.
+function showSearchSettings(): void {
+  type Definition = ReturnType<QuizMakerSettingsTab["getSettingDefinitions"]>[number];
+  type Row = Extract<Definition, { render: unknown }>;
+  const tab = new QuizMakerSettingsTab(app as never, plugin);
+  const modal = new Modal(app);
+  const search = document.createElement("input");
+  const navigation = document.createElement("nav");
+  let path: string[] = ["General"];
+  let cleanups: Array<() => void> = [];
+  let closed = false;
+  let queued = false;
+  let releaseAppearance: (() => void) | undefined;
+  modal.setTitle("Search settings");
+  modal.modalEl.classList.add("qm-root", "preview-settings-modal");
+  search.type = "search";
+  search.placeholder = "Search settings";
+  search.setAttribute("aria-label", "Search settings");
+  search.className = "preview-settings-search";
+  navigation.className = "preview-settings-navigation";
+  navigation.setAttribute("aria-label", "Settings pages");
+  const clearRows = (): void => {
+    for (const cleanup of cleanups.splice(0).reverse()) cleanup();
+    tab.containerEl.replaceChildren();
+  };
+  const routeButton = (parent: HTMLElement, name: string, next: string[], active = false): void => {
+    const control = parent.appendChild(document.createElement("button"));
+    control.type = "button";
+    control.textContent = name;
+    if (active) control.setAttribute("aria-current", "page");
+    control.onclick = () => { path = next; search.value = ""; render(); };
+  };
+  const renderRow = (parent: HTMLElement, definition: Row): void => {
+    const setting = new Setting(parent).setName(definition.name).setDesc(definition.desc ?? "");
+    const cleanup = definition.render(setting as unknown as Parameters<Row["render"]>[0]);
+    if (cleanup) cleanups.push(cleanup);
+  };
+  const render = (): void => {
+    if (closed) return;
+    const focused = tab.containerEl.contains(document.activeElement) ? document.activeElement?.getAttribute("aria-label") : null;
+    clearRows();
+    navigation.replaceChildren();
+    const definitions = tab.getSettingDefinitions();
+    for (const definition of definitions) if ("type" in definition && definition.type === "page") {
+      routeButton(navigation, definition.name, [definition.name], !search.value && path[0] === definition.name);
+    }
+    const terms = search.value.toLocaleLowerCase().trim().split(/\s+/).filter(Boolean);
+    if (terms.length) {
+      let matches = 0;
+      const visit = (items: Definition[], ancestors: string[]): void => {
+        for (const definition of items) {
+          if ("type" in definition) {
+            visit(definition.items, [...ancestors, definition.type === "page" ? definition.name : definition.heading]);
+          } else {
+            const metadata = [definition.name, ...(definition.aliases ?? [])].join(" ").toLocaleLowerCase();
+            if (!terms.every(term => metadata.includes(term))) continue;
+            const result = tab.containerEl.appendChild(document.createElement("section"));
+            result.className = "preview-settings-result";
+            result.appendChild(document.createElement("p")).textContent = ancestors.join(" / ");
+            renderRow(result, definition);
+            matches++;
+          }
+        }
+      };
+      visit(definitions, []);
+      if (!matches) tab.containerEl.appendChild(document.createElement("p")).textContent = "No settings found.";
+    } else {
+      let items = definitions;
+      const found: string[] = [];
+      for (const name of path) {
+        const page = items.find(definition => "type" in definition && definition.type === "page" && definition.name === name);
+        if (!page || !("type" in page) || page.type !== "page") break;
+        items = page.items;
+        found.push(name);
+      }
+      path = found;
+      if (path.length > 1) routeButton(tab.containerEl, "Back to " + path[path.length - 2], path.slice(0, -1));
+      for (const definition of items) {
+        if (!("type" in definition)) renderRow(tab.containerEl, definition);
+        else if (definition.type === "page") routeButton(tab.containerEl, definition.name, [...path, definition.name]);
+        else {
+          const group = tab.containerEl.appendChild(document.createElement("section"));
+          if (definition.cls) group.className = definition.cls;
+          group.setAttribute("aria-label", definition.heading);
+          new Setting(group).setName(definition.heading).setHeading();
+          for (const row of definition.items) renderRow(group, row);
+        }
+      }
+    }
+    if (focused) Array.from(tab.containerEl.querySelectorAll<HTMLElement>("[aria-label]")).find(element => element.getAttribute("aria-label") === focused)?.focus();
+  };
+  // Instance-only: production feature detection continues to exercise legacy display().
+  Object.defineProperty(tab, "update", { configurable: true, value: () => {
+    if (queued || closed) return;
+    queued = true;
+    queueMicrotask(() => { queued = false; if (!closed) render(); });
+  } });
+  search.oninput = render;
+  modal.onOpen = () => {
+    releaseAppearance = bindAppearance(plugin, modal.modalEl);
+    modal.contentEl.append(search, navigation, tab.containerEl);
+    render();
+    search.focus();
+  };
+  modal.onClose = () => { closed = true; clearRows(); tab.hide(); releaseAppearance?.(); };
+  modal.open();
+}
+
 async function wait(signal: AbortSignal | undefined, milliseconds: number): Promise<void> {
   if (signal?.aborted) throw new DOMException("Preview cancelled", "AbortError");
   await new Promise<void>((resolve, reject) => {
@@ -143,11 +251,17 @@ async function initialize(): Promise<void> {
   select("preview-network", "Simulated response", { normal: "Normal", models: "Connection error", quota: "Rate limit", json: "Incomplete JSON", storage: "Storage error" }, value => { modelFailure = value === "models"; modelRateLimited = value === "quota"; responseFailure = value === "json"; storageFailure = value === "storage"; });
   button("preview-studio", "Studio", () => plugin.openStudio());
   button("preview-generator", "Generate", () => plugin.openGenerator(presetSelect.value));
+  button("preview-quick-quiz", "Quick quiz", () => {
+    const command = previewState.commands.find(command => command.id === "quick-quiz");
+    if (command?.callback) return command.callback();
+    return plugin.openGenerator();
+  });
   button("preview-session", "Study", () => plugin.startQuiz(currentQuiz()));
   button("preview-mini", "Mini view", showMini);
   button("preview-editor", "Edit JSON", () => plugin.openEditor(currentQuiz()));
   button("preview-import", "Import", () => openImport(plugin));
   button("preview-settings", "Settings", showSettings);
+  button("preview-search-settings", "Search settings", showSearchSettings);
   window.addEventListener("keydown", event => {
     if ((event.ctrlKey || event.metaKey) && event.key === ",") { event.preventDefault(); showSettings(); }
   });

@@ -92,6 +92,8 @@ export function isLocalNetworkHost(hostname: string): boolean {
 export function resolveBaseUrl(provider: Provider, baseUrl = ""): string {
   const url = checkedUrl(baseUrl.trim() || DEFAULT_BASE_URLS[provider]);
   if (url.search) throw new TransportError("configuration", "Use an API base URL without query parameters.");
+  const official = new URL(DEFAULT_BASE_URLS[provider]);
+  if (url.origin === official.origin && url.pathname === "/") url.pathname = official.pathname;
   const base = url.toString().replace(/\/+$/, "");
   // Ollama documents its native base with /api; internal routes add that segment.
   return provider === "ollama" ? base.replace(/\/api$/, "") : base;

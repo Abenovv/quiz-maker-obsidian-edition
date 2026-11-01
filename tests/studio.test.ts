@@ -149,9 +149,10 @@ test("library pages stay bounded and recover when deleting the last item on a pa
   assert.equal(libraryPage([], 99).start, 0);
 });
 
-function studioMarkup(file: unknown, documents: Quiz[] = [], history: SessionSummary[] = [], withTools = true): string {
+function studioMarkup(file: unknown, documents: Quiz[] = [], history: SessionSummary[] = [], withTools = true, recovery?: string): string {
   const noop = (): void => undefined;
   const context = {
+    settings: { saveFolder: "Public exports" },
     app: { workspace: { getActiveFile: () => file } },
     store: {
       listQuizzes: () => documents,
@@ -159,12 +160,22 @@ function studioMarkup(file: unknown, documents: Quiz[] = [], history: SessionSum
       getHistory: () => history,
       getReviews: () => [],
       getActiveSession: () => undefined,
-      getRecoveryText: () => undefined
+      getRecoveryText: () => recovery,
+      loadIssue: recovery !== undefined ? "Public simulated library damage" : undefined
     },
     ...(withTools ? { openCurrentQuiz: noop, makeCurrentQuizReadable: noop, openMini: noop } : {})
   } as unknown as PluginContext;
   return renderToStaticMarkup(createElement(Studio, { context, close: noop }));
 }
+
+test("recovery offers an explicit local file export without exposing damaged data or requiring a clipboard", () => {
+  for (const raw of ["", "Synthetic damaged recovery content"]) {
+    const html = studioMarkup(null, [], [], false, raw);
+    assert.match(html, />Export recovery file</);
+    assert.match(html.replace(/<!--.*?-->/g, ""), /Recovery files are saved in Public exports/);
+    assert.doesNotMatch(html, /Copy recovery|Clipboard|Synthetic damaged recovery content/);
+  }
+});
 
 test("studio groups creation into one closed disclosure without losing its three paths", () => {
   const html = studioMarkup(null);

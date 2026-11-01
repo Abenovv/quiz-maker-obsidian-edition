@@ -52,11 +52,5 @@ export default defineConfig([
         tsconfigRootDir: import.meta.dirname
       }
     }
-  },
-  {
-    files: ["src/settings.ts"],
-    // Declarative settings require Obsidian 1.13; native Settings are retained
-    // for the supported 1.8.7 API without calling an unavailable method.
-    rules: { "obsidianmd/settings-tab/prefer-setting-definitions": "off" }
   }
 ]);

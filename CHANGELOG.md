@@ -1,5 +1,23 @@
 # Release notes
 
+## 1.2.3
+
+Simplify setup and address specific community-review findings.
+
+- Add **Quick quiz** to open setup from the active Markdown note with the default study pack. Note contents and provider requests wait until generation.
+- Support searchable native settings pages in Obsidian 1.13 or newer while retaining tabs on earlier supported versions.
+- Add a cancellable metadata-only **Test connection**. Success confirms metadata access, not generation permissions.
+- Give known reasoning models bounded output headroom and preserve safe model, endpoint, and access errors without automatic retries.
+- Normalize official provider addresses, preserve supported Mistral, Cohere, and fine-tuned OpenAI models in discovery, and reject incomplete Anthropic model lists.
+- Replace vault-wide note and folder listings with navigation through one folder at a time. Collect notes only from the selected subtree.
+- Replace recovery clipboard copying with a private vault-file export that preserves the original damaged data.
+- Remove CSS priority overrides and replace newer selectors for compatibility with older supported Obsidian versions.
+- Point the manifest's author link to the maintainer's public profile.
+- Attach only `main.js`, `manifest.json`, and `styles.css` to new releases. Keep SHA-256 checksums and the registered GitHub provenance link in the release notes.
+- Propose grouped npm and GitHub Actions updates monthly through Dependabot pull requests, without automatic merging.
+
+These changes do not establish Obsidian Community directory approval.
+
 ## 1.2.2
 
 Fix panel spacing and control alignment across settings and study views.

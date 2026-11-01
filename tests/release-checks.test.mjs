@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { hasPotentialSecret, isPrivatePath, sourceIssues } from "../scripts/check-policy.mjs";
+import { hasPotentialSecret, isPrivatePath, sourceIssues, stylesheetIssues } from "../scripts/check-policy.mjs";
 
 test("private-file checks reject nested settings and credentials before reading contents", () => {
   for (const file of ["data.json", "nested/study.json", "nested/study-data.json", ".env", ".env.local", "nested\\credentials.json", "service-account-demo.json", "private.pem"]) {
@@ -42,4 +42,25 @@ test("mobile source checks reject regex lookbehind but permit named groups", () 
   assert.equal(sourceIssues('const pattern = /(?<=prefix)value/;').length, 1);
   assert.equal(sourceIssues('const pattern = /(?<!prefix)value/;').length, 1);
   assert.equal(sourceIssues('const pattern = /(?<name>value)/;').length, 0);
+});
+
+
+test("stylesheet checks reject known review warnings without scanning CSS comments", () => {
+  assert.deepEqual(stylesheetIssues("/* clip-path: inset(50%); !important */ .qm-root { display: grid; gap: 12px; }"), []);
+  assert.equal(stylesheetIssues(".qm-root { color: red !important; }").length, 1);
+  assert.equal(stylesheetIssues(".qm-root:has(input) { display: grid; }").length, 1);
+  for (const property of ["text-decoration-thickness", "text-underline-offset", "clip-path", "break-inside", "columns", "column-count", "column-width"]) {
+    assert.equal(stylesheetIssues(".qm-root { " + property + ": initial; }").length, 1, property);
+  }
+  assert.deepEqual(stylesheetIssues(".qm-root { page-break-inside: avoid; grid-template-columns: 1fr 1fr; text-decoration: underline; }"), []);
+});
+
+
+test("source policy keeps broad vault scans and clipboard access out of the runtime", () => {
+  for (const method of ["getFiles", "getMarkdownFiles", "getAllLoadedFiles"]) {
+    assert.equal(sourceIssues("app.vault." + method + "();").length, 1);
+  }
+  assert.equal(sourceIssues('navigator.clipboard.writeText("backup");').length, 1);
+  assert.equal(sourceIssues('navigator.clipboard.readText();').length, 1);
+  assert.equal(sourceIssues('const items = selectedFolder.children; app.vault.cachedRead(selectedFile);').length, 0);
 });

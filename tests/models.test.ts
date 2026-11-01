@@ -50,6 +50,9 @@ for (const fixture of providerFixtures) {
       assert.equal(requests[0].headers?.["x-goog-api-key"], settings().apiKey);
       assert.equal(new URL(requests[0].url).searchParams.has("key"), false);
       assert.equal(models[0].contextWindow, 1_000);
+    } else {
+      assert.equal(requests[0].headers?.Authorization, "Bearer " + settings().apiKey);
+      if (fixture.provider === "anthropic") assert.equal(requests[0].headers?.["anthropic-version"], "2026-10-21");
     }
   });
 }
@@ -191,7 +194,36 @@ test("Google pagination keeps auth out of URLs and follows only local page token
   assert.ok(requests.every(request => request.headers?.["x-goog-api-key"] === settings().apiKey && !request.url.includes(settings().apiKey)));
 });
 
-test("Anthropic pagination and lifecycle filters keep only callable current models", async () => {
+test("Cohere chat catalogue pagination retains filters and opaque tokens", async () => {
+  const requests: HttpRequest[] = [];
+  const service = new ModelService({ http: async request => {
+    requests.push(request);
+    return ok(requests.length === 1
+      ? { models: [{ name: "command-first", endpoints: ["chat"] }], next_page_token: "opaque/next&token" }
+      : { models: [{ name: "command-second", endpoints: ["chat"] }] });
+  } });
+  assert.equal((await service.list("cohere", settings())).length, 2);
+  for (const request of requests) {
+    const url = new URL(request.url);
+    assert.equal(url.pathname, "/v1/models");
+    assert.equal(url.searchParams.get("endpoint"), "chat");
+    assert.equal(url.searchParams.get("page_size"), "1000");
+    assert.equal(request.headers?.Authorization, "Bearer " + settings().apiKey);
+  }
+  assert.equal(new URL(requests[1].url).searchParams.get("page_token"), "opaque/next&token");
+});
+
+test("Mistral accepts the documented array catalogue and rejects non-chat entries", async () => {
+  const service = new ModelService({ http: async () => ok([
+    { id: "mistral-array-fixture", capabilities: { completion_chat: true }, max_context_length: 32_768 },
+    { id: "mistral-nonchat-fixture", capabilities: { completion_chat: false } }
+  ]) });
+  const models = await service.list("mistral", settings());
+  assert.deepEqual(models.map(model => model.id), ["mistral-array-fixture"]);
+  assert.equal(models[0].contextWindow, 32_768);
+});
+
+test("Anthropic pagination and lifecycle filters keep active catalogue entries", async () => {
   let calls = 0;
   const service = new ModelService({ http: async request => {
     calls++;
@@ -202,6 +234,55 @@ test("Anthropic pagination and lifecycle filters keep only callable current mode
   const models = await service.list("anthropic", settings());
   assert.deepEqual(models.map(model => model.id), ["claude-current"]);
   assert.equal(models[0].contextWindow, 100_000);
+});
+
+test("Anthropic pagination cannot silently cache a partial catalogue without a cursor", async () => {
+  let calls = 0;
+  const service = new ModelService({ http: async () => {
+    calls++;
+    return ok(calls === 1
+      ? { data: [{ id: "claude-incomplete-fixture" }], has_more: true, last_id: null }
+      : { data: [{ id: "claude-complete-fixture" }], has_more: false });
+  } });
+  await assert.rejects(service.list("anthropic", settings()), /unreadable model list/);
+  assert.equal((await service.list("anthropic", settings()))[0].id, "claude-complete-fixture");
+  assert.equal(calls, 2);
+});
+
+test("chat capability metadata keeps arbitrarily named Mistral and Cohere text models", async () => {
+  const mistral = new ModelService({ http: async () => ok({ data: [
+    { id: "speech-study-helper", capabilities: { completion_chat: true } },
+    { id: "regular-looking-model", capabilities: { completion_chat: false } }
+  ] }) });
+  assert.deepEqual((await mistral.list("mistral", settings())).map(model => model.id), ["speech-study-helper"]);
+  const cohere = new ModelService({ http: async () => ok({ models: [
+    { name: "image-study-helper", endpoints: ["chat"] },
+    { name: "regular-looking-model", endpoints: ["embed"] }
+  ] }) });
+  assert.deepEqual((await cohere.list("cohere", settings())).map(model => model.id), ["image-study-helper"]);
+});
+
+test("OpenAI fine-tuning suffixes do not change the base model's text filtering", async () => {
+  const service = new ModelService({ http: async () => ok({ data: [
+    { id: "ft:gpt-text-fixture:fixture-org:audio-notes:fixture-id" },
+    { id: "ft:gpt-audio-fixture:fixture-org:study-helper:fixture-id" }
+  ] }) });
+  assert.deepEqual((await service.list("openai", settings())).map(model => model.id),
+    ["ft:gpt-text-fixture:fixture-org:audio-notes:fixture-id"]);
+});
+
+test("official root URLs discover through each provider's documented API prefix", async () => {
+  for (const fixture of providerFixtures) {
+    const requests: HttpRequest[] = [];
+    const service = new ModelService({ http: async request => { requests.push(request); return ok(fixture.response); } });
+    const origins: Record<Provider, string> = {
+      openai: "https://api.openai.com", google: "https://generativelanguage.googleapis.com",
+      anthropic: "https://api.anthropic.com", mistral: "https://api.mistral.ai",
+      cohere: "https://api.cohere.com", perplexity: "https://api.perplexity.ai", ollama: "http://localhost:11434"
+    };
+    assert.equal((await service.list(fixture.provider, settings(origins[fixture.provider])))[0].id, fixture.expected);
+    assert.equal(new URL(requests[0].url).pathname, fixture.path);
+  }
 });
 
 test("repeated pagination cursors are rejected instead of looping", async () => {
@@ -285,6 +366,16 @@ test("connection tests use non-generative metadata endpoints for every provider"
     await service.test(fixture.provider, settings());
     assert.ok(requests.every(request => !/\/chat|\/responses|:generateContent|\/generate$/.test(new URL(request.url).pathname)));
   }
+});
+
+test("connection tests establish metadata reachability without validating the selected model", async () => {
+  const requests: HttpRequest[] = [];
+  const service = new ModelService({ http: async request => { requests.push(request); return ok({ models: [] }); } });
+  await service.test("google", { ...settings(), model: "not-listed-or-generation-tested" });
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].method ?? "GET", "GET");
+  assert.equal(requests[0].body, undefined);
+  assert.ok(!requests[0].url.includes("not-listed-or-generation-tested"));
 });
 
 test("discovery errors explain manual IDs without leaking response bodies or keys", async () => {

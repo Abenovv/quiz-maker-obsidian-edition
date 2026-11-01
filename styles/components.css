@@ -127,7 +127,6 @@
 .qm-root .qm-create-choice-text > span { color: var(--qm-muted); font-size: 13px; line-height: 1.5; }
 .qm-root .qm-studio-tools > .qm-quiet-actions { inline-size: 248px; }
 .qm-root .qm-studio-tools .qm-quiet-actions > button { justify-content: start; min-inline-size: 0; border: 0; background: transparent; text-align: start; white-space: normal; }
-.qm-root .qm-studio-bottom:has(> .qm-studio-disclosure) { grid-template-columns: minmax(0, 1fr); gap: 0; }
 .qm-root .qm-studio-disclosure { min-inline-size: 0; border-block-start: 1px solid var(--qm-border); }
 .qm-root .qm-studio-disclosure > summary { display: flex; align-items: center; gap: 8px; min-block-size: 48px; padding-block: 12px; font-size: 15px; font-weight: 550; list-style: none; }
 .qm-root .qm-studio-disclosure > summary::-webkit-details-marker { display: none; }
@@ -234,9 +233,9 @@
 .qm-root .qm-rename-form input { flex: 1 1 20ch; min-inline-size: 0; }
 .qm-root .qm-studio-bottom {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(240px, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
-  gap: var(--qm-space-7, 32px);
+  gap: 0;
   margin-block-start: var(--qm-space-6, 24px);
 }
 .qm-root .qm-studio-bottom :is(h2, h3) { margin-block-start: 0; }
@@ -466,7 +465,7 @@
 .qm-root .qm-choice:hover { background: var(--qm-surface-hover, var(--background-modifier-hover)); }
 .qm-root .qm-choice.is-selected,
 .qm-root .qm-choice[data-selected="true"] { border-color: var(--qm-accent-border, var(--qm-accent)); background: var(--qm-surface-alt, var(--background-secondary)); }
-.qm-root .qm-choice:has(input:focus-visible) { outline: 2px solid var(--qm-focus, var(--interactive-accent)); outline-offset: 2px; }
+.qm-root .qm-choice:focus-within { outline: 2px solid var(--qm-focus, var(--interactive-accent)); outline-offset: 2px; }
 .qm-root .qm-choice > input { flex-shrink: 0; margin-block-start: 5px; }
 .qm-root :is(.qm-choice-text, .qm-choice-copy) { min-inline-size: 0; flex: 1; font-size: 15px; overflow-wrap: anywhere; }
 .qm-root :is(.qm-choice-text, .qm-choice-copy) :is(p, ul, ol) { margin-block: 0; }
@@ -554,10 +553,9 @@
 .qm-root .qm-mini-clock strong { font-family: var(--qm-font-mono); font-size: 14px; }
 .qm-root .qm-mini-mode { display: block; margin-block-start: 3px; color: var(--qm-muted); font-size: 12px; line-height: 1.5; }
 .qm-root .qm-mini-clock:is(.is-urgent, [data-urgent="true"]) { color: var(--qm-danger); }
-.qm-root .qm-mini-navigation { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: center; gap: 6px; padding-block-start: 10px; border-block-start: 1px solid var(--qm-border); }
-.qm-root .qm-mini-navigation:has(> button:nth-child(3)) { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 44px; }
-.qm-root .qm-mini-navigation:not(:has(> button:nth-child(3))) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.qm-root .qm-mini-navigation:has(> button:only-child) { display: flex; justify-content: flex-start; }
+.qm-root .qm-mini-navigation { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: center; gap: 6px; padding-block-start: 10px; border-block-start: 1px solid var(--qm-border); }
+.qm-root .qm-mini-navigation[data-controls="navigation-pause"] { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 44px; }
+.qm-root .qm-mini-navigation[data-controls="pause"] { display: flex; justify-content: flex-start; }
 .qm-root .qm-mini-navigation > button:only-child { width: 44px; }
 .qm-root .qm-mini-navigation button { min-inline-size: 0; min-block-size: 44px; padding: 9px 6px; }
 .qm-root .qm-mini-finish { display: grid; gap: 10px; }
@@ -587,7 +585,6 @@
 
 /* Tablet: reduce side rails before content becomes cramped. */
 @media (max-width: 900px) {
-  .qm-root .qm-studio-bottom { grid-template-columns: minmax(0, 1fr); gap: 24px; }
   .qm-root .qm-session-grid { grid-template-columns: 164px minmax(0, 1fr); gap: 20px; }
   .qm-root .qm-question-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .qm-root .qm-editor-layout { grid-template-columns: 180px minmax(0, 1fr); gap: 18px; }
@@ -810,32 +807,32 @@
   border-block-start: 0;
   border-inline: 0;
   border-block-end: 1px solid var(--qm-border);
-  border-radius: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 /* Obsidian 1.14 wraps native Settings in rounded groups; keep these local
    groups as a plain list, without changing the surrounding Settings UI. */
 .qm-root.qm-settings :is(.setting-group, .setting-items, .setting-item-background) {
   margin: 0;
   padding: 0;
-  border: 0 !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 .qm-root.qm-settings .setting-item::before,
 .qm-root.qm-settings .setting-item::after {
-  border-radius: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 .qm-root.qm-settings :is(.setting-group-heading, .setting-item-heading) {
   margin-inline: 0;
   padding-inline: 0;
-  border-radius: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 .qm-root.qm-settings .setting-item-info { flex: 1 1 24ch; min-inline-size: 0; margin-inline-end: 0; }
 .qm-root.qm-settings .setting-item-name { color: var(--qm-text); font-size: 15px; line-height: 1.5; font-weight: 500; }
@@ -844,7 +841,7 @@
 .qm-root.qm-settings .setting-item-heading .setting-item-name { font-size: 16px; font-weight: 600; }
 .qm-root.qm-settings .setting-item-control { flex: 0 1 300px; flex-wrap: wrap; justify-content: flex-end; gap: 8px; min-inline-size: 0; max-inline-size: 340px; }
 .qm-root.qm-settings .setting-item-control :is(input:not([type="checkbox"]):not([type="range"]), select) { width: 100%; min-inline-size: 0; }
-.qm-root.qm-settings .setting-item-control input:not([type="checkbox"]):not([type="range"]) { background-color: var(--qm-surface) !important; color: var(--qm-text); }
+.qm-root.qm-settings .setting-item-control input:not([type="checkbox"]):not([type="range"]) { background-color: var(--qm-surface); color: var(--qm-text); }
 .qm-root.qm-settings .qm-settings-group { min-inline-size: 0; margin-block: 0 20px; }
 .qm-root.qm-settings .qm-settings-group .setting-item-heading:first-child { padding-block-start: 4px; }
 .qm-root.qm-settings .qm-settings-group > :last-child.setting-item { border-block-end: 0; }
@@ -852,7 +849,7 @@
 .qm-root.qm-settings .qm-settings-advanced { margin-block: 12px; padding-block: 4px; border-block-start: 1px solid var(--qm-border); }
 .qm-root.qm-settings .qm-settings-advanced > summary { color: var(--qm-muted); font-size: 13px; }
 .qm-root.qm-settings .qm-settings-advanced[open] > summary { color: var(--qm-text); }
-.qm-root.qm-settings .setting-item:has(> .qm-settings-field-error) { flex-wrap: wrap; }
+.qm-root.qm-settings .setting-item.qm-setting-with-error { flex-wrap: wrap; }
 .qm-root.qm-settings .qm-settings-field-error { flex: 1 0 100%; grid-column: 1 / -1; margin-block: 6px 0; color: var(--qm-danger); font-size: 13px; line-height: 1.55; }
 .qm-root.qm-settings .qm-settings-field-error:empty { display: none; }
 .qm-root.qm-settings .qm-settings-actions .setting-item-control { flex-basis: auto; flex-wrap: wrap; }
@@ -863,15 +860,14 @@
 .qm-root.qm-settings .qm-settings-save { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .qm-root.qm-settings .qm-settings-save > p { flex: 1 1 24ch; }
 .qm-root.qm-settings .qm-settings-version { margin-block: 20px 0; color: var(--qm-muted); font-size: 12px; }
-.qm-root.qm-settings [hidden] { display: none !important; }
 
 /* One local model finder replaces a long account-model dropdown. */
-.qm-root.qm-settings .qm-model-setting .setting-item-control { flex: 1 1 340px; align-items: stretch; flex-wrap: nowrap; }
-.qm-root.qm-settings .qm-model-setting .setting-item-control > input { flex: 1 1 160px; width: auto; min-inline-size: 0; }
-.qm-root.qm-settings .qm-model-setting .setting-item-control > button { flex: 0 0 auto; min-inline-size: 44px; }
+.qm-root.qm-settings .qm-model-setting .setting-item-control { flex: 1 1 340px; align-items: stretch; flex-wrap: wrap; }
+.qm-root.qm-settings .qm-model-setting .setting-item-control > input:not([type="checkbox"]) { flex: 1 0 100%; width: 100%; min-inline-size: 0; }
+.qm-root.qm-settings .qm-model-setting .setting-item-control > button { flex: 1 0 auto; min-inline-size: 44px; white-space: nowrap; }
 .qm-root.qm-settings .qm-model-finder { display: grid; gap: 10px; min-inline-size: 0; margin-block: 0 18px; }
 .qm-root.qm-settings .qm-model-search { display: flex; align-items: stretch; gap: 8px; min-inline-size: 0; }
-.qm-root.qm-settings .qm-model-search > input { flex: 1 1 160px; width: 100%; min-inline-size: 0; background-color: var(--qm-surface) !important; }
+.qm-root.qm-settings .qm-model-search > input { flex: 1 1 160px; width: 100%; min-inline-size: 0; background-color: var(--qm-surface); }
 .qm-root.qm-settings .qm-model-search > button { flex: 0 0 auto; min-inline-size: 80px; white-space: nowrap; }
 .qm-root.qm-settings .qm-model-results { display: grid; gap: 0; min-inline-size: 0; max-block-size: 280px; margin: 0; padding: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; border: 1px solid var(--qm-control-border); border-radius: var(--qm-radius-sm); background: var(--qm-bg); list-style: none; }
 .qm-root.qm-settings .qm-model-results:empty { display: none; }
@@ -896,8 +892,6 @@
   .qm-root.qm-settings .setting-item-control :is(input:not([type="checkbox"]), select) { flex: 1; min-inline-size: 0; }
   .qm-root.qm-settings .qm-settings-actions button { flex: 1; }
   .qm-root.qm-settings .qm-model-setting .setting-item-control { flex: 0 1 auto; }
-  .qm-root.qm-settings .qm-model-setting .setting-item-control > input { flex: 1 1 120px; width: auto; }
-  .qm-root.qm-settings .qm-model-setting .setting-item-control > button { flex: 0 0 auto; }
   .qm-root.qm-settings .qm-model-results { max-block-size: 224px; }
 }
 @container qm-settings (max-width: 330px) {
@@ -914,14 +908,14 @@
   --qm-callout-answer: #f7f9fd;
   --qm-callout-border: #a9c2ec;
   --qm-callout-code: #e4edfb;
-  margin-block: 16px !important;
-  padding: 16px 18px !important;
-  border: 1px solid var(--qm-callout-border) !important;
-  border-inline-start: 3px solid var(--qm-callout-accent) !important;
-  border-radius: 10px !important;
-  color: var(--qm-callout-text) !important;
-  background: var(--qm-callout-surface) !important;
-  box-shadow: none !important;
+  margin-block: 16px;
+  padding: 16px 18px;
+  border: 1px solid var(--qm-callout-border);
+  border-inline-start: 3px solid var(--qm-callout-accent);
+  border-radius: 10px;
+  color: var(--qm-callout-text);
+  background: var(--qm-callout-surface);
+  box-shadow: none;
   overflow-wrap: anywhere;
 }
 .theme-dark .callout[data-callout="question"][data-callout-metadata~="qm-quiz"] {
@@ -934,17 +928,17 @@
   --qm-callout-code: #0e192c;
 }
 .callout[data-callout="question"][data-callout-metadata~="qm-quiz"] .callout-title {
-  display: flex !important;
+  display: flex;
   align-items: flex-start;
   gap: 9px;
   margin: 0;
   padding: 0;
   border: 0;
-  color: var(--qm-callout-text) !important;
-  background: transparent !important;
+  color: var(--qm-callout-text);
+  background: transparent;
   line-height: 1.6;
 }
-.callout[data-callout="question"][data-callout-metadata~="qm-quiz"] .callout-icon { display: flex; flex: 0 0 auto; align-self: flex-start; margin-block-start: 3px; color: var(--qm-callout-accent) !important; }
+.callout[data-callout="question"][data-callout-metadata~="qm-quiz"] .callout-icon { display: flex; flex: 0 0 auto; align-self: flex-start; margin-block-start: 3px; color: var(--qm-callout-accent); }
 .callout[data-callout="question"][data-callout-metadata~="qm-quiz"] .callout-icon svg { width: 18px; height: 18px; }
 .callout[data-callout="question"][data-callout-metadata~="qm-quiz"] .callout-title-inner { flex: 1; min-inline-size: 0; margin: 0; padding: 0; color: inherit; font-size: var(--font-text-size, 16px); font-weight: 600; line-height: 1.6; }
 .callout[data-callout="question"][data-callout-metadata~="qm-quiz"] .callout-title-inner > :is(p, ol, ul) { margin-block: 0; }
@@ -952,21 +946,21 @@
 .callout[data-callout="question"][data-callout-metadata~="qm-quiz"] > .callout-content { margin-block-start: 12px; padding: 0; color: var(--qm-callout-text); line-height: 1.65; }
 .callout[data-callout="question"][data-callout-metadata~="qm-quiz"] .callout[data-callout="success"] {
   --callout-color: inherit;
-  margin-block: 14px 0 !important;
-  padding: 0 !important;
-  border: 1px solid var(--qm-callout-border) !important;
-  border-radius: 7px !important;
-  color: var(--qm-callout-text) !important;
-  background: var(--qm-callout-answer) !important;
-  box-shadow: none !important;
+  margin-block: 14px 0;
+  padding: 0;
+  border: 1px solid var(--qm-callout-border);
+  border-radius: 7px;
+  color: var(--qm-callout-text);
+  background: var(--qm-callout-answer);
+  box-shadow: none;
 }
-.callout[data-callout="question"][data-callout-metadata~="qm-quiz"] .callout[data-callout="success"] > .callout-title { align-items: center; min-block-size: 44px; padding: 10px 12px; color: var(--qm-callout-accent) !important; cursor: pointer; }
+.callout[data-callout="question"][data-callout-metadata~="qm-quiz"] .callout[data-callout="success"] > .callout-title { align-items: center; min-block-size: 44px; padding: 10px 12px; color: var(--qm-callout-accent); cursor: pointer; }
 .callout[data-callout="question"][data-callout-metadata~="qm-quiz"] .callout[data-callout="success"] .callout-title-inner { font-size: 14px; }
 .callout[data-callout="question"][data-callout-metadata~="qm-quiz"] .callout[data-callout="success"] > .callout-content { margin: 0; padding: 12px; border-block-start: 1px solid var(--qm-callout-border); }
-.callout[data-callout="question"][data-callout-metadata~="qm-quiz"] .callout-fold { display: flex; align-items: center; margin-inline-start: auto; color: var(--qm-callout-accent) !important; }
-.callout[data-callout="question"][data-callout-metadata~="qm-quiz"] pre { max-inline-size: 100%; overflow-x: auto; border: 1px solid var(--qm-callout-border); border-radius: 6px; background: var(--qm-callout-code) !important; }
+.callout[data-callout="question"][data-callout-metadata~="qm-quiz"] .callout-fold { display: flex; align-items: center; margin-inline-start: auto; color: var(--qm-callout-accent); }
+.callout[data-callout="question"][data-callout-metadata~="qm-quiz"] pre { max-inline-size: 100%; overflow-x: auto; border: 1px solid var(--qm-callout-border); border-radius: 6px; background: var(--qm-callout-code); }
 @media (max-width: 600px) {
-  .callout[data-callout="question"][data-callout-metadata~="qm-quiz"] { padding: 14px !important; }
+  .callout[data-callout="question"][data-callout-metadata~="qm-quiz"] { padding: 14px; }
 }
 @media (forced-colors: active) {
   .callout[data-callout="question"][data-callout-metadata~="qm-quiz"],
@@ -1055,3 +1049,7 @@
   .qm-root :is(.qm-session-grid, .qm-results-grid, .qm-studio-bottom) { display: block; }
   .qm-root :is(.qm-result-list, .qm-editor-outline) { max-block-size: none; overflow: visible; }
 }
+
+/* Semantic visibility comes after component display rules. The repeated root
+   class gives this guard the same scope weight as the most specific layouts. */
+.qm-root[hidden], .qm-root.qm-root [hidden] { display: none; }

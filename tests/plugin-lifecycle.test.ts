@@ -110,7 +110,7 @@ function feedbackDocument(): Document {
   }) as unknown as Document;
 }
 
-test("one default command keeps every former command available through a live opt-in", async () => {
+test("two default commands keep former actions available through a live opt-in", async () => {
   const originalDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
   Object.defineProperty(globalThis, "document", { configurable: true, value: feedbackDocument() });
   const app = new App();
@@ -132,16 +132,17 @@ test("one default command keeps every former command available through a live op
     await app.workspace.getLeaf().openFile(note);
     const commands = Reflect.get(plugin, "commands") as Command[];
     const visible = () => commands.filter(command => !command.checkCallback || command.checkCallback(true));
-    assert.deepEqual(visible().map(command => [command.id, command.name]), [["open-studio", "Open"]]);
+    assert.deepEqual(visible().map(command => [command.id, command.name]), [["open-studio", "Open"], ["quick-quiz", "Quick quiz"]]);
     const formerIds = ["generate-quiz", "new-quiz", "import-quiz", "open-mini-view", "resume-quiz", "open-active-json", "open-quiz-from-note", "make-quiz-readable"];
-    assert.deepEqual(commands.filter(command => command.id !== "open-studio").map(command => command.id).sort(), formerIds.sort());
+    assert.deepEqual(commands.filter(command => !["open-studio", "quick-quiz"].includes(command.id)).map(command => command.id).sort(), formerIds.sort());
     plugin.settings.extraCommands = true;
-    assert.deepEqual(visible().map(command => command.id).sort(), ["open-studio", "generate-quiz", "new-quiz", "import-quiz", "open-mini-view", "open-quiz-from-note", "make-quiz-readable"].sort());
+    assert.deepEqual(visible().map(command => command.id).sort(), ["open-studio", "quick-quiz", "generate-quiz", "new-quiz", "import-quiz", "open-mini-view", "open-quiz-from-note", "make-quiz-readable"].sort());
     plugin.store.getActiveSession = () => createSession(quiz);
     assert.ok(visible().some(command => command.id === "resume-quiz"));
     await app.workspace.getLeaf().openFile(json);
     assert.ok(visible().some(command => command.id === "open-active-json"));
     assert.ok(!visible().some(command => command.id === "open-quiz-from-note"));
+    assert.ok(!visible().some(command => command.id === "quick-quiz"), "quick creation requires an active Markdown note");
     assert.equal(actions, 0, "checking command visibility must never invoke its action");
     assert.equal(reads, 0, "checking command visibility must never read note contents");
     await app.workspace.getLeaf().openFile(note);
@@ -150,7 +151,7 @@ test("one default command keeps every former command available through a live op
     assert.equal(actions, 1);
     assert.equal(reads, 1);
     plugin.settings.extraCommands = false;
-    assert.deepEqual(visible().map(command => command.id), ["open-studio"]);
+    assert.deepEqual(visible().map(command => command.id), ["open-studio", "quick-quiz"]);
     assert.equal(commands.find(command => command.id === "new-quiz")?.checkCallback?.(false), false);
     assert.equal(actions, 1, "disabled command actions must remain unavailable to old hotkeys");
     plugin.openCurrentQuiz();
@@ -160,6 +161,15 @@ test("one default command keeps every former command available through a live op
     plugin.openCurrentQuiz();
     await new Promise<void>(resolve => setImmediate(resolve));
     assert.equal(actions, 3, "the hub also opens active JSON quizzes");
+    await app.workspace.getLeaf().openFile(note);
+    let chosenPreset: string | undefined;
+    plugin.openGenerator = preset => { chosenPreset = preset; actions++; };
+    plugin.settings.defaultPreset = "exam-prep";
+    const readsBeforeQuickQuiz = reads;
+    assert.equal(commands.find(command => command.id === "quick-quiz")?.checkCallback?.(false), true);
+    assert.equal(chosenPreset, "exam-prep");
+    assert.equal(actions, 4);
+    assert.equal(reads, readsBeforeQuickQuiz, "quick creation opens setup without reading source content");
   } finally {
     plugin.onunload();
     if (originalDocument) Object.defineProperty(globalThis, "document", originalDocument);

@@ -157,6 +157,7 @@ async function settle(): Promise<void> { await Promise.resolve(); await Promise.
 async function settingsHarness(options: {
   list?: (provider: string, config: { apiKey: string; model: string; baseUrl: string }, options: { signal?: AbortSignal; refresh?: boolean }) => Promise<Array<{ id: string; name: string; provider: "google" }>>;
   save?: () => Promise<void>;
+  test?: (provider: string, config: { apiKey: string; model: string; baseUrl: string }, signal?: AbortSignal) => Promise<void>;
 } = {}) {
   const { Setting, App } = await import("obsidian");
   const { QuizMakerSettingsTab } = await import("../src/settings");
@@ -180,7 +181,7 @@ async function settingsHarness(options: {
   const settings = normalizeSettings({ providers: { google: { apiKey: "fixture-key", model: "manual-model" } } });
   const context = {
     app: new App(), settings, pluginVersion: "1.2.0",
-    models: { clear() {}, list: options.list ?? (async () => []), test: async () => { throw new Error("Connection tests are not part of this interface."); } },
+    models: { clear() {}, list: options.list ?? (async () => []), test: options.test ?? (async () => { throw new Error("Unexpected connection test."); }) },
     saveSettings: options.save ?? (async () => {}), showNotice() {}
   };
   const tab = new QuizMakerSettingsTab(context.app, context as never);
@@ -199,6 +200,149 @@ async function settingsHarness(options: {
     }
   };
 }
+
+type NativeDefinition = ReturnType<import("../src/settings").QuizMakerSettingsTab["getSettingDefinitions"]>[number];
+type NativeRow = Extract<NativeDefinition, { render: unknown }>;
+function indexedSettings(definitions: NativeDefinition[], path: string[] = []): Array<{ path: string[]; row: NativeRow }> {
+  return definitions.flatMap(definition => "render" in definition ? [{ path, row: definition }]
+    : indexedSettings(definition.items, "name" in definition ? [...path, definition.name] : path));
+}
+
+test("declarative indexing exposes every setting with navigation paths and never inspects or requests model data", async () => {
+  let requests = 0;
+  let saves = 0;
+  const harness = await settingsHarness({ list: async () => { requests++; return []; }, save: async () => { saves++; } });
+  try {
+    const before = elements(harness.tab.containerEl);
+    const definitions = harness.tab.getSettingDefinitions();
+    const entries = indexedSettings(definitions);
+    assert.deepEqual(definitions.map(definition => "name" in definition ? definition.name : ""), ["General", "Models", "Quizzes"]);
+    assert.deepEqual(entries.map(entry => entry.row.name), [
+      "Theme", "Motion", "Study sounds", "Extra commands", "Provider", "API key", "Model ID", "Endpoint", "Language", "Study pack", "Format", "Notes folder"
+    ]);
+    const pathFor = (name: string) => entries.find(entry => entry.row.name === name)!.path;
+    assert.deepEqual(pathFor("Theme"), ["General"]);
+    assert.deepEqual(pathFor("Extra commands"), ["General", "More options"]);
+    assert.deepEqual(pathFor("Model ID"), ["Models"]);
+    assert.deepEqual(pathFor("Endpoint"), ["Models", "Advanced connection"]);
+    assert.deepEqual(pathFor("Notes folder"), ["Quizzes"]);
+    assert.ok(entries.find(entry => entry.row.name === "Model ID")!.row.aliases?.includes("find models"));
+    assert.ok(entries.find(entry => entry.row.name === "Format")!.row.aliases?.includes("spaced repetition"));
+    assert.equal(JSON.stringify(definitions).includes("fixture-key"), false);
+    assert.equal(JSON.stringify(definitions).includes("manual-model"), false);
+    assert.deepEqual(elements(harness.tab.containerEl), before, "registration only returns metadata and callbacks");
+    assert.equal(requests, 0);
+    assert.equal(saves, 0);
+    harness.settings.provider = "ollama";
+    assert.equal(indexedSettings(harness.tab.getSettingDefinitions()).some(entry => entry.row.name === "API key"), false);
+  } finally { harness.close(); }
+});
+
+test("a search-rendered setting uses the same validated field and recoverable save path as legacy tabs", async () => {
+  const { Setting } = await import("obsidian");
+  let fail = true;
+  let saves = 0;
+  const harness = await settingsHarness({ save: async () => { saves++; if (fail) throw new Error("EACCES fixture-private"); } });
+  const flush = harness.tab as unknown as { flushSettings(): Promise<void> };
+  try {
+    const entries = indexedSettings(harness.tab.getSettingDefinitions());
+    const folder = entries.find(entry => entry.row.name === "Notes folder")!.row;
+    harness.tab.containerEl.replaceChildren();
+    const setting = new Setting(harness.tab.containerEl).setName(folder.name);
+    const cleanup = folder.render(setting);
+    const control = harness.groups.get("Notes folder")!.at(-1)!;
+    assert.equal(control.inputEl.getAttribute("aria-label"), "Notes folder");
+    control.change!("../outside");
+    assert.equal(harness.settings.saveFolder, "Quizzes");
+    await flush.flushSettings();
+    assert.equal(saves, 0, "invalid search-result edits never reach persistence");
+    control.change!("Review/Exam");
+    assert.equal(harness.settings.saveFolder, "Review/Exam");
+    await flush.flushSettings();
+    assert.equal(saves, 1);
+    const retry = elements(harness.tab.containerEl).find(element => element.textContent === "Retry saving")!;
+    assert.ok(retry);
+    assert.doesNotMatch(elements(harness.tab.containerEl).map(element => element.textContent).join(" "), /fixture-private/);
+    fail = false;
+    activate(retry);
+    await settle();
+    assert.equal(saves, 2);
+    assert.equal(elements(harness.tab.containerEl).some(element => element.textContent === "Retry saving"), false);
+    cleanup?.();
+  } finally { harness.close(); }
+});
+
+test("native settings feedback waits for host groups and cannot mount after navigation or hiding", async () => {
+  const { Setting } = await import("obsidian");
+  const harness = await settingsHarness();
+  try {
+    const entries = indexedSettings(harness.tab.getSettingDefinitions());
+    const theme = entries.find(entry => entry.row.name === "Theme")!.row;
+    const motion = entries.find(entry => entry.row.name === "Motion")!.row;
+    const container = harness.tab.containerEl;
+    container.replaceChildren();
+    const appearance = container.createDiv({ cls: "native-appearance" });
+    const cleanupTheme = theme.render(new Setting(appearance).setName(theme.name));
+    const cleanupMotion = motion.render(new Setting(appearance).setName(motion.name));
+    container.createDiv({ cls: "native-playback" });
+    assert.equal(elements(container).some(element => element.className === "qm-settings-version"), false);
+    await settle();
+    assert.equal(container.children[1].className, "native-playback");
+    assert.equal(container.children[2].className, "qm-settings-save");
+    assert.equal(container.children[3].className, "qm-settings-version");
+    assert.equal(elements(container).filter(element => element.className === "qm-settings-version").length, 1);
+    cleanupTheme?.();
+    cleanupMotion?.();
+    container.replaceChildren();
+    const cleanupPending = theme.render(new Setting(container).setName(theme.name));
+    cleanupPending?.();
+    await settle();
+    assert.equal(elements(container).some(element => element.className === "qm-settings-version"), false, "torn-down renders cannot append stale feedback");
+    theme.render(new Setting(container).setName(theme.name));
+    harness.tab.hide();
+    await settle();
+    assert.equal(elements(container).some(element => element.className === "qm-settings-version"), false, "hidden settings cancel queued mounting");
+  } finally { harness.close(); }
+});
+
+test("declarative model rows refresh native definitions and release pending discovery on navigation", async () => {
+  const { Setting } = await import("obsidian");
+  let signal: AbortSignal | undefined;
+  let reply: ((models: Array<{ id: string; name: string; provider: "google" }>) => void) | undefined;
+  let updates = 0;
+  const harness = await settingsHarness({ list: async (_provider, _config, options) => {
+    signal = options.signal;
+    return await new Promise(resolve => { reply = resolve; });
+  } });
+  try {
+    Object.defineProperty(harness.tab, "update", { configurable: true, value: () => { updates++; } });
+    const entries = indexedSettings(harness.tab.getSettingDefinitions());
+    harness.tab.containerEl.replaceChildren();
+    const mount = (name: string) => {
+      const row = entries.find(entry => entry.row.name === name)!.row;
+      return row.render(new Setting(harness.tab.containerEl).setName(row.name));
+    };
+    mount("Provider");
+    mount("API key");
+    const cleanup = mount("Model ID");
+    const controls = harness.groups.get("Model ID")!;
+    controls.find(control => control.buttonEl.textContent === "Find models")!.click!();
+    assert.equal(signal?.aborted, false);
+    cleanup?.();
+    assert.equal(signal?.aborted, true, "native navigation invokes the real render cleanup");
+    reply!([{ id: "late-native-model", name: "Late", provider: "google" }]);
+    await settle();
+    assert.equal(elements(harness.tab.containerEl).some(element => element.className === "qm-model-result"), false);
+    harness.groups.get("Provider")!.at(-1)!.change!("ollama");
+    assert.equal(updates, 1, "modern changes use the host update API rather than legacy display");
+    assert.equal(harness.settings.provider, "ollama");
+    assert.equal(indexedSettings(harness.tab.getSettingDefinitions()).some(entry => entry.row.name === "API key"), false);
+    const endpoint = indexedSettings(harness.tab.getSettingDefinitions()).find(entry => entry.row.name === "Endpoint")!.row;
+    endpoint.render(new Setting(harness.tab.containerEl).setName(endpoint.name));
+    harness.groups.get("Endpoint")!.at(-1)!.change!("http://public.example/v1");
+    assert.equal(harness.settings.providers.ollama.baseUrl, "http://localhost:11434");
+  } finally { harness.close(); }
+});
 
 test("three settings tabs keep quiz defaults together and keyboard navigation wraps correctly", async () => {
   const harness = await settingsHarness();
@@ -299,7 +443,7 @@ test("model finder validates fields, searches locally, ignores cancelled replies
     assert.equal(key.inputEl.type, "password");
     assert.equal(key.inputEl.getAttribute("value"), null);
     assert.equal(groups.has("Available models"), false, "there is no duplicate model dropdown");
-    assert.equal(groups.has("Connection"), false, "there is no redundant connection test");
+    assert.equal(groups.has("Connection"), false, "connection actions share the model row");
     key.change!("invalid key");
     assert.equal(find.buttonEl.disabled, true);
     find.click!();
@@ -377,6 +521,54 @@ test("model metadata errors have an explicit retry without clearing the selected
     assert.deepEqual(refreshFlags, [false, true]);
     assert.equal(status.dataset.state, "empty");
     assert.equal(harness.settings.providers.google.model, "manual-model");
+  } finally { harness.close(); }
+});
+
+test("connection testing is explicit, cancellable metadata access and never blocks manual model IDs", async () => {
+  let checks = 0;
+  let signal: AbortSignal | undefined;
+  let resolveCheck: (() => void) | undefined;
+  const harness = await settingsHarness({ test: async (_provider, _config, nextSignal) => {
+    checks++;
+    signal = nextSignal;
+    if (checks === 3) throw new Error("fixture-private-connection-error");
+    return await new Promise<void>(resolve => { resolveCheck = resolve; });
+  } });
+  try {
+    harness.section("Models");
+    const controls = harness.groups.get("Model ID")!;
+    const check = controls.find(control => control.buttonEl.textContent === "Test connection")!;
+    const find = controls.find(control => control.buttonEl.textContent === "Find models")!;
+    const cancel = controls.find(control => control.buttonEl.textContent === "Cancel")!;
+    const manual = controls[0];
+    const key = harness.groups.get("API key")![0];
+    key.change!("invalid key");
+    assert.equal(check.buttonEl.disabled, true);
+    check.click!();
+    assert.equal(checks, 0);
+    key.change!("safe-fixture");
+    check.click!();
+    assert.equal(check.buttonEl.disabled, true);
+    assert.equal(find.buttonEl.disabled, true);
+    cancel.click!();
+    assert.equal(signal?.aborted, true);
+    resolveCheck!();
+    await settle();
+    const status = elements(harness.tab.containerEl).find(element => element.className === "qm-model-status")!;
+    assert.equal(status.textContent, "Cancelled.");
+    check.click!();
+    resolveCheck!();
+    await settle();
+    assert.match(status.textContent ?? "", /metadata is reachable/);
+    assert.match(status.textContent ?? "", /Generation access depends/);
+    assert.equal(harness.settings.providers.google.model, "manual-model");
+    check.click!();
+    await settle();
+    assert.equal(status.dataset.state, "error");
+    assert.doesNotMatch(status.textContent ?? "", /fixture-private/);
+    assert.equal(check.buttonEl.disabled, false);
+    manual.change!("manual-after-error");
+    assert.equal(harness.settings.providers.google.model, "manual-after-error");
   } finally { harness.close(); }
 });
 

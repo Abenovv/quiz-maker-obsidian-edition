@@ -1,10 +1,10 @@
 {
-	"id": "quiz-maker",
-	"name": "Quiz maker",
-  "version": "1.2.2",
-	"minAppVersion": "1.8.7",
-	"description": "Create quizzes from your notes, choose study presets, and practice with timers, flashcards, and readable answers.",
-	"author": "Yerkebulan Abenov",
-	"authorUrl": "https://github.com/Abenovv/quiz-maker-obsidian-edition",
-	"isDesktopOnly": false
+  "id": "quiz-maker",
+  "name": "Quiz maker",
+  "version": "1.2.3",
+  "minAppVersion": "1.8.7",
+  "description": "Create quizzes from your notes, choose study presets, and practice with timers, flashcards, and readable answers.",
+  "author": "Yerkebulan Abenov",
+  "authorUrl": "https://github.com/Abenovv",
+  "isDesktopOnly": false
 }

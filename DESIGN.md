@@ -33,7 +33,7 @@ Session setup uses a mode selector with one description. Timing stays beside it;
 
 The mini view shares the same session and controls at 280px. Its navigation uses two compact labelled buttons and a pause icon. Results, finishing, and error recovery stay in the same panel. Native settings use container queries so fields stack inside a narrow settings pane even when the overall window is wide.
 
-Settings use three tabs: General, Models, and Quizzes. Keep these in one balanced row, including narrow panes. Less-used command shortcuts sit in More options. The model setting keeps one editable ID and opens an inline finder on request. Search and refresh share a row; results use a bounded list with one clear selected state. Long IDs wrap within their option. Keep status and errors next to the finder, show only useful metadata, and avoid a second connection test or another model dropdown. At narrow settings widths, the list is shorter.
+Settings use three sections: General, Models, and Quizzes. Obsidian 1.13 and later renders searchable native pages; earlier versions retain the three tabs. Keep these in one balanced row, including narrow panes. Less-used command shortcuts sit in More options. The model setting keeps one editable ID and opens an inline finder on request. Search and refresh share a row; results use a bounded list with one clear selected state. Long IDs wrap within their option. Keep status and errors next to the finder, show only useful metadata, and keep a metadata-only connection test beside the finder. Manual model IDs remain available when discovery fails. At narrow settings widths, the list is shorter.
 
 At 600px and below, dialogs use the available width and respect safe areas. At 380px and below, packs form one column and footer groups wrap. Inputs use 16px text on narrow screens to avoid mobile browser zoom. Long text and JSON must not widen their container.
 
@@ -42,3 +42,5 @@ At 600px and below, dialogs use the available width and respect safe areas. At 3
 Use 140ms control transitions and a 160ms entrance for questions and revealed answers. Animate opacity and transforms, never layout dimensions or timer digits. Both system reduced motion and the plugin setting suppress animation. There is no continuous background animation.
 
 Check all four appearances, keyboard focus, long prompts, code, errors, empty states, settings panes, mini view, forced colors, and widths of 280, 320, 390, 768px and desktop. Documentation screenshots must show the installed plugin with public demo content.
+
+Quick quiz is a default command alongside Open. It opens the active Markdown note with the saved study pack, without reading or sending its content until Generate. Other commands stay optional. Source selection browses only the current folder and folders the user opens; it does not build a vault-wide path index.

@@ -85,6 +85,17 @@ test("Ollama documented API bases do not duplicate the API path", async () => {
   assert.equal(resolveBaseUrl("openai", "https://proxy.example.test/api"), "https://proxy.example.test/api");
 });
 
+test("official provider root URLs use native API versions without changing custom proxy roots", async () => {
+  for (const provider of Object.keys(DEFAULT_BASE_URLS) as Provider[]) {
+    const official = new URL(DEFAULT_BASE_URLS[provider]);
+    assert.equal(resolveBaseUrl(provider, official.origin + "/"), DEFAULT_BASE_URLS[provider]);
+    assert.equal(resolveBaseUrl(provider, "https://proxy.example.test/"), "https://proxy.example.test");
+  }
+  const fixture = mock({ candidates: [{ content: { parts: [{ text: quizText }] }, finishReason: "STOP" }] });
+  await generateText(config("google", { baseUrl: "https://generativelanguage.googleapis.com" }), messages, undefined, fixture.http);
+  assert.equal(fixture.calls[0].url, "https://generativelanguage.googleapis.com/v1beta/models/fixture-model:generateContent");
+});
+
 test("custom proxy paths are retained and default to compatible chat", async () => {
   const fixture = mock({ choices: [{ message: { content: quizText }, finish_reason: "stop" }] });
   await generateText(config("openai", { baseUrl: "https://proxy.example/api/v1/" }), messages, undefined, fixture.http);

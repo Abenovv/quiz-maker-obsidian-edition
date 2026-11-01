@@ -98,14 +98,15 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_VERSION: ${{ steps.version.outputs.value }}
           RELEASE_COMMIT: ${{ github.sha }}
-          ATTESTATION_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+          ATTESTATION_URL: ${{ steps.provenance.outputs.attestation-url }}
         shell: bash
         run: |
           set -euo pipefail
-          cp "$ATTESTATION_BUNDLE" attestation.json
           node scripts/release-notes.mjs "$RELEASE_VERSION" > "$RUNNER_TEMP/quiz-maker-release-notes.md"
-          gh release create "$RELEASE_VERSION" main.js manifest.json styles.css SHA256SUMS attestation.json \
+          gh release create "$RELEASE_VERSION" main.js manifest.json styles.css \
             --target "$RELEASE_COMMIT" \
             --title "Quiz maker $RELEASE_VERSION" \
             --notes-file "$RUNNER_TEMP/quiz-maker-release-notes.md" \
             --latest
+          assets="$(gh release view "$RELEASE_VERSION" --json assets --jq '.assets | map(.name) | sort | join(" ")')"
+          test "$assets" = "main.js manifest.json styles.css"

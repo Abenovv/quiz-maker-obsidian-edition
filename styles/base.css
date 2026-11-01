@@ -142,9 +142,6 @@
 .qm-root *::before,
 .qm-root *::after { box-sizing: border-box; }
 
-/* Keep semantic visibility stronger than the host's button/layout rules. */
-.qm-root[hidden], .qm-root [hidden] { display: none !important; }
-
 .qm-root.qm-modal {
   display: flex;
   flex-direction: column;
@@ -217,8 +214,7 @@
 .qm-root .qm-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qm-root .qm-wrap { min-width: 0; overflow-wrap: anywhere; }
 
-.qm-root a { color: var(--qm-link); text-decoration-thickness: 1px; text-underline-offset: 3px; }
-.qm-root a:hover { text-decoration-thickness: 2px; }
+.qm-root a { color: var(--qm-link); text-decoration: underline; }
 
 .qm-root button,
 .qm-root .qm-button {
@@ -292,12 +288,13 @@
 
 /* A native arrow avoids host SVG backgrounds repeating after form resets.
    These scoped overrides also cover newer Obsidian dropdown selectors. */
-.qm-root select:not([multiple]) {
-  appearance: auto !important;
-  -webkit-appearance: auto !important;
-  background-image: none !important;
+.qm-root select:not([multiple]),
+.qm-root select.dropdown:not([multiple]) {
+  appearance: auto;
+  -webkit-appearance: auto;
+  background-image: none;
   background-repeat: no-repeat;
-  background-color: var(--qm-surface) !important;
+  background-color: var(--qm-surface);
   color: var(--qm-text);
   padding-inline-end: 28px;
 }
@@ -354,14 +351,14 @@
 .qm-root progress::-moz-progress-bar { border-radius: inherit; background: var(--qm-accent); }
 .qm-root .qm-panel { min-width: 0; padding: 20px; border: 1px solid var(--qm-border); border-radius: var(--qm-radius-md); background: var(--qm-surface); }
 .qm-root .qm-separator { border: 0; border-top: 1px solid var(--qm-border); }
-.qm-root :is(.qm-visually-hidden, .qm-sr-only) { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.qm-root :is(.qm-visually-hidden, .qm-sr-only) { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
 @media (prefers-reduced-motion: no-preference) {
-  .qm-root:not([data-motion="reduced"]) :is(button, .qm-button, a, input, select, textarea, summary) {
+  .qm-root:not([data-motion="reduced"]):not([data-qm-motion="reduced"]) :is(button, .qm-button, a, input, select, textarea, summary) {
     transition: color var(--qm-duration) var(--qm-easing), background-color var(--qm-duration) var(--qm-easing), border-color var(--qm-duration) var(--qm-easing), transform var(--qm-duration) var(--qm-easing);
   }
-  .qm-root:not([data-motion="reduced"]) :is(button, .qm-button):active:not(:disabled):not([aria-disabled="true"]) { transform: translateY(1px); }
-  .qm-root:not([data-motion="reduced"]) .qm-enter { animation: qm-enter 160ms var(--qm-easing) both; }
+  .qm-root:not([data-motion="reduced"]):not([data-qm-motion="reduced"]) :is(button, .qm-button):active:not(:disabled):not([aria-disabled="true"]) { transform: translateY(1px); }
+  .qm-root:not([data-motion="reduced"]):not([data-qm-motion="reduced"]) .qm-enter { animation: qm-enter 160ms var(--qm-easing) both; }
 }
 
 @keyframes qm-enter {
@@ -369,25 +366,25 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
-.qm-root[data-motion="reduced"],
-.qm-root[data-motion="reduced"] *,
-.qm-root[data-motion="reduced"] *::before,
-.qm-root[data-motion="reduced"] *::after {
-  animation-duration: .01ms !important;
-  animation-iteration-count: 1 !important;
-  transition-duration: .01ms !important;
-  scroll-behavior: auto !important;
+.qm-root:is([data-motion="reduced"], [data-qm-motion="reduced"]),
+.qm-root:is([data-motion="reduced"], [data-qm-motion="reduced"]) *,
+.qm-root:is([data-motion="reduced"], [data-qm-motion="reduced"]) *::before,
+.qm-root:is([data-motion="reduced"], [data-qm-motion="reduced"]) *::after {
+  animation-duration: .01ms;
+  animation-iteration-count: 1;
+  transition-duration: .01ms;
+  scroll-behavior: auto;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .qm-root,
-  .qm-root *,
-  .qm-root *::before,
-  .qm-root *::after {
-    animation-duration: .01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: .01ms !important;
-    scroll-behavior: auto !important;
+  .qm-root.qm-root,
+  .qm-root.qm-root *,
+  .qm-root.qm-root *::before,
+  .qm-root.qm-root *::after {
+    animation-duration: .01ms;
+    animation-iteration-count: 1;
+    transition-duration: .01ms;
+    scroll-behavior: auto;
   }
 }
 
@@ -444,5 +441,5 @@
   .qm-root.qm-modal { width: 100%; max-width: none; max-height: none; padding: 0; border: 0; box-shadow: none; }
   .qm-root.qm-modal > .modal-content { overflow: visible; }
   .qm-root :is(button, .qm-button, .qm-no-print) { display: none; }
-  .qm-root :is(pre, article, .qm-panel) { break-inside: avoid; }
+  .qm-root :is(pre, article, .qm-panel) { page-break-inside: avoid; }
 }

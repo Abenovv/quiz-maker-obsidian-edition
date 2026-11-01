@@ -13,6 +13,7 @@ const packageInfo = JSON.parse(readFileSync("package.json", "utf8"));
 assert.ok(manifest.id === "quiz-maker", "Unexpected plugin ID.");
 assert.ok(manifest.name === "Quiz maker", "Unexpected display name.");
 assert.ok(manifest.author === "Yerkebulan Abenov", "Unexpected maintainer name.");
+assert.equal(manifest.authorUrl, "https://github.com/Abenovv", "Link the maintainer profile, not this plugin repository.");
 assert.ok(/^\d+\.\d+\.\d+$/.test(manifest.version), "Use a semantic release version.");
 assert.equal(packageInfo.version, manifest.version);
 assert.equal(versions[manifest.version], manifest.minAppVersion);

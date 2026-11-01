@@ -62,6 +62,15 @@ export default class QuizMakerPlugin extends Plugin implements PluginContext {
     this.addRibbonIcon("quiz-maker", "Open " + this.manifest.name, () => this.openStudio());
     this.addCommand({ id: "open-studio", name: "Open", callback: () => this.openStudio() });
     this.addCommand({
+      id: "quick-quiz", name: "Quick quiz",
+      checkCallback: checking => {
+        const file = this.app.workspace.getActiveFile();
+        if (!this.ready || !(file instanceof TFile) || file.extension !== "md") return false;
+        if (!checking) this.openGenerator(this.settings.defaultPreset);
+        return true;
+      }
+    });
+    this.addCommand({
       id: "generate-quiz", name: "Generate quiz",
       checkCallback: checking => {
         if (!this.settings.extraCommands) return false;

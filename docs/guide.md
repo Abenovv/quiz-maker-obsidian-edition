@@ -12,9 +12,11 @@ Opening the generator does not request models. Use **Find models** when you want
 
 To work without a provider account, use **Create quiz → Write questions** or **Create quiz → Import JSON**. The public [sample quiz](examples/javascript-essentials.json) is ready to import.
 
-The command palette shows **Quiz maker: Open** by default. To use individual actions and their existing hotkeys, enable **General → More options → Extra commands** in Quiz maker settings.
+The command palette shows **Quiz maker: Open** and **Quiz maker: Quick quiz** by default. Quick quiz opens setup with the active Markdown note and your default study pack; it does not read note content or contact a provider before you generate. To use the other individual actions and their existing hotkeys, enable **General → More options → Extra commands** in Quiz maker settings.
 
 Selected notes are sent only when you generate or regenerate questions. Choosing a folder includes its selected note contents, so check the source list first.
+
+**Add note** and **Add folder** open at the active note's folder, or the vault root. Each step shows only that folder's direct children. Navigate into a folder or use **Back**; choose **Use this folder** to add its Markdown notes and those in its subfolders. Listing uses metadata, not note text. Folder collection stops at 50 notes or its metadata limit; review the selected sources before generating. Note contents are read when you generate.
 
 ## Study packs
 
@@ -90,6 +92,8 @@ The preview lists the quiz titles, new and existing quizzes, and entries that ca
 
 Library backups can be up to **32 MiB** and contain up to **200 quizzes**. Only quizzes are imported. Provider settings, API keys, session history, and review schedules are not migrated. Keep the backup private rather than attaching it to a bug report.
 
+If the library cannot be read, choose **Export recovery file** before attempting recovery. This saves the unchanged damaged data as a uniquely named JSON file in your configured notes folder and leaves the original untouched. Keep that file private; it may contain quiz content and study history.
+
 ## Models and generation errors
 
 In the **Models** settings:
@@ -98,7 +102,7 @@ In the **Models** settings:
 2. Select **Find models** to load the models available to that account or server.
 3. Search the results and choose a model, or enter its exact **Model ID** manually.
 
-Model discovery requests metadata only. It does not send note content or generate questions. A manual model ID remains usable if discovery fails or your server does not offer a compatible model list.
+**Test connection** makes a fresh metadata request. Success confirms that metadata is reachable, not that the selected model or account can generate questions. Both actions can be cancelled and do not send note content or generate questions. A manual model ID remains usable if discovery fails or your server does not offer a compatible model list.
 
 | Situation | What to check |
 | --- | --- |
@@ -114,7 +118,7 @@ Cancel stops the local generation workflow. A provider may already be processing
 
 ## Data and appearance
 
-Quiz maker settings have three tabs: **General** for appearance and playback, **Models** for the provider connection, and **Quizzes** for defaults and saved notes.
+Settings are organized into **General** for appearance and playback, **Models** for the provider connection, and **Quizzes** for defaults and saved notes. Obsidian 1.13 or newer provides native pages with searchable individual settings. Earlier supported versions keep the three tabs. Both use the same controls and saved preferences.
 
 Settings, including provider keys, are stored locally in `data.json`. Study data is stored in `study.json`. Neither file is encrypted by Quiz maker or included in a release.
 
@@ -124,6 +128,8 @@ Saved appearance changes update open quiz views. Choosing a theme in the study v
 
 Sound is optional and off by default. Motion can follow your system setting or stay reduced.
 
-After updating the plugin files, reload Obsidian and check that Quiz maker settings show **1.2.2** at the bottom. An older version there means the running plugin has not picked up the update.
+After updating the plugin files, reload Obsidian and check that Quiz maker settings show **1.2.3** at the bottom. An older version there means the running plugin has not picked up the update.
 
 When reporting a problem, include that version, Obsidian version, device, and a small example with private content removed. Do not attach API keys, local settings, or study-history files.
+
+For Google authentication failures, check the key and project permissions in [Google AI Studio](https://aistudio.google.com/api-keys). Google documents that unrestricted standard keys are rejected; use a key permitted for the Gemini API. See [Google’s key guide](https://ai.google.dev/gemini-api/docs/api-key). A successful metadata check does not guarantee that the selected model can generate with that account.

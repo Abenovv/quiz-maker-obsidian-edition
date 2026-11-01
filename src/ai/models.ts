@@ -61,8 +61,13 @@ function modelInfo(provider: Provider, model: RecordValue, now = Date.now()): Di
   let id = string(model.id) ?? string(model.model) ?? string(model.name);
   if (provider === "google") id = id?.replace(/^models\//, "");
   if (!id || !ID_PATTERN.test(id)) return undefined;
-  // Local models can have arbitrary names. Their completion capability is checked below.
-  if (provider !== "ollama" && (NON_TEXT_MODEL.test(id) || IMAGE_OUTPUT_MODEL.test(id))) return undefined;
+  // Capability metadata takes priority over arbitrary names assigned to chat models.
+  // Google generateContent also covers image output, so its output-name checks remain.
+  const chatCapability = provider === "mistral" && record(model.capabilities)
+    ? model.capabilities.completion_chat === true
+    : provider === "cohere" && Array.isArray(model.endpoints) ? model.endpoints.includes("chat") : false;
+  const outputId = provider === "openai" && id.startsWith("ft:") ? id.split(":")[1] ?? id : id;
+  if (provider !== "ollama" && !chatCapability && (NON_TEXT_MODEL.test(outputId) || IMAGE_OUTPUT_MODEL.test(outputId))) return undefined;
   if (/^(?:AIza[0-9A-Za-z_-]{20,}|sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})$/.test(id)) return undefined;
   if (model.archived === true || model.is_deprecated === true || model.lifecycle === "retired" || model.lifecycle === "deprecated") return undefined;
   const shutdown = typeof model.shutdown_date === "string" ? Date.parse(model.shutdown_date) : NaN;
@@ -112,7 +117,10 @@ function nextCursor(provider: Provider, value: unknown): string | undefined {
   const candidate = provider === "google" ? value.nextPageToken
     : provider === "cohere" ? value.next_page_token
     : provider === "anthropic" && value.has_more === true ? value.last_id : undefined;
-  if (candidate === undefined || candidate === null || candidate === "") return undefined;
+  if (candidate === undefined || candidate === null || candidate === "") {
+    if (provider === "anthropic" && value.has_more === true) throw unreadable();
+    return undefined;
+  }
   if (typeof candidate !== "string" || candidate.length > 2_000 || [...candidate].some(controlCharacter)) throw unreadable();
   return candidate;
 }
@@ -212,7 +220,7 @@ export class ModelService implements ModelServicePort {
     return this.consume(provider, entry, options.signal);
   }
 
-  /** Uses model metadata only; testing never generates text or incurs generation tokens. */
+  /** Tests metadata reachability only; it does not establish generation access. */
   async test(provider: Provider, config: ProviderSettings, signal?: AbortSignal): Promise<void> {
     await this.list(provider, config, { signal, refresh: true });
   }

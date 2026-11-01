@@ -5,12 +5,15 @@ import type {
   Quiz, RequestedMethod, Settings, SourceNote
 } from "../core/types";
 import type { GeneratedText, TransportConfig, ChatMessage } from "./transport";
+import { TransportError } from "./transport";
 
 export const MAX_GENERATION_SOURCES = 50;
 export const MAX_SOURCE_CHARACTERS = 120_000;
 export const MAX_GENERATED_QUESTIONS = 100;
 export const MAX_GENERATION_RESPONSE_BYTES = 2 * 1024 * 1024;
 export const MAX_OUTPUT_TOKENS = 8_192;
+const REASONING_TOKEN_RESERVE = 8_192;
+const MAX_REASONING_OUTPUT_TOKENS = 16_384;
 
 type JsonObject = Record<string, unknown>;
 export type GenerationTransport = (
@@ -63,6 +66,18 @@ const outputCost: Record<QuestionType, number> = {
 export function estimateGenerationOutput(request: Pick<PreparedRequest, "methods" | "includeHints" | "includeExplanations" | "includeSources">): number {
   const extras = (request.includeHints ? 25 : 0) + (request.includeExplanations ? 60 : 0) + (request.includeSources ? 10 : 0);
   return Math.ceil((320 + request.methods.reduce((sum, method) => sum + method.count * (outputCost[method.type] + extras), 0)) * 1.2);
+}
+
+/** Thinking shares the output limit; reserve bounded headroom only for known families. */
+export function allocateGenerationOutput(provider: Provider, model: string, visibleEstimate: number): number {
+  const visible = Number.isFinite(visibleEstimate) ? Math.max(1, Math.ceil(visibleEstimate)) : MAX_OUTPUT_TOKENS;
+  const id = model.trim().replace(/^models\//i, "");
+  const knownReasoning = provider === "google"
+    ? /^gemini-(?:2\.5|[3-9]|[1-9]\d)(?:[.-]|$)/i.test(id)
+    : provider === "openai" && /^(?:o[134]|gpt-(?:[5-9]|[1-9]\d))(?:[.-]|$)/i.test(id);
+  return knownReasoning
+    ? Math.min(MAX_REASONING_OUTPUT_TOKENS, visible + REASONING_TOKEN_RESERVE)
+    : Math.min(MAX_OUTPUT_TOKENS, Math.max(2_048, visible));
 }
 
 const fields: Record<QuestionType, readonly string[]> = {
@@ -402,6 +417,25 @@ function publicFailure(error: unknown): GenerationError {
   if (error instanceof GenerationError) return error;
   const code = record(error) ? error.code : undefined;
   if (code === "cancelled" || (error instanceof Error && error.name === "AbortError")) return cancelled();
+  // Only locally authored transport diagnostics may pass through. Even an injected
+  // transport exception must not publish arbitrary provider text or credentials.
+  const safeTransportMessages = new Set([
+    "The provider rejected access. Check your key, account permissions, and selected model.",
+    "The provider could not find this API endpoint or model. Refresh models and check the API base URL.",
+    "The provider could not accept this request. Check the model and API settings, or request fewer questions.",
+    "Add your provider key in Quiz maker settings before generating.",
+    "The model stopped before finishing the quiz. Request fewer questions.",
+    "The local model stopped before finishing the quiz. Request fewer questions.",
+    "The provider returned no quiz text. Choose a text model or try different notes.",
+    "The provider returned an unreadable response. Check its API URL or try again.",
+    "Could not reach the provider. Check your connection and API base URL.",
+    "Enter a valid provider API base URL.",
+    "Use an API base URL without query parameters.",
+    "Choose a valid text model before generating."
+  ]);
+  if (error instanceof TransportError && safeTransportMessages.has(error.message)) {
+    return new GenerationError(error.message, "connection");
+  }
   const messages: Record<string, string> = {
     configuration: "Check the provider address and model settings before generating.",
     auth: "The provider rejected its API key. Check the key in settings.",
@@ -449,7 +483,7 @@ export class GenerationService implements GenerationServicePort {
       const result = await transport(
         {
           ...origin.config, provider: origin.provider,
-          maxOutputTokens: Math.max(2_048, estimateGenerationOutput(prepared)),
+          maxOutputTokens: allocateGenerationOutput(origin.provider, origin.config.model, estimateGenerationOutput(prepared)),
           timeoutMs: 90_000
         },
         generationMessages(prepared),

@@ -3,12 +3,14 @@ import assert from "node:assert/strict";
 import {
   GenerationService, GenerationError, extractGeneratedJson,
   prepareGenerationRequest, generationMessages, normalizeGeneratedQuiz,
-  MAX_SOURCE_CHARACTERS, MAX_GENERATION_RESPONSE_BYTES, estimateGenerationOutput, MAX_OUTPUT_TOKENS
+  MAX_SOURCE_CHARACTERS, MAX_GENERATION_RESPONSE_BYTES, estimateGenerationOutput, MAX_OUTPUT_TOKENS,
+  allocateGenerationOutput
 } from "../src/ai/generation";
 import { createQuestion, createQuiz } from "../src/core/schema";
 import { providers, questionTypes } from "../src/core/types";
 import type { GenerationConnection, GenerationRequest, Provider, Quiz, Settings, QuestionType } from "../src/core/types";
 import type { GenerationTransport } from "../src/ai/generation";
+import { TransportError } from "../src/ai/transport";
 
 const now = new Date("2026-10-30T10:00:00.000Z");
 
@@ -378,4 +380,79 @@ test("progress stages stay concise and observer errors cannot break a request", 
   });
   assert.equal(quiz.questions.length, 1);
   assert.deepEqual(stages, ["Preparing notes", "Generating questions", "Checking quiz"]);
+});
+
+test("known reasoning families receive bounded headroom beyond visible quiz tokens", () => {
+  for (const model of ["gemini-2.5-flash", "models/gemini-2.5-pro", "gemini-3-pro-preview", "gemini-3.8-flash", "gemini-4-argon"]) {
+    assert.equal(allocateGenerationOutput("google", model, 1_000), 9_192);
+  }
+  for (const model of ["o1", "o1-mini", "o3", "o3-mini", "o4-mini", "gpt-5", "gpt-5.6-sol", "gpt-6-astra"]) {
+    assert.equal(allocateGenerationOutput("openai", model, 1_000), 9_192);
+  }
+  assert.equal(allocateGenerationOutput("openai", "gpt-6-astra", MAX_OUTPUT_TOKENS), 16_384);
+  assert.equal(allocateGenerationOutput("google", "gemini-3.8-flash", 1_000_000), 16_384);
+  assert.equal(allocateGenerationOutput("google", "gemini-2.5-flash", Infinity), 16_384);
+});
+
+test("unknown and older families retain the original bounded output policy", () => {
+  for (const [provider, model] of [
+    ["google", "gemini-2.0-flash"], ["google", "gemini-1.5-pro"], ["google", "custom-thinking-model"],
+    ["openai", "gpt-4.1"], ["openai", "gpt-4o"], ["openai", "o2"], ["openai", "gpt-5ish"],
+    ["openai", "custom-model"], ["mistral", "gpt-6-astra"], ["ollama", "gpt-5"]
+  ] as const) {
+    assert.equal(allocateGenerationOutput(provider, model, 1_000), 2_048);
+    assert.equal(allocateGenerationOutput(provider, model, 4_000), 4_000);
+    assert.equal(allocateGenerationOutput(provider, model, 1_000_000), MAX_OUTPUT_TOKENS);
+  }
+});
+
+test("generation dispatch reserves reasoning space once and never retries an incomplete paid call", async () => {
+  const input = request();
+  const visible = estimateGenerationOutput(prepareGenerationRequest(input));
+  let calls = 0;
+  const service = new GenerationService(() => settings("google"), {
+    transport: async config => {
+      calls++;
+      assert.equal(config.maxOutputTokens, visible + 8_192);
+      throw new TransportError("truncated", "The model stopped before finishing the quiz. Request fewer questions.");
+    }
+  });
+  await assert.rejects(service.generate(input, { provider: "google", config: { apiKey: "fixture", model: "gemini-3.8-flash", baseUrl: "" } }), /stopped before finishing/);
+  assert.equal(calls, 1);
+});
+
+test("trusted transport endpoint and access diagnostics stay actionable", async () => {
+  for (const [code, status, message] of [
+    ["configuration", 404, "The provider could not find this API endpoint or model. Refresh models and check the API base URL."],
+    ["configuration", 400, "The provider could not accept this request. Check the model and API settings, or request fewer questions."],
+    ["auth", 403, "The provider rejected access. Check your key, account permissions, and selected model."],
+    ["auth", undefined, "Add your provider key in Quiz maker settings before generating."]
+  ] as const) {
+    let calls = 0;
+    const service = generator(undefined, async () => { calls++; throw new TransportError(code, message, status); });
+    await assert.rejects(service.generate(request()), error => {
+      assert.ok(error instanceof GenerationError);
+      assert.equal(error.message, message);
+      return true;
+    });
+    assert.equal(calls, 1);
+  }
+});
+
+test("arbitrary messages remain private even when exceptions resemble transport failures", async () => {
+  const privateDetail = "Private provider detail fixture-key https://private.example";
+  for (const failure of [
+    new TransportError("auth", privateDetail, 401),
+    new TransportError("configuration", privateDetail, 400),
+    Object.assign(new Error(privateDetail), { name: "TransportError", code: "configuration" }),
+    { code: "auth", message: privateDetail }
+  ]) {
+    const service = generator(undefined, async () => { throw failure; });
+    await assert.rejects(service.generate(request()), error => {
+      assert.ok(error instanceof GenerationError);
+      assert.equal(error.message.includes(privateDetail), false);
+      assert.equal(error.message.includes("fixture-key"), false);
+      return true;
+    });
+  }
 });

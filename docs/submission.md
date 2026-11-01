@@ -13,8 +13,8 @@ This project must contain its own implementation. Renaming or moving a fork does
 | Check | Required result |
 | --- | --- |
 | Repository | Public source, root `README.md`, standard `LICENSE`, and committed `manifest.json`. |
-| Manifest | Unique ID; tested minimum Obsidian version; desktop/mobile declaration matching the runtime; short action-led description, at most 250 characters, ending in a period. |
-| Release | Published tag exactly matching the manifest version, such as `1.0.0`; attachments named `main.js`, `manifest.json`, and `styles.css`. |
+| Manifest | Unique ID; tested minimum Obsidian version; desktop/mobile declaration matching the runtime; short action-led description, at most 250 characters, ending in a period; author URL pointing to the maintainer's public profile. |
+| Release | Published tag exactly matching the manifest version; attach only `main.js`, `manifest.json`, and `styles.css`. |
 | Build | Committed dependency lockfile; the production command is `build`, which the directory scanner checks first. |
 | README | Explain operation, installation, provider accounts and charges, network destinations, note-content transmission, local data, and any external-file access. |
 | Runtime | No telemetry, ads, self-updater, hidden code purpose, or unexpected network access. |
@@ -43,10 +43,20 @@ Use **Review branch** to scan a branch, tag, or commit before releasing. Listed 
 
 Use an unmodified, GitHub-recognizable MIT license for the project's own code and include applicable dependency notices. A valid software license is not a promise of directory acceptance. Do not add invented security, compliance, or Obsidian approval certificates.
 
-Checksums establish whether a downloaded file matches the published bytes. If the release workflow produces [GitHub artifact attestations](https://docs.github.com/en/actions/concepts/security/artifact-attestations), users can verify the recorded repository and build provenance:
+From 1.2.3, releases attach only the three installable files. Their SHA-256 hashes appear in the release body's **Verify release files** disclosure. GitHub's automatic source archives are development snapshots. Earlier published releases keep their original attachments.
+
+The build still creates `SHA256SUMS` locally and uses all three hashes as attestation subjects. [`actions/attest`](https://github.com/actions/attest/tree/v4) signs the provenance and registers it through GitHub's attestations API. The release body links to that record; an additional attestation attachment is not needed. The workflow verifies the published attachment names after upload.
+
+Checksums establish whether a downloaded file matches the published bytes. Users can verify the recorded repository and build provenance for each file:
 
 ```sh
 gh attestation verify main.js --repo Abenovv/quiz-maker-obsidian-edition
+gh attestation verify manifest.json --repo Abenovv/quiz-maker-obsidian-edition
+gh attestation verify styles.css --repo Abenovv/quiz-maker-obsidian-edition
 ```
 
 An attestation identifies the build origin; it is not an audit or an Obsidian endorsement. Offer that verification command only for releases where an attestation was actually generated. [GitHub verification guide](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations).
+
+## Dependency audit status
+
+On November 1, 2026, `npm audit --omit=dev` reported no vulnerabilities. The full audit still reports the development-only [minimatch glob amplification advisory](https://github.com/advisories/GHSA-g3hv-75wg-m249) through the official lint toolchain. Its 21 moderate entries describe one advisory and its dependent packages. The patched minimatch major is incompatible with older callable APIs used by those tools, so the project does not force that override or suppress the advisory. Moment is pinned to the compatible patched 2.31.0 release. Dependabot will propose available upstream updates. These development packages are not bundled in the plugin.

@@ -2,10 +2,44 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { TFile } from "obsidian";
+import { App, TFile, TFolder } from "obsidian";
 import type { PluginContext } from "../src/core/types";
 import { normalizeSettings } from "../src/settings";
-import { Generator } from "../src/ui/GeneratorModal";
+import { Generator, SourcePicker } from "../src/ui/GeneratorModal";
+
+test("source picker navigates scoped folders and selects explicitly without global enumeration or note reads", () => {
+  const app = new App();
+  app.vault.getMarkdownFiles = () => { throw new Error("Broad note enumeration must not occur"); };
+  app.vault.getFiles = () => { throw new Error("Broad file enumeration must not occur"); };
+  app.vault.cachedRead = async () => { throw new Error("Note contents must stay unread while choosing"); };
+  const root = new TFolder("/");
+  const course = new TFolder("Course");
+  course.parent = root;
+  const note = new TFile("Course/Lesson.md");
+  note.parent = course;
+  course.children = [note];
+  root.children = [course];
+  const selected: Array<TFile | TFolder> = [];
+  const context = { app } as PluginContext;
+  const picker = new SourcePicker(context, root, file => { selected.push(file); }, "note");
+  let navigated: SourcePicker | undefined;
+  const originalOpen = SourcePicker.prototype.open;
+  SourcePicker.prototype.open = function () { navigated = this; };
+  try {
+    picker.onChooseItem(picker.getItems()[0]);
+    assert.ok(navigated);
+    assert.deepEqual(selected, []);
+    assert.deepEqual(navigated.getItems().map(item => item.kind), ["back", "note"]);
+    navigated.onChooseItem(navigated.getItems()[1]);
+    assert.deepEqual(selected, [note]);
+    const folderPicker = new SourcePicker(context, course, file => { selected.push(file); }, "folder");
+    assert.equal(folderPicker.getItemText(folderPicker.getItems()[1]), "Use this folder: Course");
+    folderPicker.onChooseItem(folderPicker.getItems()[1]);
+    assert.deepEqual(selected, [note, course]);
+    folderPicker.onChooseItem(folderPicker.getItems()[0]);
+    assert.equal(navigated.getItemText(navigated.getItems()[0]), "Use this folder: Vault");
+  } finally { SourcePicker.prototype.open = originalOpen; }
+});
 
 function render(active: TFile | null, configured: boolean) {
   let reads = 0;

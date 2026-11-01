@@ -1,4 +1,5 @@
 import type { SourceNote } from "../../core/types";
+import { TFile, TFolder, type TAbstractFile } from "obsidian";
 
 export interface SelectedNote {
   path: string;
@@ -11,10 +12,55 @@ export interface SourceReadOptions {
   signal: AbortSignal;
 }
 
-/** Obsidian represents the vault root with a slash; paths beneath it are relative. */
-export function notesInFolder<T extends SelectedNote>(notes: readonly T[], folderPath: string): T[] {
-  const folder = folderPath.replace(/^\/+|\/+$/g, "");
-  return folder ? notes.filter(note => note.path.startsWith(folder + "/")) : [...notes];
+export type SourceBrowseItem =
+  | { kind: "back" | "folder" | "current"; file: TFolder }
+  | { kind: "note"; file: TFile };
+
+/** Navigation inspects one directory at a time, never an index of the vault. */
+export function sourceBrowseItems(folder: TFolder, kind: "note" | "folder"): SourceBrowseItem[] {
+  if (folder.name.startsWith(".")) return [];
+  const items: SourceBrowseItem[] = [];
+  if (folder.parent) items.push({ kind: "back", file: folder.parent });
+  if (kind === "folder") items.push({ kind: "current", file: folder });
+  const children = folder.children.filter(child => !child.name.startsWith(".")).sort((left, right) => {
+    const foldersFirst = Number(right instanceof TFolder) - Number(left instanceof TFolder);
+    return foldersFirst || left.path.localeCompare(right.path);
+  });
+  for (const child of children) {
+    if (child instanceof TFolder) items.push({ kind: "folder", file: child });
+    else if (kind === "note" && child instanceof TFile && child.extension === "md") items.push({ kind: "note", file: child });
+  }
+  return items;
+}
+
+export function sourceBrowseLabel(item: SourceBrowseItem): string {
+  const path = item.file.path === "/" ? "Vault" : item.file.path || "Vault";
+  if (item.kind === "back") return `Back to ${path}`;
+  if (item.kind === "current") return `Use this folder: ${path}`;
+  return item.kind === "folder" ? `Browse ${path}/` : path;
+}
+
+/** Inspect only the chosen subtree; note contents stay unread until Generate. */
+export function notesInFolder(folder: TFolder, maxNotes: number, maxEntries = 10_000): TFile[] {
+  const pending: TAbstractFile[] = [folder];
+  const visited = new Set<TAbstractFile>();
+  const notes: TFile[] = [];
+  while (pending.length) {
+    const entry = pending.pop();
+    if (!entry || entry.name.startsWith(".") || visited.has(entry)) continue;
+    visited.add(entry);
+    if (visited.size > maxEntries) throw new Error("This folder contains too many files. Choose a smaller folder or add notes individually.");
+    if (entry instanceof TFolder) {
+      const children = entry.children.filter(child => !child.name.startsWith("."));
+      if (visited.size + pending.length + children.length > maxEntries) throw new Error("This folder contains too many files. Choose a smaller folder or add notes individually.");
+      for (const child of children) pending.push(child);
+    }
+    else if (entry instanceof TFile && entry.extension === "md") {
+      notes.push(entry);
+      if (notes.length > maxNotes) throw new Error(`Select up to ${maxNotes} notes. Choose a smaller folder or add notes individually.`);
+    }
+  }
+  return notes.sort((left, right) => left.path.localeCompare(right.path));
 }
 
 function cancelled(signal: AbortSignal): void {

@@ -3,7 +3,7 @@ import { TFile } from "obsidian";
 import type { PluginContext, SessionConfig, SessionSummary } from "../core/types";
 import { createWelcomeQuiz, presetQuestionCount, presets } from "../presets";
 import { createReviewSession } from "../session/engine";
-import { openImport, exportQuiz } from "./EditorModal";
+import { openImport, exportQuiz, saveVaultExport } from "./EditorModal";
 import { EmptyState, Icon, InlineError, errorMessage, openReactModal } from "./shared";
 import { filterLibrary, libraryEntries, libraryPage, reviewSource, scoreLabel, type LibraryEntry, type LibraryFilter } from "./studioData";
 
@@ -144,12 +144,14 @@ export function Studio({ context, close }: { context: PluginContext; close(this:
   };
 
   const recover = async (): Promise<void> => {
-    await run("recovery", async () => {
+    let destination = "";
+    const saved = await run("recovery", async () => {
       const raw = store.getRecoveryText();
-      if (!raw) throw new Error("No recovery data is available. Keep a copy of the local study.json file before making changes.");
-      if (!navigator.clipboard?.writeText) throw new Error("Clipboard access is unavailable. Keep a copy of the local study.json file before making changes.");
-      await navigator.clipboard.writeText(raw);
-    }, "Recovery data copied. Keep it in a safe local file.");
+      if (raw === undefined) throw new Error("No recovery data is available. Keep a copy of the local study.json file before making changes.");
+      const file = await saveVaultExport(context, "Quiz maker recovery", raw);
+      destination = file.path;
+    });
+    if (saved && mounted.current) setNotice(`Recovery file saved to ${destination}.`);
   };
 
   const sample = (): void => {
@@ -198,7 +200,7 @@ export function Studio({ context, close }: { context: PluginContext; close(this:
     <InlineError>{error || store.loadIssue || store.writeIssue}</InlineError>
     {blocked && <div className="qm-recovery">
       <p>Your saved file has been kept. Back it up before recovering or replacing the library.</p>
-      {store.getRecoveryText() && <button type="button" disabled={pending} onClick={() => { void recover(); }}>Copy recovery data</button>}
+      {store.getRecoveryText() !== undefined && <><p>Recovery files are saved in {context.settings.saveFolder.trim() || "the vault root"}.</p><button type="button" disabled={pending} onClick={() => { void recover(); }}>{busy === "recovery" ? "Exporting…" : "Export recovery file"}</button></>}
       <button type="button" disabled={pending} onClick={() => { void run("load", async () => { await store.load(); if (store.loadIssue) throw new Error(store.loadIssue); if (mounted.current) { setLoadFailed(false); setRevision(value => value + 1); } }); }}>Retry loading</button>
       <details><summary>Restore a study backup</summary><p>Choose a Quiz maker study backup. The current file is kept as a recovery copy.</p><label>Backup file<input type="file" accept=".json,application/json" disabled={pending || readingBackup} onChange={event => { void chooseBackup(event.target.files?.[0]); }} /></label>{readingBackup && <p role="status">Reading backup…</p>}<button type="button" disabled={!backup || pending || readingBackup} onClick={() => { if (backup) void run("restore", async () => { await store.recoverFromJson(backup); if (mounted.current) { setBackup(undefined); setLoadFailed(false); setRevision(value => value + 1); } }, "Study backup restored."); }}>{busy === "restore" ? "Restoring…" : "Restore backup"}</button></details>
     </div>}

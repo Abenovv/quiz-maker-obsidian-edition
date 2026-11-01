@@ -197,7 +197,7 @@ export function MiniStudy({ context }: { context: PluginContext }): ReactNode {
             {question.type === "short-answer" || question.type === "long-answer" ? "Review answer" : "Check answer"}
           </button>}
       </div>}
-      {(!flashcards || canPause(session)) && <nav className="qm-mini-navigation" aria-label="Quiz navigation">
+      {(!flashcards || canPause(session)) && <nav className="qm-mini-navigation" data-controls={flashcards ? "pause" : canPause(session) ? "navigation-pause" : "navigation"} aria-label="Quiz navigation">
         {!flashcards && <>
           <button type="button" disabled={session.position === 0} aria-label="Previous question" onClick={() => act({ type: "previous" })}><Icon name="chevron-left" /><span>Back</span></button>
           <button type="button" disabled={session.position === session.order.length - 1} aria-label="Next question" onClick={() => act({ type: "next" })}><span>Next</span><Icon name="chevron-right" /></button>

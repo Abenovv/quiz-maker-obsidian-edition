@@ -83,6 +83,26 @@ const sections = ["General", "Models", "Quizzes"] as const;
 type Section = typeof sections[number];
 let settingsId = 0;
 
+// Structural subset of the public 1.13 settings API. Keeping it type-only lets
+// the runtime still load against the supported 1.8.7 API.
+// https://github.com/obsidianmd/obsidian-api/blob/master/obsidian.d.ts
+type SearchableSetting = {
+  name: string;
+  desc?: string;
+  aliases?: string[];
+  render: (setting: Setting) => void | (() => void);
+};
+type SettingsDefinition = SearchableSetting | {
+  type: "group";
+  heading: string;
+  cls?: string;
+  items: SearchableSetting[];
+} | {
+  type: "page";
+  name: string;
+  items: SettingsDefinition[];
+};
+
 function labelDropdown(select: DropdownComponent, label: string): DropdownComponent {
   select.selectEl.setAttribute("aria-label", label);
   return select;
@@ -111,7 +131,7 @@ export function settingsSaveMessage(error: unknown): string {
   return "Could not save settings. Your changes are kept here.";
 }
 
-// Support Obsidian 1.8.7; the declarative settings API requires 1.13.0.
+// Declarative pages on 1.13+; display() retains the three tabs on 1.8.7.
 export class QuizMakerSettingsTab extends PluginSettingTab {
   private readonly context: PluginContext;
   private section: Section = "General";
@@ -129,6 +149,8 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
   private saveFeedback: HTMLElement | undefined;
   private saveMessage = "";
   private saveRetry: HTMLButtonElement | undefined;
+  private feedbackMountEpoch = 0;
+  private feedbackMountPending = false;
   private modelCancel: ButtonComponent | undefined;
   private modelStatus: HTMLElement | undefined;
 
@@ -137,10 +159,93 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
     super(app, context as PluginContext & Plugin);
     this.context = context;
     const plugin = context as PluginContext & Partial<Plugin>;
-    plugin.register?.(() => { this.visible = false; this.cancelModelTask(); void this.flushSettings(); });
+    plugin.register?.(() => { this.visible = false; this.cancelFeedbackMount(); this.cancelModelTask(); void this.flushSettings(); });
+  }
+
+  getSettingDefinitions(): SettingsDefinition[] {
+    const general = this.generalDefinitions();
+    const models = this.modelDefinitions();
+    const quizzes = this.quizDefinitions();
+    const rows = (section: Section, definitions: SearchableSetting[]): SearchableSetting[] => definitions.map(definition => ({
+      ...definition,
+      render: setting => {
+        this.visible = true;
+        this.section = section;
+        this.applyAppearance();
+        const cleanup = definition.render(setting);
+        this.queueSaveFeedback();
+        return () => {
+          cleanup?.();
+          this.visible = false;
+          this.cancelFeedbackMount();
+          this.cancelModelTask();
+          this.renderVersion++;
+          void this.flushSettings();
+        };
+      }
+    }));
+    return [
+      { type: "page", name: "General", items: [
+        { type: "group", heading: "Appearance", cls: "qm-settings-group", items: rows("General", general.slice(0, 2)) },
+        { type: "group", heading: "Playback", cls: "qm-settings-group", items: rows("General", general.slice(2, 3)) },
+        { type: "page", name: "More options", items: rows("General", general.slice(3)) }
+      ] },
+      { type: "page", name: "Models", items: [
+        { type: "group", heading: "Connection", cls: "qm-settings-group", items: rows("Models", models.slice(0, -1)) },
+        { type: "page", name: "Advanced connection", items: rows("Models", models.slice(-1)) }
+      ] },
+      { type: "page", name: "Quizzes", items: [
+        { type: "group", heading: "Defaults", cls: "qm-settings-group", items: rows("Quizzes", quizzes.slice(0, 2)) },
+        { type: "group", heading: "Saved notes", cls: "qm-settings-group", items: rows("Quizzes", quizzes.slice(2)) }
+      ] }
+    ];
+  }
+
+  private applyAppearance(): void {
+    this.containerEl.classList.add("qm-root", "qm-settings");
+    this.containerEl.dataset.theme = this.context.settings.theme;
+    this.containerEl.dataset.motion = this.context.settings.motion;
+  }
+
+  private mountSaveFeedback(): void {
+    if (this.saveFeedback?.parentElement !== this.containerEl) {
+      this.saveFeedback = this.containerEl.createDiv({ cls: "qm-settings-save" });
+      this.saveStatus = this.saveFeedback.createEl("p", { cls: "qm-settings-status", attr: { role: "status" } });
+      this.saveRetry = undefined;
+    }
+    this.updateSaveFeedback();
+    const version = Array.from(this.containerEl.children).find(child => child.classList.contains("qm-settings-version"));
+    if (!version && this.context.pluginVersion) this.containerEl.createEl("p", { cls: "qm-settings-version", text: "Quiz maker " + this.context.pluginVersion });
+  }
+
+  private queueSaveFeedback(): void {
+    if (this.feedbackMountPending) return;
+    this.feedbackMountPending = true;
+    const epoch = this.feedbackMountEpoch;
+    // Let the host finish appending its native groups before adding the footer.
+    queueMicrotask(() => {
+      if (epoch !== this.feedbackMountEpoch || !this.visible) return;
+      this.feedbackMountPending = false;
+      this.mountSaveFeedback();
+    });
+  }
+
+  private cancelFeedbackMount(): void {
+    this.feedbackMountEpoch++;
+    this.feedbackMountPending = false;
+  }
+
+  private refreshSettings(): void {
+    this.cancelFeedbackMount();
+    this.cancelModelTask();
+    this.renderVersion++;
+    const modern = this as QuizMakerSettingsTab & { update?: () => void };
+    if (typeof modern.update === "function") modern.update();
+    else this.display();
   }
 
   display(): void {
+    this.cancelFeedbackMount();
     this.visible = true;
     this.cancelModelTask();
     this.modelControls = [];
@@ -148,9 +253,7 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
     this.modelStatus = undefined;
     this.renderVersion++;
     this.containerEl.replaceChildren();
-    this.containerEl.classList.add("qm-root", "qm-settings");
-    this.containerEl.dataset.theme = this.context.settings.theme;
-    this.containerEl.dataset.motion = this.context.settings.motion;
+    this.applyAppearance();
     const navigation = this.containerEl.createEl("nav");
     navigation.className = "qm-settings-tabs";
     navigation.setAttribute("role", "tablist");
@@ -184,17 +287,12 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
       this.renderQuestions(panel);
       this.renderSaving(panel);
     }
-    this.saveFeedback = this.containerEl.createDiv({ cls: "qm-settings-save" });
-    this.saveStatus = this.saveFeedback.createEl("p");
-    this.saveStatus.className = "qm-settings-status";
-    this.saveStatus.setAttribute("role", "status");
-    this.saveRetry = undefined;
-    this.updateSaveFeedback();
-    if (this.context.pluginVersion) this.containerEl.createEl("p", { cls: "qm-settings-version", text: "Quiz maker " + this.context.pluginVersion });
+    this.mountSaveFeedback();
   }
 
   hide(): void {
     this.visible = false;
+    this.cancelFeedbackMount();
     this.cancelModelTask();
     this.renderVersion++;
     void this.flushSettings();
@@ -276,62 +374,83 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
     }
   }
 
-  private renderGeneral(panel: HTMLElement): void {
-    const appearance = settingsGroup(panel, "Appearance");
-    new Setting(appearance).setName("Theme").addDropdown(select => labelDropdown(select, "Theme")
-      .addOptions({ obsidian: "Obsidian", paper: "Paper", midnight: "Midnight", contrast: "High contrast" })
-      .setValue(this.context.settings.theme)
-      .onChange(value => {
-        this.context.settings.theme = value as Settings["theme"];
-        this.containerEl.dataset.theme = value;
-        this.scheduleSave();
-      }));
-    new Setting(appearance).setName("Motion").addDropdown(select => labelDropdown(select, "Motion")
-      .addOptions({ system: "Follow system", reduced: "Reduce motion" })
-      .setValue(this.context.settings.motion).onChange(value => {
-        this.context.settings.motion = value === "reduced" ? "reduced" : "system";
-        this.containerEl.dataset.motion = this.context.settings.motion;
-        this.scheduleSave();
-      }));
-    const playback = settingsGroup(panel, "Playback");
-    new Setting(playback).setName("Study sounds").setDesc("Quiet tones when an answer is revealed.")
-      .addToggle(toggle => {
-        toggle.toggleEl.setAttribute("aria-label", "Study sounds");
-        return toggle.setValue(this.context.settings.soundEnabled).onChange(value => {
-          this.context.settings.soundEnabled = value;
-          this.scheduleSave();
-        });
-      })
-      .addButton(button => button.setButtonText("Test sound").onClick(event => {
-        void testSound(this.context, event).then(played => {
-          if (!played) this.context.showNotice("Sound is unavailable in this window.");
-        });
-      }));
-    const advanced = panel.createEl("details", { cls: "qm-settings-advanced" });
-    advanced.createEl("summary", { text: "More options" });
-    new Setting(advanced).setName("Extra commands")
-      .setDesc("Show individual actions in the command palette and enable their hotkeys.")
-      .addToggle(toggle => {
-        toggle.toggleEl.setAttribute("aria-label", "Extra commands");
-        toggle.setValue(this.context.settings.extraCommands).onChange(value => {
-          this.context.settings.extraCommands = value;
-          this.scheduleSave();
-        });
-      });
+  private renderRows(panel: HTMLElement, definitions: SearchableSetting[]): void {
+    for (const definition of definitions) {
+      const setting = new Setting(panel).setName(definition.name);
+      if (definition.desc) setting.setDesc(definition.desc);
+      definition.render(setting);
+    }
   }
 
-  private renderModels(panel: HTMLElement): void {
-    panel = settingsGroup(panel, "Connection");
-    new Setting(panel).setName("Provider").addDropdown(select => labelDropdown(select, "Provider").addOptions(providerNames)
-      .setValue(this.context.settings.provider).onChange(value => {
-        if (!providers.includes(value as Provider) || value === this.context.settings.provider) return;
-        this.context.settings.provider = value as Provider;
-        this.scheduleSave();
-        this.display();
-      }));
+  private generalDefinitions(): SearchableSetting[] {
+    return [
+      { name: "Theme", aliases: ["appearance", "dark", "light", "contrast"], render: setting => {
+        setting.addDropdown(select => labelDropdown(select, "Theme")
+          .addOptions({ obsidian: "Obsidian", paper: "Paper", midnight: "Midnight", contrast: "High contrast" })
+          .setValue(this.context.settings.theme).onChange(value => {
+            if (!["obsidian", "paper", "midnight", "contrast"].includes(value)) return;
+            this.context.settings.theme = value as Settings["theme"];
+            this.containerEl.dataset.theme = value;
+            this.scheduleSave();
+          }));
+      } },
+      { name: "Motion", aliases: ["animation", "reduced motion", "accessibility"], render: setting => {
+        setting.addDropdown(select => labelDropdown(select, "Motion")
+          .addOptions({ system: "Follow system", reduced: "Reduce motion" })
+          .setValue(this.context.settings.motion).onChange(value => {
+            this.context.settings.motion = value === "reduced" ? "reduced" : "system";
+            this.containerEl.dataset.motion = this.context.settings.motion;
+            this.scheduleSave();
+          }));
+      } },
+      { name: "Study sounds", desc: "Quiet tones when an answer is revealed.", aliases: ["audio", "playback", "mute"], render: setting => {
+        setting.addToggle(toggle => {
+          toggle.toggleEl.setAttribute("aria-label", "Study sounds");
+          toggle.setValue(this.context.settings.soundEnabled).onChange(value => {
+            this.context.settings.soundEnabled = value;
+            this.scheduleSave();
+          });
+        }).addButton(button => button.setButtonText("Test sound").onClick(event => {
+          void testSound(this.context, event).then(played => {
+            if (!played) this.context.showNotice("Sound is unavailable in this window.");
+          });
+        }));
+      } },
+      { name: "Extra commands", desc: "Show individual actions in the command palette and enable their hotkeys.", aliases: ["shortcuts", "hotkeys", "command palette"], render: setting => {
+        setting.addToggle(toggle => {
+          toggle.toggleEl.setAttribute("aria-label", "Extra commands");
+          toggle.setValue(this.context.settings.extraCommands).onChange(value => {
+            this.context.settings.extraCommands = value;
+            this.scheduleSave();
+          });
+        });
+      } }
+    ];
+  }
+
+  private renderGeneral(panel: HTMLElement): void {
+    const definitions = this.generalDefinitions();
+    this.renderRows(settingsGroup(panel, "Appearance"), definitions.slice(0, 2));
+    this.renderRows(settingsGroup(panel, "Playback"), definitions.slice(2, 3));
+    const advanced = panel.createEl("details", { cls: "qm-settings-advanced" });
+    advanced.createEl("summary", { text: "More options" });
+    this.renderRows(advanced, definitions.slice(3));
+  }
+
+  private modelDefinitions(): SearchableSetting[] {
+    const providerDefinition: SearchableSetting = { name: "Provider", aliases: ["Google Gemini", "OpenAI", "Anthropic", "Ollama"], render: setting => {
+      setting.addDropdown(select => labelDropdown(select, "Provider").addOptions(providerNames)
+        .setValue(this.context.settings.provider).onChange(value => {
+          if (!providers.includes(value as Provider) || value === this.context.settings.provider) return;
+          this.context.settings.provider = value as Provider;
+          this.scheduleSave();
+          this.refreshSettings();
+        }));
+    } };
     const provider = this.context.settings.provider;
     const config = this.context.settings.providers[provider];
-    const version = this.renderVersion;
+    let version = this.renderVersion;
+    let panel: HTMLElement;
     let invalidKey = false;
     let invalidEndpoint = false;
     let keyError: HTMLElement | undefined;
@@ -339,17 +458,20 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
     let modelError: HTMLElement | undefined;
     let manual: TextComponent;
     let find: ButtonComponent;
+    let check: ButtonComponent;
     let finder: HTMLElement | undefined;
     let search: HTMLInputElement | undefined;
     let results: HTMLElement | undefined;
     let refresh: HTMLButtonElement | undefined;
     let availableModels: ModelInfo[] = [];
     let account: { apiKey: string; baseUrl: string } | undefined;
-    const status = panel.createEl("p", { cls: "qm-model-status", attr: { id: this.id + "-model-status", role: "status" } });
-    this.modelStatus = status;
-    const fieldError = (host: HTMLElement, name: string): HTMLElement => host.createEl("p", {
-      cls: "qm-settings-field-error", attr: { id: this.id + "-" + name + "-error", role: "alert" }
-    });
+    let status: HTMLElement;
+    const fieldError = (host: HTMLElement, name: string): HTMLElement => {
+      host.classList.add("qm-setting-with-error");
+      return host.createEl("p", {
+        cls: "qm-settings-field-error", attr: { id: this.id + "-" + name + "-error", role: "alert" }
+      });
+    };
     const clearFinder = (): void => {
       availableModels = [];
       account = undefined;
@@ -365,7 +487,9 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
     const updateControls = (): void => {
       const needsKey = provider !== "ollama" && !config.apiKey;
       find?.setDisabled(invalidKey || invalidEndpoint || needsKey || this.task !== undefined);
+      check?.setDisabled(invalidKey || invalidEndpoint || needsKey || this.task !== undefined);
       if (refresh) refresh.disabled = invalidKey || invalidEndpoint || needsKey || this.task !== undefined;
+      if (!status) return;
       if (needsKey && !invalidKey) {
         status.dataset.state = "idle";
         status.textContent = "Add an API key to find models.";
@@ -442,22 +566,30 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
       results = finder.createEl("ul", { cls: "qm-model-results", attr: { "aria-label": "Available models" } });
       panel.insertBefore(finder, status);
     };
-    const discover = async (fresh = false): Promise<void> => {
+    const discover = async (fresh = false, connectionOnly = false): Promise<void> => {
       if (invalidKey || invalidEndpoint || provider !== "ollama" && !config.apiKey || this.task) return;
       this.cancelModelTask();
       const controller = new AbortController();
       this.task = controller;
       const snapshot = { ...config };
-      ensureFinder();
+      if (connectionOnly) clearFinder();
+      else ensureFinder();
       availableModels = [];
       account = undefined;
       if (results) results.replaceChildren();
       if (this.modelCancel) this.modelCancel.buttonEl.hidden = false;
       status.setAttribute("aria-busy", "true");
       status.dataset.state = "loading";
-      status.textContent = "Finding models…";
+      status.textContent = connectionOnly ? "Checking connection…" : "Finding models…";
       updateControls();
       try {
+        if (connectionOnly) {
+          await this.context.models.test(provider, snapshot, controller.signal);
+          if (controller.signal.aborted || version !== this.renderVersion || config.apiKey !== snapshot.apiKey || config.baseUrl !== snapshot.baseUrl) return;
+          status.dataset.state = "ready";
+          status.textContent = "Model metadata is reachable. Generation access depends on the model and account.";
+          return;
+        }
         const models = await this.context.models.list(provider, snapshot, { signal: controller.signal, refresh: fresh });
         if (controller.signal.aborted || version !== this.renderVersion || config.apiKey !== snapshot.apiKey || config.baseUrl !== snapshot.baseUrl) return;
         availableModels = models;
@@ -480,8 +612,8 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
         }
       }
     };
-    if (provider !== "ollama") {
-      const keySetting = new Setting(panel).setName("API key").setDesc("Stored in local, unencrypted settings. Keep the file private.")
+    const keyDefinition: SearchableSetting = { name: "API key", desc: "Stored in local, unencrypted settings. Keep the file private.", aliases: ["authentication", "credentials", "token"], render: keySetting => {
+      keySetting
         .addText(input => {
           input.setValue(config.apiKey);
           input.inputEl.type = "password";
@@ -508,8 +640,16 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
           });
         });
       keyError = fieldError(keySetting.settingEl, "key");
-    }
-    const modelSetting = new Setting(panel).setName("Model ID").setDesc("Enter an ID or find models. Your notes are not sent.").setClass("qm-model-setting")
+    } };
+    const modelDefinition: SearchableSetting = { name: "Model ID", desc: "Enter an ID or find models. Connection checks read metadata only.", aliases: ["find models", "model search", "refresh models", "test connection"], render: modelSetting => {
+      clearFinder();
+      invalidKey = false;
+      invalidEndpoint = false;
+      version = this.renderVersion;
+      panel = modelSetting.settingEl.parentElement!;
+      status = panel.createEl("p", { cls: "qm-model-status", attr: { id: this.id + "-model-status", role: "status" } });
+      this.modelStatus = status;
+      modelSetting.setClass("qm-model-setting")
       .addText(input => {
         manual = input;
         input.setValue(config.model).setPlaceholder("Model ID");
@@ -540,6 +680,10 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
         });
       })
       .addButton(button => {
+        check = button;
+        button.setButtonText("Test connection").onClick(() => { void discover(true, true); });
+      })
+      .addButton(button => {
         this.modelCancel = button;
         button.setButtonText("Cancel").onClick(() => {
           this.cancelModelTask();
@@ -549,14 +693,12 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
         });
         button.buttonEl.hidden = true;
       });
-    modelError = fieldError(modelSetting.settingEl, "model");
-    this.modelControls = [find!];
-    const advanced = panel.createEl("details", { cls: "qm-settings-advanced" });
-    advanced.open = provider === "ollama" || config.baseUrl !== endpoints[provider];
-    advanced.createEl("summary", { text: "Advanced connection" });
-    const endpointSetting = new Setting(advanced).setName("Endpoint")
-      .setDesc(provider === "ollama" ? "On a phone, use your Ollama server's local network address." : "Change this only for a proxy or a different server.")
-      .addText(input => {
+      modelError = fieldError(modelSetting.settingEl, "model");
+      this.modelControls = [find!, check!];
+      updateControls();
+    } };
+    const endpointDefinition: SearchableSetting = { name: "Endpoint", desc: provider === "ollama" ? "On a phone, use your Ollama server's local network address." : "Change this only for a proxy or a different server.", aliases: ["base URL", "proxy", "server", "connection"], render: endpointSetting => {
+      endpointSetting.addText(input => {
         input.inputEl.setAttribute("aria-label", "Endpoint");
         input.inputEl.setAttribute("aria-describedby", this.id + "-endpoint-error");
         input.inputEl.maxLength = 2048;
@@ -581,69 +723,94 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
           updateControls();
         });
       });
-    endpointError = fieldError(endpointSetting.settingEl, "endpoint");
-    panel.insertBefore(status, advanced);
-    updateControls();
+      endpointError = fieldError(endpointSetting.settingEl, "endpoint");
+    } };
+    return [providerDefinition, ...(provider === "ollama" ? [] : [keyDefinition]), modelDefinition, endpointDefinition];
+  }
+
+  private renderModels(panel: HTMLElement): void {
+    panel = settingsGroup(panel, "Connection");
+    const definitions = this.modelDefinitions();
+    this.renderRows(panel, definitions.slice(0, -1));
+    const advanced = panel.createEl("details", { cls: "qm-settings-advanced" });
+    const provider = this.context.settings.provider;
+    advanced.open = provider === "ollama" || this.context.settings.providers[provider].baseUrl !== endpoints[provider];
+    advanced.createEl("summary", { text: "Advanced connection" });
+    this.renderRows(advanced, definitions.slice(-1));
+  }
+
+  private quizDefinitions(): SearchableSetting[] {
+    return [
+      { name: "Language", aliases: ["question language", "translation"], render: languageSetting => {
+        const suggestions = languageSetting.settingEl.createEl("datalist", { attr: { id: this.id + "-languages" } });
+        for (const language of languages) suggestions.createEl("option", { attr: { value: language } });
+        let languageStatus: HTMLElement;
+        languageSetting.addText(input => {
+          input.setValue(this.context.settings.language).setPlaceholder("Language");
+          input.inputEl.maxLength = 80;
+          input.inputEl.setAttribute("aria-label", "Language");
+          input.inputEl.setAttribute("aria-describedby", this.id + "-language-error");
+          input.inputEl.setAttribute("list", suggestions.id);
+          input.onChange(value => {
+            const language = value.trim();
+            if (!language || language.length > 80 || hasControlCharacter(value)) {
+              input.inputEl.setAttribute("aria-invalid", "true");
+              languageStatus.textContent = "Enter a language using 80 characters or fewer.";
+              return;
+            }
+            input.inputEl.removeAttribute("aria-invalid");
+            languageStatus.textContent = "";
+            this.context.settings.language = language;
+            this.scheduleSave();
+          });
+        });
+        languageSetting.settingEl.classList.add("qm-setting-with-error");
+        languageStatus = languageSetting.settingEl.createEl("p", { cls: "qm-settings-field-error", attr: { id: this.id + "-language-error", role: "alert" } });
+      } },
+      { name: "Study pack", aliases: ["preset", "question template"], render: setting => {
+        setting.addDropdown(select => {
+          labelDropdown(select, "Study pack");
+          if (!presets.some(preset => preset.id === this.context.settings.defaultPreset)) select.addOption(this.context.settings.defaultPreset, this.context.settings.defaultPreset);
+          for (const preset of presets) select.addOption(preset.id, preset.name);
+          select.setValue(this.context.settings.defaultPreset).onChange(value => { this.context.settings.defaultPreset = value; this.scheduleSave(); });
+        });
+      } },
+      { name: "Format", aliases: ["saved notes", "callouts", "spaced repetition", "flashcards"], render: setting => {
+        setting.addDropdown(select => labelDropdown(select, "Format")
+          .addOptions({ callouts: "Question callouts", "spaced-repetition": "Spaced repetition" })
+          .setValue(this.context.settings.saveFormat).onChange(value => {
+            this.context.settings.saveFormat = value === "spaced-repetition" ? "spaced-repetition" : "callouts";
+            this.scheduleSave();
+          }));
+      } },
+      { name: "Notes folder", desc: "A folder inside this vault. Leave blank to save in the vault root.", aliases: ["save location", "output folder", "vault root"], render: folderSetting => {
+        let status: HTMLElement;
+        folderSetting.addText(input => {
+          input.inputEl.setAttribute("aria-label", "Notes folder");
+          input.inputEl.setAttribute("aria-describedby", this.id + "-folder-status");
+          input.setValue(this.context.settings.saveFolder).setPlaceholder("Quizzes").onChange(value => {
+            try {
+              this.context.settings.saveFolder = normalizeSaveFolder(value);
+              input.inputEl.removeAttribute("aria-invalid");
+              status.textContent = "";
+              this.scheduleSave();
+            } catch (error) {
+              input.inputEl.setAttribute("aria-invalid", "true");
+              status.textContent = error instanceof Error ? error.message : "Choose a vault folder.";
+            }
+          });
+        });
+        folderSetting.settingEl.classList.add("qm-setting-with-error");
+        status = folderSetting.settingEl.createEl("p", { cls: "qm-settings-field-error", attr: { id: this.id + "-folder-status", role: "alert" } });
+      } }
+    ];
   }
 
   private renderQuestions(panel: HTMLElement): void {
-    panel = settingsGroup(panel, "Defaults");
-    const suggestions = panel.createEl("datalist", { attr: { id: this.id + "-languages" } });
-    for (const language of languages) suggestions.createEl("option", { attr: { value: language } });
-    let languageStatus: HTMLElement;
-    const languageSetting = new Setting(panel).setName("Language").addText(input => {
-      input.setValue(this.context.settings.language).setPlaceholder("Language");
-      input.inputEl.maxLength = 80;
-      input.inputEl.setAttribute("aria-label", "Language");
-      input.inputEl.setAttribute("aria-describedby", this.id + "-language-error");
-      input.inputEl.setAttribute("list", suggestions.id);
-      input.onChange(value => {
-        const language = value.trim();
-        if (!language || language.length > 80 || hasControlCharacter(value)) {
-          input.inputEl.setAttribute("aria-invalid", "true");
-          languageStatus.textContent = "Enter a language using 80 characters or fewer.";
-          return;
-        }
-        input.inputEl.removeAttribute("aria-invalid");
-        languageStatus.textContent = "";
-        this.context.settings.language = language;
-        this.scheduleSave();
-      });
-    });
-    languageStatus = languageSetting.settingEl.createEl("p", { cls: "qm-settings-field-error", attr: { id: this.id + "-language-error", role: "alert" } });
-    new Setting(panel).setName("Study pack").addDropdown(select => {
-      labelDropdown(select, "Study pack");
-      if (!presets.some(preset => preset.id === this.context.settings.defaultPreset)) select.addOption(this.context.settings.defaultPreset, this.context.settings.defaultPreset);
-      for (const preset of presets) select.addOption(preset.id, preset.name);
-      select.setValue(this.context.settings.defaultPreset).onChange(value => { this.context.settings.defaultPreset = value; this.scheduleSave(); });
-    });
+    this.renderRows(settingsGroup(panel, "Defaults"), this.quizDefinitions().slice(0, 2));
   }
 
   private renderSaving(panel: HTMLElement): void {
-    panel = settingsGroup(panel, "Saved notes");
-    new Setting(panel).setName("Format").addDropdown(select => labelDropdown(select, "Format")
-      .addOptions({ callouts: "Question callouts", "spaced-repetition": "Spaced repetition" })
-      .setValue(this.context.settings.saveFormat).onChange(value => {
-        this.context.settings.saveFormat = value === "spaced-repetition" ? "spaced-repetition" : "callouts";
-        this.scheduleSave();
-      }));
-    let status: HTMLElement;
-    const folderSetting = new Setting(panel).setName("Notes folder").setDesc("A folder inside this vault. Leave blank to save in the vault root.")
-      .addText(input => {
-        input.inputEl.setAttribute("aria-label", "Notes folder");
-        input.inputEl.setAttribute("aria-describedby", this.id + "-folder-status");
-        input.setValue(this.context.settings.saveFolder).setPlaceholder("Quizzes").onChange(value => {
-        try {
-          this.context.settings.saveFolder = normalizeSaveFolder(value);
-          input.inputEl.removeAttribute("aria-invalid");
-          status.textContent = "";
-          this.scheduleSave();
-        } catch (error) {
-          input.inputEl.setAttribute("aria-invalid", "true");
-          status.textContent = error instanceof Error ? error.message : "Choose a vault folder.";
-        }
-      });
-      });
-    status = folderSetting.settingEl.createEl("p", { cls: "qm-settings-field-error", attr: { id: this.id + "-folder-status", role: "alert" } });
+    this.renderRows(settingsGroup(panel, "Saved notes"), this.quizDefinitions().slice(2));
   }
 }

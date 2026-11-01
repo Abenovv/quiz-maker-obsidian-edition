@@ -52,6 +52,14 @@ export function sourceIssues(text, filename = "source.ts") {
       inspectImport(node, node.moduleSpecifier.text);
     }
     if (ts.isCallExpression(node)) {
+      if (ts.isPropertyAccessExpression(node.expression)
+        && ["getFiles", "getMarkdownFiles", "getAllLoadedFiles"].includes(node.expression.name.text)) {
+        add(node, "Use an explicit selected folder or file instead of broad vault enumeration.");
+      }
+      if (ts.isPropertyAccessExpression(node.expression) && ["readText", "writeText", "read", "write"].includes(node.expression.name.text)
+        && ts.isPropertyAccessExpression(node.expression.expression) && node.expression.expression.name.text === "clipboard") {
+        add(node, "Use an explicit local file export instead of system clipboard access.");
+      }
       if ((ts.isIdentifier(node.expression) && node.expression.text === "require"
         || node.expression.kind === ts.SyntaxKind.ImportKeyword)
         && node.arguments.length && ts.isStringLiteralLike(node.arguments[0])) {
@@ -85,6 +93,25 @@ export function sourceIssues(text, filename = "source.ts") {
   return issues;
 }
 
+/** Keep the source styles compatible with the declared minimum webview. */
+export function stylesheetIssues(text, filename = "styles.css") {
+  const css = text.replace(/\/\*[\s\S]*?\*\//g, comment => comment.replace(/[^\n]/g, " "));
+  const issues = [];
+  const incompatible = /(?:^|[;{}])\s*(text-decoration-thickness|text-underline-offset|clip-path|break-inside|columns|column-count|column-width)\s*:/gim;
+  for (const match of css.matchAll(/!important\b/gi)) {
+    const line = css.slice(0, match.index).split("\n").length;
+    issues.push(filename + ":" + line + ": Use scoped specificity instead of !important.");
+  }
+  for (const match of css.matchAll(/:has\s*\(/gi)) {
+    issues.push(filename + ":" + css.slice(0, match.index).split("\n").length + ": Use an explicit component state instead of :has().");
+  }
+  for (const match of css.matchAll(incompatible)) {
+    const line = css.slice(0, match.index).split("\n").length;
+    issues.push(filename + ":" + line + ": Use a minimum-webview-compatible alternative to " + match[1] + ".");
+  }
+  return issues;
+}
+
 export function trackedProjectFiles() {
   return execFileSync("git", ["ls-files", "-z"], { cwd: projectRoot, encoding: "utf8" })
     .split("\0").filter(Boolean);
@@ -110,6 +137,7 @@ export function checkProjectPolicy() {
     }
     const content = readFileSync(resolve(projectRoot, file), "utf8");
     if (hasPotentialSecret(content)) issues.push(file + ": possible credential found; no value was printed.");
+    if (file.endsWith(".css")) issues.push(...stylesheetIssues(content, file));
     if (/^src\/.*\.tsx?$/.test(file)) {
       sourceCount++;
       issues.push(...sourceIssues(content, file));

@@ -6,20 +6,24 @@ import { MAX_GENERATED_QUESTIONS, MAX_GENERATION_SOURCES, MAX_SOURCE_CHARACTERS 
 import { modelDiscoveryMessage } from "../ai/models";
 import { DEFAULT_PRESET_ID, findPreset, presets } from "../presets";
 import { Icon, InlineError, errorMessage, openReactModal } from "./shared";
-import { mergeSelectedNotes, notesInFolder, readSelectedNotes } from "./generator/sources";
+import { mergeSelectedNotes, notesInFolder, readSelectedNotes, sourceBrowseItems, sourceBrowseLabel, type SourceBrowseItem } from "./generator/sources";
 
 const providerNames: Record<Provider, string> = {
   openai: "OpenAI", google: "Google", anthropic: "Anthropic", mistral: "Mistral", cohere: "Cohere", perplexity: "Perplexity", ollama: "Ollama"
 };
 
-class SourcePicker<T extends TFile | TFolder> extends FuzzySuggestModal<T> {
-  constructor(context: PluginContext, private readonly items: T[], private readonly choose: (item: T) => void, kind: "note" | "folder") {
+export class SourcePicker extends FuzzySuggestModal<SourceBrowseItem> {
+  constructor(private readonly context: PluginContext, private readonly folder: TFolder, private readonly choose: (item: TFile | TFolder) => void, private readonly kind: "note" | "folder") {
     super(context.app);
-    this.setPlaceholder(`Choose a ${kind}`);
+    const path = folder.path === "/" ? "Vault" : folder.path || "Vault";
+    this.setPlaceholder(`${kind === "note" ? "Choose a note" : "Choose a folder"} · ${path}`);
   }
-  getItems(): T[] { return this.items; }
-  getItemText(item: T): string { return item.path === "/" ? "Vault" : item.path || "Vault"; }
-  onChooseItem(item: T): void { this.choose(item); }
+  getItems(): SourceBrowseItem[] { return sourceBrowseItems(this.folder, this.kind); }
+  getItemText(item: SourceBrowseItem): string { return sourceBrowseLabel(item); }
+  onChooseItem(item: SourceBrowseItem): void {
+    if (item.kind === "back" || item.kind === "folder") new SourcePicker(this.context, item.file, this.choose, this.kind).open();
+    else this.choose(item.file);
+  }
 }
 
 function localEndpoint(provider: Provider, baseUrl: string): boolean {
@@ -108,18 +112,20 @@ export function Generator({ context, close, presetId }: { context: PluginContext
   };
 
   const chooseNotes = (): void => {
-    const notes = context.app.vault.getMarkdownFiles().sort((left, right) => left.path.localeCompare(right.path));
-    if (!notes.length) { setError("No Markdown notes in this vault yet."); return; }
-    new SourcePicker(context, notes, file => addFiles([file]), "note").open();
+    const folder = context.app.workspace.getActiveFile()?.parent ?? context.app.vault.getRoot();
+    new SourcePicker(context, folder, file => { if (file instanceof TFile) addFiles([file]); }, "note").open();
   };
 
   const chooseFolder = (): void => {
-    const folders = context.app.vault.getAllLoadedFiles().filter((file): file is TFolder => file instanceof TFolder).sort((left, right) => left.path.localeCompare(right.path));
-    if (!folders.length) { setError("No folders are available."); return; }
-    new SourcePicker(context, folders, folder => {
-      const notes = notesInFolder(context.app.vault.getMarkdownFiles(), folder.path);
-      if (!notes.length) { setError("This folder has no Markdown notes."); return; }
-      addFiles(notes);
+    const startingFolder = context.app.workspace.getActiveFile()?.parent ?? context.app.vault.getRoot();
+    new SourcePicker(context, startingFolder, folder => {
+      if (!alive.current) return;
+      if (!(folder instanceof TFolder)) return;
+      try {
+        const notes = notesInFolder(folder, MAX_GENERATION_SOURCES);
+        if (!notes.length) { setError("This folder has no Markdown notes."); return; }
+        addFiles(notes);
+      } catch (failure) { setError(errorMessage(failure)); }
     }, "folder").open();
   };
 
