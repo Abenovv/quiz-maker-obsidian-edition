@@ -67,6 +67,12 @@ export class Component {
 }
 export class MarkdownRenderChild extends Component { constructor(public containerEl: HTMLElement) { super(); } }
 
+/** Preview uses its existing DOM key handling; native Scope is exercised in Obsidian. */
+export class Scope {
+  constructor(_parent?: Scope) {}
+  register(_modifiers: string[] | null, _key: string | null, _callback: (event: KeyboardEvent) => unknown): object { return {}; }
+  unregister(_handler: object): void {}
+}
 export class Modal extends Component {
   readonly containerEl = document.createElement("div");
   readonly modalEl = document.createElement("div");
@@ -318,8 +324,59 @@ export class Plugin extends Component {
 }
 export class WorkspaceLeaf { app!: App; containerEl = document.createElement("div"); async setViewState(_state: unknown): Promise<void> {} }
 export class ItemView extends Component { readonly contentEl = document.createElement("div"); readonly containerEl = document.createElement("div"); app: App; constructor(public leaf: WorkspaceLeaf) { super(); this.app = leaf.app; this.containerEl.append(this.contentEl); } }
-export class MenuItem { private callback: (() => unknown) | undefined; setTitle(_title: string): this { return this; } setIcon(_icon: string): this { return this; } onClick(callback: () => unknown): this { this.callback = callback; return this; } setDisabled(_disabled: boolean): this { return this; } }
-export class Menu { addItem(callback: (item: MenuItem) => unknown): this { callback(new MenuItem()); return this; } addSeparator(): this { return this; } showAtMouseEvent(_event: MouseEvent): void {} showAtPosition(_position: unknown): void {} }
+export class MenuItem {
+  title = ""; disabled = false; callback: (() => unknown) | undefined;
+  setTitle(title: string): this { this.title = title; return this; }
+  setIcon(_icon: string): this { return this; }
+  onClick(callback: () => unknown): this { this.callback = callback; return this; }
+  setDisabled(disabled: boolean): this { this.disabled = disabled; return this; }
+}
+export class Menu {
+  private items: Array<MenuItem | null> = [];
+  private element: HTMLElement | undefined;
+  private previousFocus: HTMLElement | null = null;
+  private hideCallbacks: Array<() => unknown> = [];
+  private dispose: Cleanup = () => {};
+  addItem(callback: (item: MenuItem) => unknown): this { const item = new MenuItem(); callback(item); this.items.push(item); return this; }
+  addSeparator(): this { this.items.push(null); return this; }
+  onHide(callback: () => unknown): this { this.hideCallbacks.push(callback); return this; }
+  showAtMouseEvent(event: MouseEvent): this { return this.showAtPosition({ x: event.clientX, y: event.clientY }, (event.target as Node | null)?.ownerDocument ?? document); }
+  showAtPosition(position: { x: number; y: number }, doc: Document = document): this {
+    this.hide(); this.previousFocus = doc.activeElement as HTMLElement | null;
+    const element = doc.createElement("div"); element.className = "preview-menu"; element.setAttribute("role", "menu"); element.setAttribute("aria-label", "Options");
+    for (const item of this.items) {
+      if (!item) { const separator = doc.createElement("div"); separator.setAttribute("role", "separator"); element.append(separator); continue; }
+      const button = doc.createElement("button"); button.type = "button"; button.textContent = item.title; button.disabled = item.disabled; button.setAttribute("role", "menuitem"); button.tabIndex = -1;
+      button.onclick = () => { this.hide(); item.callback?.(); }; element.append(button);
+    }
+    this.element = element; doc.body.append(element);
+    const bounds = element.getBoundingClientRect(), view = doc.defaultView;
+    element.style.left = Math.max(8, Math.min(position.x, (view?.innerWidth ?? doc.documentElement.clientWidth) - bounds.width - 8)) + "px";
+    element.style.top = Math.max(8, Math.min(position.y, (view?.innerHeight ?? doc.documentElement.clientHeight) - bounds.height - 8)) + "px";
+    const keydown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); this.hide(); }
+      else if (event.key === "Tab") this.hide();
+      else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault(); event.stopPropagation();
+        const buttons = [...element.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
+        const current = buttons.indexOf(doc.activeElement as HTMLButtonElement);
+        if (buttons.length) buttons[(current + (event.key === "ArrowDown" ? 1 : buttons.length - 1)) % buttons.length]?.focus();
+      }
+    };
+    const outside = (event: PointerEvent): void => { if (!element.contains(event.target as Node)) this.hide(); };
+    doc.addEventListener("keydown", keydown, true); doc.addEventListener("pointerdown", outside, true);
+    this.dispose = () => { doc.removeEventListener("keydown", keydown, true); doc.removeEventListener("pointerdown", outside, true); };
+    element.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus({ preventScroll: true });
+    return this;
+  }
+  hide(): this {
+    if (!this.element) return this;
+    this.dispose(); this.element.remove(); this.element = undefined;
+    if (this.previousFocus?.isConnected) this.previousFocus.focus({ preventScroll: true });
+    for (const callback of this.hideCallbacks) callback();
+    return this;
+  }
+}
 export function normalizePath(path: string): string { return path.replace(/\\/g, "/").replace(/\/+/g, "/").replace(/^\/|\/$/g, ""); }
 export function setIcon(element: HTMLElement, icon: string): void { element.dataset.icon = icon; element.setAttribute("aria-hidden", "true"); }
 export function addIcon(_name: string, _source: string): void {}

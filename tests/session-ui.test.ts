@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createElement } from "react";
+import { createElement, createRef } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { PluginContext, Quiz, SessionConfig } from "../src/core/types";
 import { createSession, reduceSession, tickSession } from "../src/session/engine";
-import { SessionContent, SessionSetup } from "../src/ui/SessionModal";
+import { SessionContent, SessionFinishConfirmation, SessionSetup } from "../src/ui/SessionModal";
 import { SessionTimer } from "../src/ui/session/Timer";
 import { configForMode, configForTimer, defaultSessionConfig, durationSeconds } from "../src/ui/session/config";
 
@@ -65,6 +65,25 @@ test("exam setup exposes neither an untimed option nor a pause switch", () => {
   assert.match(html, /Closing this window does not stop the timer/);
 });
 
+test("setup controls describe the selected mode and the exam timer consequence", () => {
+  const html = renderToStaticMarkup(createElement(SessionSetup, { quiz, initialConfig: { ...defaultSessionConfig, mode: "exam" }, onStart: noop, onEdit: noop }));
+  const modeHelp = html.match(/aria-label="Study mode" aria-describedby="([^"]+)"/)?.[1];
+  const timerHelp = html.match(/aria-label="Timer" aria-describedby="([^"]+)"/)?.[1];
+  assert.ok(modeHelp && timerHelp);
+  assert.ok(html.includes(`<p id="${modeHelp}" class="qm-mode-description qm-mode-help">Review answers after submission</p>`));
+  assert.ok(html.includes(`<p id="${timerHelp}" class="qm-help qm-session-timer-help">Answers unlock after submission. Closing this window does not stop the timer.</p>`));
+  assert.ok(html.includes(`aria-label="Minutes" aria-describedby="${timerHelp}"`));
+});
+
+test("Submit is described by the remaining-answer confirmation", () => {
+  for (const [remaining, flashcards, prompt] of [[2, false, "2 questions are unanswered. Submit now?"], [1, true, "1 card remains unrated. Submit now?"], [0, false, "Submit this session?"]] as const) {
+    const html = renderToStaticMarkup(createElement(SessionFinishConfirmation, { remaining, flashcards, submitButton: createRef<HTMLButtonElement>(), onSubmit: noop, onCancel: noop }));
+    const promptId = html.match(/aria-describedby="([^"]+)"[^>]*>Submit<\/button>/)?.[1];
+    assert.ok(promptId);
+    assert.ok(html.includes(`<p id="${promptId}">${prompt}</p>`));
+  }
+});
+
 test("active exam markup contains no reference, hint, feedback, or export controls", () => {
   const session = createSession(quiz, { mode: "exam", timerMode: "whole-quiz", durationSeconds: 1800 });
   const html = renderToStaticMarkup(createElement(SessionContent, { context, quiz, resume: session, close: noop }));
@@ -81,7 +100,7 @@ test("submitted exams expose answer review and export through the editor", () =>
   assert.match(html, /Reference answer/);
   assert.match(html, /Edit quiz/);
   assert.match(html, /Save note/);
-  assert.match(html, /More actions/);
+  assert.match(html, /<summary>Options<\/summary>/);
   assert.match(html, />Export</);
 });
 
@@ -92,6 +111,7 @@ test("flashcard fronts keep recall ratings hidden until a reveal", () => {
   assert.doesNotMatch(before, /aria-label="Recall rating"|Reference answer/);
   const after = renderToStaticMarkup(createElement(SessionContent, { context, quiz, resume: reduceSession(session, { type: "reveal" }), close: noop }));
   assert.match(after, /aria-label="Recall rating"/);
+  assert.match(after, /tabindex="-1" class="qm-flashcard-ratings" role="group" aria-label="Recall rating"/);
   assert.match(after, /Reference answer/);
   assert.match(after, /Again/);
 });
@@ -147,6 +167,21 @@ test("source excerpts obey the user switch and remain hidden during an exam", ()
   assert.doesNotMatch(render(submitted, { ...enabled, settings: { ...enabled.settings, sourceEvidenceEnabled: false } }), /source-only-hidden-value|Sources\/Orbit.md/);
 });
 
+test("checked feedback follows the reference before the optional source disclosure", () => {
+  const sourced: Quiz = { ...quiz, questions: [{ ...quiz.questions[0], evidence: [{ path: "Sources/Orbit.md", quote: "source-only-hidden-value", status: "verified" }] }] };
+  const enabled = { ...context, settings: { ...context.settings, sourceEvidenceEnabled: true } } as PluginContext;
+  const answered = reduceSession(createSession(sourced), { type: "answer", questionIndex: 0, response: "A path around a body." });
+  const checked = reduceSession(answered, { type: "check" });
+  const html = renderToStaticMarkup(createElement(SessionContent, { context: enabled, quiz: sourced, resume: checked, close: noop }));
+  // Markdown content mounts in a browser effect; SSR can verify its reference region and reading order.
+  const reference = html.indexOf('aria-label="Reference answer"');
+  const feedback = html.indexOf("qm-session-feedback");
+  const sources = html.indexOf("qm-study-sources");
+  assert.match(html, /<p tabindex="-1" class="qm-grade qm-grade-self-review qm-session-feedback" role="status">Self-review/);
+  assert.match(html, /source-only-hidden-value/);
+  assert.ok(reference >= 0 && feedback > reference && sources > feedback, "Reference, feedback, and Source must follow that reading order.");
+});
+
 test("optional study shortcut guide describes implemented actions only", () => {
   const running = createSession(quiz);
   const render = (enabled: boolean): string => renderToStaticMarkup(createElement(SessionContent, { context: { ...context, settings: { ...context.settings, shortcutGuideEnabled: enabled } } as PluginContext, quiz, resume: running, close: noop }));
@@ -154,4 +189,46 @@ test("optional study shortcut guide describes implemented actions only", () => {
   assert.match(render(true), /Find a study shortcut/);
   assert.match(render(true), /Check or reveal answer/);
   assert.match(render(true), /Focus mode/);
+});
+
+
+test("practice starts with one toolbar and one answering action", () => {
+  const html = renderToStaticMarkup(createElement(SessionContent, { context, quiz, resume: createSession(quiz), close: noop }));
+  assert.equal((html.match(/class="qm-study-toolbar"/g) ?? []).length, 1);
+  assert.match(html, /<summary class="qm-nav-toggle qm-question-position" aria-label="Question 1 of 2"/);
+  assert.doesNotMatch(html, /qm-session-header|qm-session-progress|Questions answered|<progress/);
+  assert.match(html, /<summary>Options<\/summary>/);
+  assert.match(html, /Show reference/);
+  assert.doesNotMatch(html, />Next<|>Previous<|<summary>View<|<summary>Actions</);
+  assert.equal((html.match(/class="mod-cta"/g) ?? []).length, 1);
+  assert.match(html, /Skip question/);
+});
+
+test("checking replaces the answering action with Next", () => {
+  const answered = reduceSession(createSession(quiz), { type: "answer", questionIndex: 0, response: "A path around another body." });
+  const checked = reduceSession(answered, { type: "check" });
+  const html = renderToStaticMarkup(createElement(SessionContent, { context, quiz, resume: checked, close: noop }));
+  assert.match(html, /class="mod-cta"[^>]*>Next/);
+  assert.doesNotMatch(html, /Show reference|Check answer/);
+  assert.equal((html.match(/class="mod-cta"/g) ?? []).length, 1);
+});
+
+test("untimed setup keeps secondary controls together and a saved timer visible", () => {
+  const render = (initialConfig: SessionConfig): string => renderToStaticMarkup(createElement(SessionSetup, { quiz, initialConfig, onStart: noop, onEdit: noop }));
+  const plain = render(defaultSessionConfig);
+  assert.match(plain, /<details class="qm-session-extra-options"><summary>Study options/);
+  assert.ok(plain.indexOf('aria-label="Timer"') > plain.indexOf("<summary>Study options"));
+  assert.ok(plain.indexOf("Edit questions") < plain.indexOf("</details>"));
+  const timed = render({ ...defaultSessionConfig, timerMode: "whole-quiz", durationSeconds: 1200 });
+  assert.match(timed, /<details class="qm-session-extra-options" open="">/);
+  assert.match(timed, /aria-label="Minutes"[^>]*value="20"/);
+});
+
+test("results keep answer browsing and statistics behind one review disclosure", () => {
+  const completed = reduceSession(createSession(quiz), { type: "finish" });
+  const html = renderToStaticMarkup(createElement(SessionContent, { context, quiz, resume: completed, close: noop }));
+  assert.match(html, /<details class="qm-result-review"><summary>Review answers/);
+  assert.ok(html.indexOf("qm-results-statistics") > html.indexOf("<summary>Review answers"));
+  assert.ok(html.indexOf("qm-results-grid") > html.indexOf("<summary>Review answers"));
+  assert.doesNotMatch(html, /qm-session-header|<summary>Learning trends/);
 });

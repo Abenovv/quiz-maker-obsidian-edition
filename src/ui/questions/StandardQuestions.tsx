@@ -28,7 +28,7 @@ function ChoiceInputs({ options, response, onChange, disabled, multiple = false,
           name={name}
           value={String(value)}
           checked={checked}
-          aria-label={option}
+          aria-labelledby={`${name}-option-${index}`}
           onChange={() => {
             if (disabled) return;
             onChange(multiple
@@ -36,7 +36,7 @@ function ChoiceInputs({ options, response, onChange, disabled, multiple = false,
               : value);
           }}
         />
-        <Markdown text={option} className="qm-choice-text" />
+        <div id={`${name}-option-${index}`} className="qm-choice-text"><Markdown text={option} /></div>
       </label>;
     })}
   </fieldset>;
@@ -71,11 +71,11 @@ function MatchingInput({ question, response, onChange, disabled }: {
     {question.answer.map((pair, index) => {
       const value = Number.isInteger(values[index]) ? String(values[index]) : "";
       return <div className="qm-match-row" key={index}>
-        <label htmlFor={`${name}-${index}`}><Markdown text={pair.leftOption} /></label>
+        <label id={`${name}-${index}-label`} htmlFor={`${name}-${index}`}><span className="qm-sr-only">Match </span><Markdown text={pair.leftOption} /></label>
         <select
           id={`${name}-${index}`}
           value={value}
-          aria-label={`Match ${pair.leftOption}`}
+          aria-labelledby={`${name}-${index}-label`}
           onChange={event => {
             if (disabled) return;
             const next = question.answer.map((_, item) => Number.isInteger(values[item]) ? values[item] : null);

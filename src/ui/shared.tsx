@@ -3,6 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { createContext, createElement, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type { PluginContext } from "../core/types";
 import { prepareQuizMarkdown, codeTokens } from "../core/markdown";
+import { applyAccentContrast, bindAccentContrast } from "../appearance";
 
 export interface ReactModalOptions {
   className?: string;
@@ -17,6 +18,7 @@ const activeModals = new WeakMap<PluginContext, Set<ReactModal>>();
 /** Native modal host owns every React root and Markdown child it creates. */
 export class ReactModal extends Modal {
   private root: Root | undefined;
+  private stopContrast: (() => void) | undefined;
   readonly markdownScope = new Component();
   readonly context: PluginContext;
 
@@ -34,6 +36,8 @@ export class ReactModal extends Modal {
     if (this.options.compact) this.modalEl.addClass("qm-modal-compact");
     this.modalEl.dataset.theme = this.context.settings.theme;
     this.modalEl.dataset.motion = this.context.settings.motion;
+    this.stopContrast?.();
+    this.stopContrast = bindAccentContrast(this.context, this.modalEl);
     if (this.options.title) this.setTitle(this.options.title);
     this.contentEl.addClass("qm-modal-content");
     this.markdownScope.load();
@@ -44,6 +48,8 @@ export class ReactModal extends Modal {
 
   onClose(): void {
     activeModals.get(this.context)?.delete(this);
+    this.stopContrast?.();
+    this.stopContrast = undefined;
     this.root?.unmount();
     this.root = undefined;
     this.markdownScope.unload();
@@ -64,6 +70,7 @@ export function refreshContextModals(context: PluginContext): void {
   for (const modal of activeModals.get(context) ?? []) {
     if (modal.modalEl.dataset.theme !== context.settings.theme) modal.modalEl.dataset.theme = context.settings.theme;
     if (modal.modalEl.dataset.motion !== context.settings.motion) modal.modalEl.dataset.motion = context.settings.motion;
+    applyAccentContrast(modal.modalEl);
   }
 }
 

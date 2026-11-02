@@ -3,7 +3,7 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { App, TFile, TFolder } from "obsidian";
-import type { PluginContext } from "../src/core/types";
+import type { PluginContext, Provider } from "../src/core/types";
 import { normalizeSettings } from "../src/settings";
 import { Generator, SourcePicker } from "../src/ui/GeneratorModal";
 
@@ -20,7 +20,7 @@ test("source picker navigates scoped folders and selects explicitly without glob
   course.children = [note];
   root.children = [course];
   const selected: Array<TFile | TFolder> = [];
-  const context = { app } as PluginContext;
+  const context = { app, settings: normalizeSettings({}) } as PluginContext;
   const picker = new SourcePicker(context, root, file => { selected.push(file); }, "note");
   let navigated: SourcePicker | undefined;
   const originalOpen = SourcePicker.prototype.open;
@@ -41,12 +41,12 @@ test("source picker navigates scoped folders and selects explicitly without glob
   } finally { SourcePicker.prototype.open = originalOpen; }
 });
 
-function render(active: TFile | null, configured: boolean) {
+function render(active: TFile | null, configured: boolean, provider: Provider = "ollama") {
   let reads = 0;
   let requests = 0;
   const settings = normalizeSettings(undefined);
-  settings.provider = "ollama";
-  settings.providers.ollama.model = configured ? "public-fixture-model" : "";
+  settings.provider = provider;
+  settings.providers[provider].model = configured ? "public-fixture-model" : "";
   const context = {
     settings,
     app: { workspace: { getActiveFile: () => active }, vault: { cachedRead: () => { reads++; return Promise.resolve("Public fixture."); } } },
@@ -58,25 +58,32 @@ function render(active: TFile | null, configured: boolean) {
 test("opening generation selects the active note without reading it or contacting a provider", () => {
   const result = render(new TFile("Lessons/Public fixture.md"), true);
   assert.match(result.html, /Lessons\/Public fixture\.md/);
-  assert.doesNotMatch(result.html, /disabled=""[^>]*>Generate 10 questions/);
+  assert.match(result.html, />Public fixture<\/span>/);
+  const footer = result.html.slice(result.html.indexOf('<footer class="qm-generator-footer"'));
+  assert.match(footer, />Generate quiz<\/button>/);
+  assert.doesNotMatch(footer, /disabled=""[^>]*>Generate quiz/);
+  assert.doesNotMatch(footer, /Create manually/);
   assert.equal(result.reads, 0);
   assert.equal(result.requests, 0);
 });
 
-test("optional customization stays collapsed while all question formats remain available", () => {
+test("creation starts with one collapsed customization route and retains every question format", () => {
   const { html } = render(null, true);
-  assert.match(html, /<details class="qm-generator-details qm-question-mix"><summary>/);
-  assert.match(html, /class="qm-generator-options qm-generator-details"><summary>More options/);
-  assert.match(html, /class="qm-generator-details qm-model-details"><summary>/);
-  assert.match(html, /value="branching-scenario"/);
-  assert.match(html, /value="concept-map"/);
-  assert.match(html, /value="what-if"/);
-  assert.match(html, /Source references/);
+  assert.equal((html.match(/<details/g) ?? []).length, 1);
+  assert.match(html, /<details class="qm-generator-customize"><summary>Customize<\/summary>/);
+  assert.doesNotMatch(html, /<details[^>]+open=/);
+  const customize = html.slice(html.indexOf('<details class="qm-generator-customize"'), html.indexOf("</details>"));
+  for (const value of ["branching-scenario", "concept-map", "what-if", "Source references", "Edit pack", "Create manually", "Choose model"]) assert.ok(customize.includes(value), value);
+  assert.match(html.slice(0, html.indexOf('<details class="qm-generator-customize"')), /aria-haspopup="menu" aria-expanded="false"[^>]*>[\s\S]*Add source/);
+  assert.doesNotMatch(customize, /Add folder/);
+  assert.doesNotMatch(html, />More options<|>Question mix</);
 });
 
 test("missing model setup is exposed and a JSON file is not selected as a source note", () => {
   const { html } = render(new TFile("Public quiz.json"), false);
-  assert.match(html, /class="qm-generator-details qm-model-details" open=""/);
+  const setup = html.indexOf('aria-label="Model connection"');
+  assert.ok(setup >= 0 && setup < html.indexOf('<details class="qm-generator-customize"'));
+  assert.match(html, /Connect a model/);
   assert.match(html, /Choose your source notes/);
   assert.doesNotMatch(html, /qm-source-path/);
 });
@@ -95,7 +102,7 @@ test("selection generation shows its scope without choosing or reading the activ
   assert.match(html, /Public\.md/);
   assert.match(html, /Selected text/);
   assert.doesNotMatch(html, /Whole note/);
-  assert.doesNotMatch(html, />Add note</);
+  assert.doesNotMatch(html, /Add source/);
   assert.equal(reads, 0);
 });
 
@@ -105,8 +112,18 @@ test("generator uses the shared model picker and keeps estimates in advanced opt
   assert.doesNotMatch(html, /<datalist/);
   assert.match(html, /Choose model/);
   assert.match(html, /placeholder="Enter a model ID"/);
-  assert.match(html, /Customize pack/);
-  const options = html.slice(html.indexOf('class="qm-generator-options'), html.indexOf('<details class="qm-generator-details qm-model-details'));
+  assert.match(html, /Edit pack/);
+  const options = html.slice(html.indexOf('class="qm-generator-customize'), html.indexOf("</details>"));
   assert.match(options, /output tokens/);
+  assert.equal(requests, 0);
+});
+
+
+test("a missing remote API key exposes setup without reading notes or requesting models", () => {
+  const { html, reads, requests } = render(new TFile("Public.md"), true, "google");
+  const setup = html.indexOf('aria-label="Model connection"');
+  assert.ok(setup >= 0 && setup < html.indexOf('<details class="qm-generator-customize"'));
+  assert.match(html, /Add your Google API key in Settings → Quiz maker/);
+  assert.equal(reads, 0);
   assert.equal(requests, 0);
 });

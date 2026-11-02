@@ -36,5 +36,5 @@ export function ShortcutGuide() {
 }
 
 export function FocusControl({ focused, onChange }: { focused: boolean; onChange(this: void, value: boolean): void }) {
-  return <label className="qm-checkbox"><input type="checkbox" checked={focused} onChange={event => onChange(event.target.checked)} />Focus mode</label>;
+  return <label className="qm-checkbox qm-focus-control"><input type="checkbox" checked={focused} onChange={event => onChange(event.target.checked)} />Focus mode</label>;
 }

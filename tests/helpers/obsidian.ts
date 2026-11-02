@@ -174,6 +174,12 @@ export class Plugin extends Component {
   async loadData(): Promise<unknown> { return this.data; }
   async saveData(value: unknown): Promise<void> { this.data = structuredClone(value); }
 }
+/** Inert keymap boundary; native Scope behavior is verified in Obsidian. */
+export class Scope {
+  constructor(_parent?: Scope) {}
+  register(_modifiers: string[] | null, _key: string | null, _callback: (event: KeyboardEvent) => unknown): object { return {}; }
+  unregister(_handler: object): void {}
+}
 export class Modal extends Component {
   modalEl = hostElement(); contentEl = hostElement(); titleEl = hostElement();
   constructor(public app: App) { super(); }

@@ -429,7 +429,7 @@ test("settings expose labelled groups and folder validation stays beside its fie
   try {
     const groupNames = () => elements(harness.tab.containerEl)
       .filter(element => element.getAttribute("role") === "group").map(element => element.getAttribute("aria-label"));
-    assert.deepEqual(groupNames(), ["Appearance", "Playback"]);
+    assert.deepEqual(groupNames(), ["Appearance"]);
     harness.section("Models");
     assert.deepEqual(groupNames(), ["Connection"]);
     harness.section("Quizzes");
@@ -449,7 +449,7 @@ test("settings expose labelled groups and folder validation stays beside its fie
   } finally { harness.close(); }
 });
 
-test("extra commands stay behind More options and update the live setting before saving", async () => {
+test("optional controls share More options and update their live settings before saving", async () => {
   let saves = 0;
   const harness = await settingsHarness({ save: async () => { saves++; } });
   const flush = harness.tab as unknown as { flushSettings(): Promise<void> };
@@ -458,6 +458,13 @@ test("extra commands stay behind More options and update the live setting before
       && Array.from(element.children).some(child => child.textContent === "More options")) as HTMLDetailsElement;
     assert.ok(more);
     assert.equal(Boolean(more.open), false);
+    const [sound, preview] = harness.groups.get("Study sounds")!;
+    assert.equal(preview.buttonEl.hidden, true, "silent defaults do not show a test action");
+    sound.change!(true);
+    assert.equal(harness.settings.soundEnabled, true);
+    assert.equal(preview.buttonEl.hidden, false);
+    sound.change!(false);
+    assert.equal(preview.buttonEl.hidden, true);
     const toggle = harness.groups.get("Extra commands")![0];
     assert.equal(toggle.toggleEl.getAttribute("aria-label"), "Extra commands");
     assert.equal(harness.settings.extraCommands, false);

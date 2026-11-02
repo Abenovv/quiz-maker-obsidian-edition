@@ -9,6 +9,7 @@ import { createSession, summarizeSession } from "../src/session/engine";
 import { addQuizToBank, filterBank, filterLibrary, libraryEntries, libraryPage, quizFromBank, reviewSource, scoreLabel, shuffledVariant } from "../src/ui/studioData";
 import { createWorkspace } from "../src/core/workspace";
 import { closeStudioDisclosure, positionStudioDisclosure, studioMenuPlacement, Studio } from "../src/ui/StudioModal";
+import { BackupTools, LocalTrends } from "../src/ui/LibraryTools";
 
 test("a last-row menu opens above the trigger when the scroll pane clips its lower actions", () => {
   assert.deepEqual(studioMenuPlacement({ top: 80, bottom: 569, triggerTop: 413, triggerBottom: 457, menuHeight: 202 }), { side: "above", maxHeight: 327 });
@@ -178,17 +179,19 @@ test("recovery offers an explicit local file export without exposing damaged dat
   }
 });
 
-test("studio groups creation into one closed disclosure with one import entry", () => {
+test("studio starts with one direct New quiz action and one closed tools menu", () => {
   const html = studioMarkup(null);
   const header = html.slice(html.indexOf("<header"), html.indexOf("</header>"));
-  assert.equal(header.match(/Create quiz/g)?.length, 1);
-  assert.match(header, /From notes/);
+  assert.equal(header.match(/>New quiz</g)?.length, 1);
+  assert.match(header, /Your quizzes/);
   assert.match(header, /Write questions/);
   assert.match(header, />Import</);
-  assert.doesNotMatch(header, />Generate<|>New quiz<|Import JSON|Import cards/);
-  const disclosure = header.match(/<details[^>]*class="qm-studio-create"[^>]*>/)?.[0];
-  assert.ok(disclosure);
-  assert.doesNotMatch(disclosure, /\sopen(?:=|\s|>)/);
+  assert.doesNotMatch(header, /Create quiz|From notes|qm-studio-create/);
+  const disclosures = header.match(/<details[^>]*>/g) ?? [];
+  assert.equal(disclosures.length, 1);
+  assert.match(disclosures[0], /class="qm-studio-tools"/);
+  assert.doesNotMatch(disclosures[0], /\sopen(?:=|\s|>)/);
+  assert.match(header, /Library tools/);
   assert.doesNotMatch(header, /role="menu"|aria-haspopup="menu"/);
 });
 
@@ -205,22 +208,31 @@ test("current-note tools require a native supported file and keep JSON conversio
     assert.doesNotMatch(html, /Open quiz from current note|Make current note readable/);
     assert.match(html, /Open mini view/);
   }
-  assert.doesNotMatch(studioMarkup(new TFile("Recall.md"), [], [], false), /qm-studio-tools/);
+  const withoutNoteTools = studioMarkup(new TFile("Recall.md"), [], [], false);
+  assert.match(withoutNoteTools, /Library tools/);
+  assert.doesNotMatch(withoutNoteTools, /Open quiz from current note|Make current note readable|Open mini view/);
 });
 
-test("all seven study packs and existing history remain reachable behind quiet disclosures", () => {
+test("advanced library routes remain available without a default disclosure stack", () => {
   const document = quiz();
-  const history = [result(document, 2_000)];
-  const html = studioMarkup(null, [document], history);
-  for (const name of ["Student pack", "Quick recall", "Exam prep", "Deep understanding", "Language practice", "Coding practice", "Interview prep"]) assert.match(html, new RegExp(name));
-  const packs = html.match(/<details[^>]*class="qm-studio-disclosure qm-presets"[^>]*>/)?.[0];
-  const recent = html.match(/<details[^>]*class="qm-studio-disclosure qm-history"[^>]*>/)?.[0];
-  assert.ok(packs);
-  assert.ok(recent);
-  assert.doesNotMatch(packs, /\sopen(?:=|\s|>)/);
-  assert.doesNotMatch(recent, /\sopen(?:=|\s|>)/);
-  assert.match(html, /Recent sessions/);
-  assert.match(studioMarkup(null, [], history), /class="qm-studio-disclosure qm-history" open=""/);
+  const html = studioMarkup(null, [document], [result(document, 2_000)]);
+  for (const label of ["Question bank", "Study packs", "Recent sessions", "Study trends", "Filter quizzes"]) assert.match(html, new RegExp(label));
+  assert.doesNotMatch(html, /Library view|qm-studio-bottom|qm-studio-disclosure qm-presets|qm-studio-disclosure qm-history/);
+  assert.doesNotMatch(html, /Student pack|Quick recall|Exam prep/);
+  const menu = html.slice(html.indexOf('class="qm-quiet-actions"'), html.indexOf("</header>"));
+  assert.match(menu, /Question bank/);
+  assert.match(menu, /Filter quizzes/);
+});
+
+test("dedicated backup and trends views do not add another accordion", () => {
+  const context = { store: { createBackup: async () => undefined, listBackups: async () => [], restoreBackup: async () => undefined, getHistory: () => [] } } as unknown as PluginContext;
+  const backup = renderToStaticMarkup(createElement(BackupTools, { context, embedded: true }));
+  assert.match(backup, /<section class="qm-backups"/);
+  assert.match(backup, /Create backup/);
+  assert.doesNotMatch(backup, /<details|<summary/);
+  const trends = renderToStaticMarkup(createElement(LocalTrends, { context, embedded: true }));
+  assert.match(trends, /No study history/);
+  assert.doesNotMatch(trends, /<details|<summary/);
 });
 
 test("bank additions preserve the workspace snapshot identity and isolate saved questions", () => {

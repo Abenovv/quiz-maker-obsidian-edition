@@ -16,12 +16,13 @@ function chosenIndex(value: unknown, count: number): number | null {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 && value < count ? value : null;
 }
 
-function ChoiceList({ options, value, onChange, disabled, label, multiple = false, showLabel = false }: {
+function ChoiceList({ options, value, onChange, disabled, label, labelledBy, multiple = false, showLabel = false }: {
   options: string[];
   value: unknown;
   onChange(this: void, value: unknown): void;
   disabled: boolean;
   label: string;
+  labelledBy?: string;
   multiple?: boolean;
   showLabel?: boolean;
 }): ReactNode {
@@ -29,14 +30,14 @@ function ChoiceList({ options, value, onChange, disabled, label, multiple = fals
   const selected = multiple && Array.isArray(value)
     ? new Set(value.filter((item): item is number => typeof item === "number" && Number.isInteger(item) && item >= 0 && item < options.length))
     : new Set([chosenIndex(value, options.length)]);
-  return <fieldset className="qm-fieldset qm-options" disabled={disabled}>
+  return <fieldset className="qm-fieldset qm-options" disabled={disabled} aria-labelledby={labelledBy}>
     <legend className={showLabel ? "qm-field-label" : "qm-sr-only"}>{label}</legend>
     {options.map((option, index) => <label className={`qm-choice${selected.has(index) ? " is-selected" : ""}`} data-selected={selected.has(index)} key={index}>
       <input
         type={multiple ? "checkbox" : "radio"}
         name={group}
         value={index}
-        aria-label={option}
+        aria-labelledby={`${group}-option-${index}`}
         checked={selected.has(index)}
         onChange={() => {
           if (disabled) return;
@@ -47,7 +48,7 @@ function ChoiceList({ options, value, onChange, disabled, label, multiple = fals
           onChange([...next].sort((left, right) => left - right));
         }}
       />
-      <Markdown className="qm-choice-text qm-choice-copy" text={option} />
+      <div id={`${group}-option-${index}`} className="qm-choice-text qm-choice-copy"><Markdown text={option} /></div>
     </label>)}
   </fieldset>;
 }
@@ -84,15 +85,17 @@ export function chooseBranchOption(question: BranchQuestion, response: unknown, 
 }
 
 function Branching({ question, response, onChange, disabled }: QuestionViewProps & { question: BranchQuestion }): ReactNode {
+  const group = useId();
   const path = visibleBranchPath(question, response);
   const last = path.at(-1);
   const complete = last?.selection !== null && last?.selection !== undefined && question.steps[last.step].next[last.selection] === null;
   return <div className="qm-branch">
     {path.map(({ step, selection }, index) => <section className="qm-branch-step" key={step}>
-      <div className="qm-step-number">Step {index + 1}</div>
-      <Markdown className="qm-question-context" text={question.steps[step].prompt} />
+      <div id={`${group}-step-${step}`} className="qm-step-number">Step {index + 1}</div>
+      <div id={`${group}-prompt-${step}`}><Markdown className="qm-question-context" text={question.steps[step].prompt} /></div>
       <ChoiceList
         label={`Step ${index + 1} choice`}
+        labelledBy={`${group}-step-${step} ${group}-prompt-${step}`}
         options={question.steps[step].options}
         value={selection}
         disabled={disabled}
@@ -181,16 +184,17 @@ function TwoStage({ question, response, onChange, disabled }: QuestionViewProps 
   const answer = chosenIndex(value.answer, question.options.length);
   const reasonAnswer = chosenIndex(value.reasonAnswer, question.reasons.length);
   return <div className="qm-two-stage">
-    <ChoiceList label="Answer" options={question.options} value={answer} disabled={disabled} showLabel
+    <ChoiceList label="1. Choose an answer" options={question.options} value={answer} disabled={disabled} showLabel
       onChange={next => onChange({ answer: next, reasonAnswer })} />
-    <ChoiceList label="Reason" options={question.reasons} value={reasonAnswer} disabled={disabled} showLabel
+    <ChoiceList label="2. Choose a reason" options={question.reasons} value={reasonAnswer} disabled={disabled} showLabel
       onChange={next => onChange({ answer, reasonAnswer: next })} />
   </div>;
 }
 
 function Context({ label, text }: { label: string; text: string }): ReactNode {
-  return <section className="qm-question-context">
-    <h4 className="qm-context-label">{label}</h4>
+  const labelId = useId();
+  return <section className="qm-question-context" aria-labelledby={labelId}>
+    <p id={labelId} className="qm-context-label">{label}</p>
     <Markdown text={text} />
   </section>;
 }

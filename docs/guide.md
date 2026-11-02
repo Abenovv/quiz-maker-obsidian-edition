@@ -1,28 +1,28 @@
 # Using Quiz maker
 
-This guide describes Quiz maker 2.0.0. Install the three plugin files from GitHub, then reload Obsidian before following the steps.
+This guide describes Quiz maker 2.0.1. Install the three plugin files from GitHub, then reload Obsidian before following the steps.
 
 ## Create your first quiz
 
 1. Run **Quiz maker: Open** from the command palette.
-2. Choose **Create quiz → From notes**, then review the source list. An open Markdown note starts selected; add or remove notes as needed.
-3. Choose **Student pack** or another pack. Expand **Question mix** to change formats and counts, or **More options** for language, difficulty, hints, and explanations.
-4. Expand **Model** if you need to choose a provider or model ID.
+2. Choose **New quiz**, then review the source list. An open Markdown note starts selected. Use **Add source → Add note** or **Add source → Add folder** to include more material.
+3. Choose **Student pack** or another pack and set the question count. Open **Customize** to change formats, language, difficulty, hints, or explanations.
+4. Choose a provider and model under **Customize** when needed. Missing connection setup appears directly.
 5. Generate, review the questions, and start a study session.
 
 Opening the generator does not request models. Use **Find models** when you want to load the provider's list.
 
-To work without a provider account, use **Create quiz → Write questions** or **Create quiz → Import**. The public [sample quiz](examples/javascript-essentials.json) is ready to import.
+To work without a provider account, use **Library tools → Write questions** or **Library tools → Import**. The public [sample quiz](examples/javascript-essentials.json) is ready to import.
 
 The command palette shows **Quiz maker: Open**, **Quiz maker: Quick quiz**, and **Quiz maker: New quiz** by default. New quiz opens the question editor without a provider account. Quick quiz opens setup with the active Markdown note and your default study pack; it does not read note content or contact a provider before you generate. Enable the remaining individual actions and their existing hotkeys through **General → More options → Extra commands**, which is off by default. Existing saved choices are preserved.
 
 Selected notes are sent only when you generate or regenerate questions. Choosing a folder includes its selected note contents, so check the source list first.
 
-**Add note** and **Add folder** open at the active note's folder, or the vault root. Each step shows only that folder's direct children. Navigate into a folder or use **Back**; choose **Use this folder** to add its Markdown notes and those in its subfolders. Listing uses metadata, not note text. Folder collection stops at 50 notes or its metadata limit; review the selected sources before generating. Note contents are read when you generate.
+The choices under **Add source** open at the active note's folder, or the vault root. Each step shows only that folder's direct children. Navigate into a folder or use **Back**; choose **Use this folder** to add its Markdown notes and those in its subfolders. Listing uses metadata, not note text. Folder collection stops at 50 notes or its metadata limit; review the selected sources before generating. Note contents are read when you generate.
 
 ## Study packs
 
-Expand **Study packs** in the library to choose a starting point. Packs are editable and do not change your provider, API key, or selected notes. **Recent sessions** holds your study history.
+Open **Library tools → Study packs** to choose a starting point. Packs are editable and do not change your provider, API key, or selected notes. **Library tools → Recent sessions** holds your study history.
 
 | Pack | Questions | Starting mode |
 | --- | ---: | --- |
@@ -40,7 +40,7 @@ Set the default question language under **Quizzes → Language** in settings. Ch
 
 ## Answer and review
 
-Choose **Study** beside a quiz to start, or **Continue** for an unfinished attempt. The actions menu holds editing, reviews, renaming, export and deletion. **Export** opens one format chooser for JSON, Anki text/deck or PDF. In the editor, find it under **Quiz options**.
+Choose **Study** beside a quiz to start, or **Continue** for an unfinished attempt. The actions menu holds editing, reviews, renaming, export and deletion. **Export** opens one format chooser for JSON, Anki text/deck or PDF. In the editor, find it under **Tools**.
 
 Practice lets you reveal feedback as you work. In Exam, hints and reference answers remain hidden until submission, and the timer cannot be paused. Closing an exam does not stop its deadline.
 
@@ -48,19 +48,19 @@ Flag a question to revisit it during the attempt. Bookmark a question to keep it
 
 Flashcards use **Again**, **Good**, and **Easy** ratings to schedule later review. Ratings are not marked as objectively correct or incorrect.
 
-During an active session, open Quiz maker and choose **Tools → Open mini view** to continue in a compact panel. It shares the same answers and timer as the full study view. Answer a practice question before choosing **Check**; exam answers stay hidden until submission.
+During an active session, open Quiz maker and choose **Library tools → Open mini view** to continue in a compact panel. It shares the same answers and timer as the full study view. Answer a practice question before choosing **Check**; exam answers stay hidden until submission.
 
 ## Save a readable note
 
 Save a quiz to keep its questions in your configured vault folder. The default question-callout format gives each question a collapsed answer, while hidden structured data preserves its format, source references, and session defaults. Settings also offer a spaced-repetition note format with `?` separators.
 
-The visible questions remain readable when Quiz maker is disabled. With a saved quiz note open, choose **Quiz maker: Open → Tools → Open quiz from current note** to reopen it. Editing visible callout text does not update the hidden quiz data; use the quiz editor when changing a saved quiz.
+The visible questions remain readable when Quiz maker is disabled. With a saved quiz note open, choose **Quiz maker: Open → Library tools → Open quiz from current note** to reopen it. Editing visible callout text does not update the hidden quiz data; use the quiz editor when changing a saved quiz.
 
-Older `quiz-json` blocks render as readable questions. In Quiz maker, **Tools → Make current note readable** converts quiz blocks in the active note while preserving surrounding content. Source editing can still display the original JSON until you convert it.
+Older `quiz-json` blocks render as readable questions. In Quiz maker, **Library tools → Make current note readable** converts quiz blocks in the active note while preserving surrounding content. Source editing can still display the original JSON until you convert it.
 
 ## Import and edit JSON
 
-Choose **Create quiz → Import** to paste JSON or select a file. Imports accept up to **500 questions** and **2 MiB** per document.
+Choose **Library tools → Import** to paste JSON or select a file. Imports accept up to **500 questions** and **2 MiB** per document.
 
 This minimal question array is accepted and converted to the current document format:
 
@@ -130,7 +130,7 @@ Saved appearance changes update open quiz views. Choosing a theme in the study v
 
 Sound is optional and off by default. Motion can follow your system setting or stay reduced.
 
-After updating, reload Obsidian and check for **2.0.0** at the bottom of Quiz maker settings. An older version there means the running plugin has not picked up the update.
+After updating, reload Obsidian and check for **2.0.1** at the bottom of Quiz maker settings. An older version there means the running plugin has not picked up the update.
 
 When reporting a problem, include that version, Obsidian version, device, and a small example with private content removed. Do not attach API keys, local settings, or study-history files.
 
@@ -143,7 +143,7 @@ These features share the existing setup, editor and library views. Advanced cont
 
 ### Save your study pack
 
-In quiz setup, change the question mix and options, then choose **Edit or save pack**. Name the pack, choose its study mode and timing, and select **Save pack**. **Save a copy** keeps an existing personal pack unchanged. Built-in packs remain starting points.
+In quiz setup, open **Customize**, change the question mix and options, then choose **Edit pack**. Name the pack, choose its study mode and timing, and select **Save pack**. **Save a copy** keeps an existing personal pack unchanged. Built-in packs remain starting points.
 
 Expand **Topics** in the pack editor to divide the total by topic and difficulty. Counts must add up to the question total. These saved packs belong to your study data; updating the three plugin files should preserve them and your selected defaults. Keep local data files when updating.
 
@@ -151,11 +151,11 @@ Expand **Topics** in the pack editor to divide the total by topic and difficulty
 
 ### Review changes before keeping them
 
-**Quiz options** holds the form/JSON switch, undo/redo, quiz details, saved versions, study defaults and Export. **Question actions** holds moving, duplication, removal and regeneration. **Question details** holds metadata, images and hints; **Select questions** opens bulk editing.
+**Tools** holds the form/JSON switch, undo/redo, quiz details, saved versions, study defaults and Export. **Question actions** holds moving, duplication, removal and regeneration. **Question details** holds metadata, images and hints; **Manage questions** opens bulk editing.
 
 The editor keeps a bounded undo/redo history for the current draft. Regeneration is a draft replacement: compare it with the original, then choose **Keep original** or **Accept replacement** before saving. A discarded or failed replacement should leave the original question unchanged. Quality checks identify structural problems and some suspicious patterns; they do not prove an answer is factually correct.
 
-Tags and topic fields help organize questions. The library's **Quizzes / Questions** selector opens the question bank. Reusing a bank question creates a separate quiz copy, so later bank edits should not change an active attempt. An alternate version shuffles existing questions; it does not promise newly written questions.
+Tags and topic fields help organize questions. **Library tools → Question bank** opens the question bank. Reusing a bank question creates a separate quiz copy, so later bank edits should not change an active attempt. An alternate version shuffles existing questions; it does not promise newly written questions.
 
 ### Optional study controls
 
@@ -195,4 +195,4 @@ The local export limit is 150 pages or 40 MiB. Explicit local PNG, JPEG, WebP an
 
 [Watch the 84-second MP4](media/quiz-maker-2.0-tutorial.mp4) · [English captions](media/quiz-maker-2.0-tutorial.vtt) · [Transcript](media/quiz-maker-2.0-tutorial.md)
 
-The narrated walkthrough covers Quick quiz, study packs, model selection, review, practice, mini view and export. It uses still captures of the installed plugin with public Solar System notes and a demonstration provider; it is not a live provider session or a continuous screen recording. English narration was generated locally with Microsoft Zira Desktop. No private notes or API keys appear.
+The walkthrough shows version 2.0.0; use the steps above for the simpler 2.0.1 menus. It covers Quick quiz, study packs, model selection, review, practice, mini view and export. It uses still captures of the installed plugin with public Solar System notes and a demonstration provider; it is not a live provider session or a continuous screen recording. English narration was generated locally with Microsoft Zira Desktop. No private notes or API keys appear.

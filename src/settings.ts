@@ -285,10 +285,7 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
     panel.className = "qm-settings-panel";
     if (this.section === "General") this.renderGeneral(panel);
     else if (this.section === "Models") this.renderModels(panel);
-    else {
-      this.renderQuestions(panel);
-      this.renderSaving(panel);
-    }
+    else this.renderQuizzes(panel);
     this.mountSaveFeedback();
   }
 
@@ -406,17 +403,23 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
           }));
       } },
       { name: "Study sounds", desc: "Quiet tones when an answer is revealed.", aliases: ["audio", "playback", "mute"], render: setting => {
+        let preview: ButtonComponent;
         setting.addToggle(toggle => {
           toggle.toggleEl.setAttribute("aria-label", "Study sounds");
           toggle.setValue(this.context.settings.soundEnabled).onChange(value => {
             this.context.settings.soundEnabled = value;
+            preview.buttonEl.hidden = !value;
             this.scheduleSave();
           });
-        }).addButton(button => button.setButtonText("Test sound").onClick(event => {
-          void testSound(this.context, event).then(played => {
-            if (!played) this.context.showNotice("Sound is unavailable in this window.");
+        }).addButton(button => {
+          preview = button;
+          button.buttonEl.hidden = !this.context.settings.soundEnabled;
+          button.setButtonText("Test sound").onClick(event => {
+            void testSound(this.context, event).then(played => {
+              if (!played) this.context.showNotice("Sound is unavailable in this window.");
+            });
           });
-        }));
+        });
       } },
       { name: "Extra commands", desc: "Show individual actions in the command palette and enable their hotkeys.", aliases: ["shortcuts", "hotkeys", "command palette"], render: setting => {
         setting.addToggle(toggle => {
@@ -442,10 +445,9 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
   private renderGeneral(panel: HTMLElement): void {
     const definitions = this.generalDefinitions();
     this.renderRows(settingsGroup(panel, "Appearance"), definitions.slice(0, 2));
-    this.renderRows(settingsGroup(panel, "Playback"), definitions.slice(2, 3));
     const advanced = panel.createEl("details", { cls: "qm-settings-advanced" });
     advanced.createEl("summary", { text: "More options" });
-    this.renderRows(advanced, definitions.slice(3));
+    this.renderRows(advanced, definitions.slice(2));
   }
 
   private modelDefinitions(): SearchableSetting[] {
@@ -491,6 +493,7 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
       results = undefined;
       refresh = undefined;
       find?.setButtonText("Find models");
+      find?.buttonEl.setAttribute("aria-expanded", "false");
     };
     const currentAccount = (): boolean => version === this.renderVersion && provider === this.context.settings.provider
       && account?.apiKey === config.apiKey && account.baseUrl === config.baseUrl;
@@ -541,8 +544,11 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
       for (const model of shown) {
         const item = results.createEl("li");
         const button = item.createEl("button", { cls: "qm-model-result", attr: { type: "button", "aria-pressed": String(model.id === config.model) } });
-        button.createEl("strong", { cls: "qm-model-name", text: model.name });
-        if (model.name !== model.id) button.createEl("small", { cls: "qm-model-id", text: model.id });
+        button.dataset.selected = String(model.id === config.model);
+        const copy = button.createSpan({ cls: "qm-model-result-copy" });
+        copy.createEl("strong", { cls: "qm-model-name", text: model.name });
+        if (model.name !== model.id) copy.createEl("small", { cls: "qm-model-id", text: model.id });
+        if (model.id === config.model) button.createSpan({ cls: "qm-model-selected", text: "Selected", attr: { "aria-hidden": "true" } });
         button.onclick = () => chooseModel(model);
         button.onkeydown = event => {
           const index = buttons.indexOf(button);
@@ -563,7 +569,8 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
     const ensureFinder = (): void => {
       if (finder) return;
       find.setButtonText("Close finder");
-      finder = panel.createEl("section", { cls: "qm-model-finder", attr: { "aria-label": "Find a model" } });
+      find.buttonEl.setAttribute("aria-expanded", "true");
+      finder = panel.createEl("section", { cls: "qm-model-finder", attr: { id: this.panelId + "-model-finder", "aria-label": "Find a model" } });
       const controls = finder.createDiv({ cls: "qm-model-search" });
       search = controls.createEl("input", { attr: { type: "search", "aria-label": "Search models", placeholder: "Name or model ID", maxlength: "200" } });
       search.spellcheck = false;
@@ -653,7 +660,7 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
       modelSetting.setClass("qm-model-setting")
       .addText(input => {
         manual = input;
-        input.setValue(config.model).setPlaceholder("Model ID");
+        input.setValue(config.model).setPlaceholder("Enter a model ID");
         input.inputEl.maxLength = 200;
         input.inputEl.spellcheck = false;
         input.inputEl.autocomplete = "off";
@@ -675,7 +682,9 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
       })
       .addButton(button => {
         find = button;
-        button.setButtonText("Find models").setCta().onClick(() => {
+        button.buttonEl.setAttribute("aria-controls", this.panelId + "-model-finder");
+        button.buttonEl.setAttribute("aria-expanded", "false");
+        button.setButtonText("Find models").onClick(() => {
           if (finder) { dismissFinder(); manual.inputEl.focus(); }
           else void discover();
         });
@@ -738,7 +747,7 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
 
   private quizDefinitions(): SearchableSetting[] {
     return [
-      { name: "Language", aliases: ["question language", "translation"], render: languageSetting => {
+      { name: "Language", desc: "Default language for generated questions.", aliases: ["question language", "translation"], render: languageSetting => {
         const suggestions = languageSetting.settingEl.createEl("datalist", { attr: { id: this.panelId + "-languages" } });
         for (const language of languages) suggestions.createEl("option", { attr: { value: language } });
         let languageStatus: HTMLElement;
@@ -764,7 +773,7 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
         languageSetting.settingEl.classList.add("qm-setting-with-error");
         languageStatus = languageSetting.settingEl.createEl("p", { cls: "qm-settings-field-error", attr: { id: this.panelId + "-language-error", role: "alert" } });
       } },
-      { name: "Study pack", aliases: ["preset", "question template"], render: setting => {
+      { name: "Study pack", desc: "Default pack when you create a quiz.", aliases: ["preset", "question template"], render: setting => {
         setting.addDropdown(select => {
           labelDropdown(select, "Study pack");
           const packs = new Map(presets.map(preset => [preset.id, preset.name]));
@@ -785,7 +794,7 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
           });
         });
       } },
-      { name: "Format", aliases: ["saved notes", "callouts", "spaced repetition", "flashcards"], render: setting => {
+      { name: "Format", desc: "Format used when saving questions to a note.", aliases: ["saved notes", "callouts", "spaced repetition", "flashcards"], render: setting => {
         setting.addDropdown(select => labelDropdown(select, "Format")
           .addOptions({ callouts: "Question callouts", "spaced-repetition": "Spaced repetition" })
           .setValue(this.context.settings.saveFormat).onChange(value => {
@@ -816,11 +825,12 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
     ];
   }
 
-  private renderQuestions(panel: HTMLElement): void {
-    this.renderRows(settingsGroup(panel, "Defaults"), this.quizDefinitions().slice(0, 3));
-  }
-
-  private renderSaving(panel: HTMLElement): void {
-    this.renderRows(settingsGroup(panel, "Saved notes"), this.quizDefinitions().slice(3));
+  private renderQuizzes(panel: HTMLElement): void {
+    const definitions = this.quizDefinitions();
+    this.renderRows(settingsGroup(panel, "Defaults"), [definitions[1], definitions[0]]);
+    this.renderRows(settingsGroup(panel, "Saved notes"), definitions.slice(4));
+    const advanced = panel.createEl("details", { cls: "qm-settings-advanced" });
+    advanced.createEl("summary", { text: "More options" });
+    this.renderRows(advanced, [definitions[2], definitions[3]]);
   }
 }

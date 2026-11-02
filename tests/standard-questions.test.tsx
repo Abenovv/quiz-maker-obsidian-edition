@@ -10,22 +10,37 @@ function props(question: Question, response: unknown = undefined, extra: Partial
   return { question, response, onChange: () => undefined, disabled: false, reveal: false, mode: "practice", ...extra };
 }
 
+function inputWithValue(html: string, value: string): string {
+  return [...html.matchAll(/<input\b[^>]*>/g)].map(match => match[0]).find(input => input.includes(`value="${value}"`)) ?? "";
+}
+
+function assertLabelReference(html: string, control: string): string {
+  const labelId = control.match(/aria-labelledby="([^"]+)"/)?.[1];
+  assert.ok(labelId, "the control has a rendered label reference");
+  assert.ok(html.includes(`id="${labelId}"`), "the rendered label exists");
+  assert.doesNotMatch(control, /\baria-label=/, "raw Markdown does not override the rendered label");
+  return labelId;
+}
+
 test("a false response remains selected rather than appearing unanswered", () => {
   const html = renderToStaticMarkup(<StandardQuestions {...props({ type: "true-false", question: "Is this true?", answer: true }, false)} />);
   assert.equal((html.match(/type="radio"/g) || []).length, 2);
-  const falseInput = html.match(/<input[^>]*aria-label="False"[^>]*>/)?.[0] || "";
-  const trueInput = html.match(/<input[^>]*aria-label="True"[^>]*>/)?.[0] || "";
+  const falseInput = inputWithValue(html, "false");
+  const trueInput = inputWithValue(html, "true");
   assert.match(falseInput, /checked=""/);
   assert.match(falseInput, /value="false"/);
   assert.doesNotMatch(trueInput, /checked=""/);
+  assert.notEqual(assertLabelReference(html, falseInput), assertLabelReference(html, trueInput));
   assert.match(html, /<legend[^>]*>Choose one answer<\/legend>/);
 });
 
 test("single choice retains answer index zero with native radio semantics", () => {
   const html = renderToStaticMarkup(<StandardQuestions {...props({ type: "multiple-choice", question: "Choose one.", options: ["First", "Second"], answer: 1 }, 0)} />);
   assert.equal((html.match(/checked=""/g) || []).length, 1);
-  assert.match(html, /aria-label="First"[^>]*checked=""|checked=""[^>]*aria-label="First"/);
-  assert.doesNotMatch(html, /aria-label="Second"[^>]*checked=""|checked=""[^>]*aria-label="Second"/);
+  assert.match(inputWithValue(html, "0"), /checked=""/);
+  assert.doesNotMatch(inputWithValue(html, "1"), /checked=""/);
+  assertLabelReference(html, inputWithValue(html, "0"));
+  assertLabelReference(html, inputWithValue(html, "1"));
 });
 
 test("multiple answers are controlled checkboxes and ignore non-numeric response entries", () => {
@@ -34,6 +49,7 @@ test("multiple answers are controlled checkboxes and ignore non-numeric response
   assert.equal((html.match(/type="checkbox"/g) || []).length, 3);
   assert.equal((html.match(/checked=""/g) || []).length, 1);
   assert.match(html, /Select all that apply/);
+  assert.equal(new Set([...html.matchAll(/<input\b[^>]*>/g)].map(([input]) => assertLabelReference(html, input))).size, 3);
 });
 
 test("blank fields preserve entered text without mounting reference values", () => {
@@ -54,8 +70,13 @@ test("matching retains original right-side indices while showing a stable reorde
   const first = renderToStaticMarkup(<StandardQuestions {...props(question, [0, 1])} />);
   const second = renderToStaticMarkup(<StandardQuestions {...props(question, [1, 0])} />);
   assert.equal((first.match(/<select/g) || []).length, 2);
-  assert.match(first, /aria-label="Match Earth"/);
-  assert.match(first, /aria-label="Match Mars"/);
+  for (const [select] of first.matchAll(/<select\b[^>]*>/g)) {
+    const labelId = assertLabelReference(first, select);
+    const selectId = select.match(/\bid="([^"]+)"/)?.[1];
+    assert.ok(selectId);
+    assert.ok(first.includes(`<label id="${labelId}" for="${selectId}">`), "matching retains its native label relationship");
+  }
+  assert.equal((first.match(/>Match <\/span>/g) || []).length, 2);
   const firstMenu = first.match(/<select[^>]*>([\s\S]*?)<\/select>/)?.[1] || "";
   assert.ok(firstMenu.indexOf("Fourth") < firstMenu.indexOf("Third"));
   assert.match(firstMenu, /value="0" selected=""/);

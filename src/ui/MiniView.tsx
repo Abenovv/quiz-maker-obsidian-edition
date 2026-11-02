@@ -7,7 +7,7 @@ import {
   canAnswer, canCheck, canPause, canReveal, currentQuestionIndex, reduceSession,
   remainingSeconds, summarizeSession, type SessionAction
 } from "../session/engine";
-import { isAnswered } from "../session/grading";
+import { gradeQuestion, isAnswered } from "../session/grading";
 import { QuestionView } from "./questions/QuestionView";
 import { EmptyState, InlineError, PluginReactContext, errorMessage } from "./shared";
 import { Icon } from "./Icon";
@@ -78,18 +78,44 @@ export function MiniStudy({ context }: { context: PluginContext }): ReactNode {
   const [focused, setFocused] = useState(false);
   const confirmButton = useRef<HTMLButtonElement>(null);
   const finishButton = useRef<HTMLButtonElement>(null);
+  const resumeButton = useRef<HTMLButtonElement>(null);
+  const pauseButton = useRef<HTMLButtonElement>(null);
+  const optionsElement = useRef<HTMLDetailsElement>(null);
+  const optionsButton = useRef<HTMLElement>(null);
+  const questionElement = useRef<HTMLDivElement>(null);
+  const resultSummary = useRef<HTMLParagraphElement>(null);
+  const feedbackElement = useRef<HTMLParagraphElement>(null);
+  const ratingActions = useRef<HTMLDivElement>(null);
+  const pendingFocus = useRef<{ target: "feedback" | "resume" | "pause" | "advance"; sessionId: string; index: number } | null>(null);
   const confirmationWasOpen = useRef(false);
   const alive = useRef(true);
   const writeAttempt = useRef(0);
   const renderedIndex = session ? currentQuestionIndex(session) : undefined;
   const renderedSessionId = session?.id;
+  const renderedReveal = session && renderedIndex !== undefined ? canReveal(session, renderedIndex) : false;
 
   useEffect(() => { setConfirmFinish(false); }, [session?.id]);
   useEffect(() => {
     if (confirmFinish) confirmButton.current?.focus();
-    else if (confirmationWasOpen.current) finishButton.current?.focus();
+    else if (confirmationWasOpen.current) {
+      const button = finishButton.current;
+      (button?.closest("details")?.open === false ? optionsButton.current : button)?.focus();
+    }
     confirmationWasOpen.current = confirmFinish;
   }, [confirmFinish]);
+  // Shared-session updates must not take focus from another study surface.
+  useEffect(() => {
+    const pending = pendingFocus.current;
+    pendingFocus.current = null;
+    if (!pending || pending.sessionId !== renderedSessionId || pending.index !== renderedIndex) return;
+    if (pending.target === "resume" && session?.phase === "paused") resumeButton.current?.focus();
+    else if (pending.target === "pause" && session?.phase === "running") (optionsElement.current?.open ? pauseButton.current : optionsButton.current)?.focus();
+    else if (pending.target === "feedback" && renderedReveal) (feedbackElement.current ?? ratingActions.current)?.focus();
+    else if (pending.target === "advance") {
+      if (session?.phase === "finished") resultSummary.current?.focus();
+      else if (session?.phase === "running") questionElement.current?.focus();
+    }
+  }, [session?.phase, renderedSessionId, renderedIndex, renderedReveal]);
 
   useEffect(() => {
     alive.current = true;
@@ -162,69 +188,103 @@ export function MiniStudy({ context }: { context: PluginContext }): ReactNode {
     ? Boolean(session.ratings?.[item]) : isAnswered(session.quiz.questions[item], session.responses[item])).length;
   const summary = session.phase === "finished" ? summarizeSession(session) : undefined;
   const showCheck = !flashcards && session.config.mode !== "exam" && !reveal;
+  const grade = reveal && !flashcards && session.config.mode !== "exam" ? gradeQuestion(question, session.responses[index]) : undefined;
+  const feedback = grade && {
+    correct: "Correct",
+    incorrect: "Incorrect",
+    "self-review": "Compare with the reference.",
+    unanswered: "No answer recorded."
+  }[grade.status];
   const act = (action: SessionAction): void => dispatch(action, session.id);
+  const focusAfterAction = (button: HTMLButtonElement, target: "feedback" | "resume" | "pause"): void => {
+    if (button.ownerDocument.activeElement === button) pendingFocus.current = { target, sessionId: session.id, index };
+  };
+  const advanceFromControl = (button: HTMLButtonElement, action: SessionAction): void => {
+    const heldFocus = button.ownerDocument.activeElement === button;
+    if (optionsElement.current) optionsElement.current.open = false;
+    act(action);
+    const next = sessionRef.current;
+    if (heldFocus && next?.id === session.id && (next.phase === "finished" || currentQuestionIndex(next) !== index)) {
+      pendingFocus.current = { target: "advance", sessionId: next.id, index: currentQuestionIndex(next) };
+    }
+  };
+  const requestFinish = (): void => {
+    if (optionsElement.current) optionsElement.current.open = false;
+    setConfirmFinish(true);
+  };
+  const atEnd = session.position === session.order.length - 1;
+  const primaryFinish = !flashcards && atEnd && (session.config.mode === "exam" || reveal);
   const mode = { practice: "Practice", "timed-practice": "Timed practice", exam: "Exam", flashcards: "Flashcards", review: "Review" }[session.config.mode];
 
   return <section className="qm-mini" data-focus={focused || undefined} aria-label="Compact quiz">
     <header className="qm-mini-header">
-      <div className="qm-mini-title"><h2>{session.quiz.title}</h2><span className="qm-mini-mode">{mode}</span></div>
+      <div className="qm-mini-title"><h2>{session.quiz.title}</h2></div>
       <button type="button" className="qm-quiet qm-icon-button" aria-label="Open full view" title="Open full view" onClick={openFull}><Icon name="expand" /></button>
     </header>
-    <div className="qm-mini-progress">
+    <div className="qm-mini-toolbar">
       <span className="qm-mini-position" role="status" aria-live="polite" aria-atomic="true">{summary
         ? `${answered} / ${session.order.length} ${flashcards ? "rated" : "answered"}`
         : <><span className="qm-sr-only">Question </span>{session.position + 1} of {session.order.length}</>}</span>
       <MiniClock session={session} tick={tick} />
+      {session.phase === "running" && <details ref={optionsElement} className="qm-mini-options">
+        <summary ref={optionsButton} aria-label="Quiz options" title="Quiz options"><Icon name="more" /><span className="qm-sr-only">Quiz options</span></summary>
+        <div className="qm-mini-options-panel">
+          <span className="qm-mini-mode">{mode}</span>
+          <progress max={session.order.length} value={answered} aria-label={flashcards ? "Cards rated" : "Questions answered"} />
+          <div className="qm-mini-markers">
+            <button type="button" className="qm-quiet" aria-label="Flag question" aria-pressed={session.flags.includes(index)} onClick={() => act({ type: "flag", questionIndex: index })}><Icon name="flag" />{session.flags.includes(index) ? "Flagged" : "Flag"}</button>
+            <button type="button" className="qm-quiet" aria-label="Bookmark question" aria-pressed={session.bookmarks.includes(index)} onClick={() => act({ type: "bookmark", questionIndex: index })}><Icon name="bookmark" />{session.bookmarks.includes(index) ? "Bookmarked" : "Bookmark"}</button>
+          </div>
+          <FocusControl focused={focused} onChange={setFocused} />
+          {context.settings.shortcutGuideEnabled && <p className="qm-help">Open full view for keyboard shortcuts.</p>}
+          {canPause(session) && <button type="button" ref={pauseButton} aria-label="Pause quiz" onClick={event => { focusAfterAction(event.currentTarget, "resume"); if (optionsElement.current) optionsElement.current.open = false; act({ type: "pause" }); }}><Icon name="pause" />Pause</button>}
+          {!flashcards && !reveal && session.config.mode !== "exam" && !atEnd && <button type="button" onClick={event => advanceFromControl(event.currentTarget, { type: "next" })}>Skip question</button>}
+          {!primaryFinish && <button type="button" ref={finishButton} onClick={requestFinish}>{session.config.mode === "exam" ? "Finish exam" : "Finish quiz"}</button>}
+        </div>
+      </details>}
     </div>
-    <progress max={session.order.length} value={answered} aria-label={flashcards ? "Cards rated" : "Questions answered"} />
     <InlineError>{error || storageIssue}</InlineError>
     {(error || storageIssue) && <button type="button" onClick={() => { const current = sessionRef.current; if (current) persist(current); }}>Retry saving</button>}
     {summary ? <div className="qm-mini-results">
-      <p className="qm-mini-score">{summary.maxScore ? `${summary.score} / ${summary.maxScore} points` : "Self-review complete"}</p>
+      <p ref={resultSummary} className="qm-mini-score" tabIndex={-1}>{summary.maxScore ? `${summary.score} / ${summary.maxScore} points` : "Self-review complete"}</p>
       {session.finishReason === "expired" && <p>Time expired.</p>}
       <button type="button" className="mod-cta" onClick={openFull}>Review results</button>
     </div> : session.phase === "paused" ? <div className="qm-mini-paused">
       <p>Quiz paused.</p>
-      <button type="button" className="mod-cta" onClick={() => act({ type: "resume" })}><Icon name="play" />Resume</button>
+      <button type="button" ref={resumeButton} className="mod-cta" onClick={event => { focusAfterAction(event.currentTarget, "pause"); act({ type: "resume" }); }}><Icon name="play" />Resume</button>
     </div> : session.phase === "setup" ? <button type="button" className="mod-cta" onClick={openFull}>Set up quiz</button> : <>
-      <details className="qm-mini-more qm-study-options"><summary>More</summary>
-        <FocusControl focused={focused} onChange={setFocused} />
-        {context.settings.shortcutGuideEnabled && <p className="qm-help">Use Back and Next to move between questions. Open full view for keyboard shortcuts.</p>}
-        <div className="qm-mini-markers">
-        <button type="button" className="qm-quiet" aria-label="Flag question" title="Flag question" aria-pressed={session.flags.includes(index)} onClick={() => act({ type: "flag", questionIndex: index })}><Icon name="flag" />Flag</button>
-        <button type="button" className="qm-quiet" aria-label="Bookmark question" title="Bookmark question" aria-pressed={session.bookmarks.includes(index)} onClick={() => act({ type: "bookmark", questionIndex: index })}><Icon name="bookmark" />Bookmark</button>
-      </div></details>
-      <div className="qm-mini-question">
+      <div ref={questionElement} className="qm-mini-question" tabIndex={-1} role="group" aria-label={`${flashcards ? "Card" : "Question"} ${session.position + 1} of ${session.order.length}`}>
         <QuestionView question={question} response={session.responses[index]} onChange={onChange}
-          reveal={reveal} disabled={!canAnswer(session, index)} mode={session.config.mode} />
+          reveal={reveal} disabled={!canAnswer(session, index)} mode={session.config.mode}
+          feedback={grade && <p ref={feedbackElement} className={`qm-mini-feedback qm-grade qm-grade-${grade.status}`} role="status" tabIndex={-1}>{feedback}</p>} />
       </div>
-      <StudySources context={context} session={session} questionIndex={index} />
-      {(flashcards || showCheck) && <div className="qm-mini-actions">
-        {flashcards ? reveal ? <>
-          <button type="button" onClick={() => act({ type: "rate", rating: "again" })}>Again</button>
-          <button type="button" onClick={() => act({ type: "rate", rating: "good" })}>Good</button>
-          <button type="button" onClick={() => act({ type: "rate", rating: "easy" })}>Easy</button>
-        </> : <button type="button" className="mod-cta" data-qm-feedback="reveal" onClick={() => act({ type: "reveal", questionIndex: index })}>Reveal answer</button>
-          : <button type="button" className="mod-cta" disabled={!canCheck(session) || !isAnswered(question, session.responses[index])} data-qm-feedback="reveal" onClick={() => act({ type: "check", questionIndex: index })}>
-            {question.type === "short-answer" || question.type === "long-answer" ? "Review answer" : "Check answer"}
-          </button>}
+      {reveal && <div className="qm-mini-answer-details">
+        <StudySources context={context} session={session} questionIndex={index} />
       </div>}
-      {(!flashcards || canPause(session)) && <nav className="qm-mini-navigation" data-controls={flashcards ? "pause" : canPause(session) ? "navigation-pause" : "navigation"} aria-label="Quiz navigation">
-        {!flashcards && <>
-          <button type="button" disabled={session.position === 0} aria-label="Previous question" onClick={() => act({ type: "previous" })}><Icon name="chevron-left" /><span>Back</span></button>
-          <button type="button" disabled={session.position === session.order.length - 1} aria-label="Next question" onClick={() => act({ type: "next" })}><span>Next</span><Icon name="chevron-right" /></button>
-        </>}
-        {canPause(session) && <button type="button" className="qm-quiet qm-icon-button" aria-label="Pause quiz" title="Pause quiz" onClick={() => act({ type: "pause" })}><Icon name="pause" /></button>}
-      </nav>}
-      <div className="qm-mini-finish">
-        {confirmFinish ? <div className="qm-mini-confirm" role="alert" onKeyDown={event => {
+      <div className="qm-mini-primary-actions">
+        {!flashcards && session.position > 0 && <button type="button" className="qm-quiet" aria-label="Previous question" onClick={event => advanceFromControl(event.currentTarget, { type: "previous" })}><Icon name="chevron-left" />Back</button>}
+        {(flashcards || showCheck) && <div ref={ratingActions} className="qm-mini-actions" tabIndex={flashcards && reveal ? -1 : undefined} role={flashcards && reveal ? "group" : undefined} aria-label={flashcards && reveal ? "Rate this card" : undefined}>
+          {flashcards ? reveal ? <>
+            <button type="button" onClick={event => advanceFromControl(event.currentTarget, { type: "rate", rating: "again" })}>Again</button>
+            <button type="button" onClick={event => advanceFromControl(event.currentTarget, { type: "rate", rating: "good" })}>Good</button>
+            <button type="button" onClick={event => advanceFromControl(event.currentTarget, { type: "rate", rating: "easy" })}>Easy</button>
+          </> : <button type="button" className="mod-cta" data-qm-feedback="reveal" onClick={event => { focusAfterAction(event.currentTarget, "feedback"); act({ type: "reveal", questionIndex: index }); }}>Reveal answer</button>
+            : <button type="button" className="mod-cta" disabled={!canCheck(session) || !isAnswered(question, session.responses[index])} data-qm-feedback="reveal" onClick={event => { focusAfterAction(event.currentTarget, "feedback"); act({ type: "check", questionIndex: index }); }}>
+              {question.type === "short-answer" || question.type === "long-answer" ? "Show reference" : "Check answer"}
+            </button>}
+        </div>}
+        {!flashcards && !showCheck && !primaryFinish && <button type="button" className="mod-cta" aria-label="Next question" onClick={event => advanceFromControl(event.currentTarget, { type: "next" })}>Next<Icon name="chevron-right" /></button>}
+        {primaryFinish && <button type="button" ref={finishButton} className="mod-cta" onClick={requestFinish}>{session.config.mode === "exam" ? "Finish exam" : "Finish quiz"}</button>}
+      </div>
+      {confirmFinish && <div className="qm-mini-finish">
+        <div className="qm-mini-confirm" role="alert" onKeyDown={event => {
           if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setConfirmFinish(false); }
         }}>
           <p>{session.config.mode === "exam" ? "Submit this exam?" : "Finish this session?"}</p>
-          <button type="button" ref={confirmButton} className="mod-cta" onClick={() => { setConfirmFinish(false); act({ type: "finish" }); }}>Submit</button>
+          <button type="button" ref={confirmButton} className="mod-cta" onClick={event => { setConfirmFinish(false); advanceFromControl(event.currentTarget, { type: "finish" }); }}>{session.config.mode === "exam" ? "Submit exam" : "Finish quiz"}</button>
           <button type="button" onClick={() => setConfirmFinish(false)}>Keep studying</button>
-        </div> : <button type="button" ref={finishButton} className="qm-quiet" onClick={() => setConfirmFinish(true)}>{session.config.mode === "exam" ? "Finish exam" : "Finish"}</button>}
-      </div>
+        </div>
+      </div>}
     </>}
   </section>;
 }

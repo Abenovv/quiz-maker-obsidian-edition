@@ -69,20 +69,43 @@ test("sequencing provides labelled keyboard buttons and does not silently answer
 });
 
 test("branch controls include only the current route and never append correct answers", () => {
-  const markup = render(branch, { response: [1, null, null], mode: "exam" });
-  assert.match(markup, /aria-label="Route B"/);
-  assert.match(markup, /aria-label="Finish B"/);
-  assert.doesNotMatch(markup, /aria-label="Finish A"/);
+  const question: BranchQuestion = { ...branch, steps: branch.steps.map((step, index) => index === 1 ? { ...step, options: [...step.options, "Other A"], next: [...step.next, null] } : step) };
+  const markup = render(question, { response: [1, null, null], mode: "exam" });
+  assert.equal((markup.match(/type="radio"/g) || []).length, 4, "only the start and Route B choices are mounted");
+  assert.equal((render(question, { response: [0, null, null] }).match(/type="radio"/g) || []).length, 5, "Route A has its own distinct choices");
+  const groupNames = [...markup.matchAll(/<fieldset[^>]*aria-labelledby="([^"]+)"/g)].map(match => match[1].split(" "));
+  assert.equal(groupNames.length, 2);
+  for (const [index, ids] of groupNames.entries()) {
+    assert.equal(ids.length, 2, "each group is named by its step and rendered prompt");
+    assert.ok(markup.includes(`id="${ids[0]}"`));
+    assert.ok(markup.includes(`>Step ${index + 1}</div>`));
+    assert.ok(markup.includes(`id="${ids[1]}"`));
+  }
   assert.doesNotMatch(markup, /Correct answer|Reference answer|Scenario complete/);
 });
 
 test("two-stage controls keep answer and reason groups distinct and lock on reveal", () => {
   const question: Question = { type: "two-stage", question: "Choose and explain", options: ["A", "B"], reasons: ["Reason one", "Reason two"], answer: 0, reasonAnswer: 1 };
   const markup = render(question, { response: { answer: 1, reasonAnswer: 0 } });
-  assert.match(markup, /<legend[^>]*>Answer<\/legend>/);
-  assert.match(markup, /<legend[^>]*>Reason<\/legend>/);
+  assert.match(markup, /<legend[^>]*>1\. Choose an answer<\/legend>/);
+  assert.match(markup, /<legend[^>]*>2\. Choose a reason<\/legend>/);
   const radioNames = [...markup.matchAll(/name="([^"]+)"/g)].map(match => match[1]);
   assert.equal(new Set(radioNames).size, 2);
   assert.equal((markup.match(/<fieldset[^>]*disabled/g) || []).length, 0);
   assert.equal((render(question, { reveal: true }).match(/<fieldset[^>]*disabled/g) || []).length, 2);
+  const labelIds = [...markup.matchAll(/<input[^>]*aria-labelledby="([^"]+)"/g)].map(match => match[1]);
+  assert.equal(new Set(labelIds).size, 4);
+  for (const id of labelIds) assert.ok(markup.includes(`id="${id}"`), "every answer and reason names its rendered option");
+  assert.doesNotMatch(markup, /<input[^>]*\baria-label=/, "raw Markdown does not override rendered answer names");
+});
+
+test("context sections have named captions without adding isolated heading levels", () => {
+  const question: Question = { type: "assertion-reason", question: "Assess the claim", assertion: "Earth rotates.", reason: "Earth has day and night.", options: ["Both true", "Both false"], answer: 0 };
+  const markup = render(question);
+  const sectionLabels = [...markup.matchAll(/<section[^>]*aria-labelledby="([^"]+)"/g)].map(match => match[1]);
+  assert.equal(sectionLabels.length, 2);
+  const captions = [...markup.matchAll(/<p id="([^"]+)"[^>]*>([^<]+)<\/p>/g)];
+  assert.equal(captions.find(([, id]) => id === sectionLabels[0])?.[2], "Assertion");
+  assert.equal(captions.find(([, id]) => id === sectionLabels[1])?.[2], "Reason");
+  assert.doesNotMatch(markup, /<h4\b/);
 });

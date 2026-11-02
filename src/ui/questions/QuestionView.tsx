@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, type ReactNode } from "react";
 import type { QuestionViewProps } from "../../core/types";
 import { questionTypeLabels } from "../../core/schema";
 import { referenceAnswer } from "../../session/grading";
@@ -11,8 +11,8 @@ const standardTypes = new Set([
 ]);
 
 /** Answers are mounted only when the session authorizes a reveal. */
-export const QuestionView = memo(function QuestionView(props: QuestionViewProps) {
-  const { question, mode, reveal } = props;
+export const QuestionView = memo(function QuestionView(props: QuestionViewProps & { feedback?: ReactNode }) {
+  const { question, mode, reveal, feedback } = props;
   const answers = reveal ? referenceAnswer(question) : [];
   return <article className="qm-question" aria-label={questionTypeLabels[question.type]} data-question-type={question.type}>
     <Markdown text={question.question} className="qm-question-prompt" />
@@ -22,8 +22,8 @@ export const QuestionView = memo(function QuestionView(props: QuestionViewProps)
       <summary>Hint</summary>
       <Markdown text={question.hint} />
     </details>}
-    {reveal && <section className="qm-reference" aria-label="Reference answer" aria-live="polite">
-      <h3>Answer</h3>
+    {reveal && <section className="qm-reference" aria-label="Reference answer" aria-live={feedback ? undefined : "polite"}>
+      {feedback ?? <h3>Answer</h3>}
       <div className="qm-reference-list">
         {answers.map((answer, index) => <Markdown text={answer} key={index} />)}
       </div>

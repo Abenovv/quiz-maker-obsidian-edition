@@ -318,19 +318,21 @@ function QuizEditor({ context, initial, control, close }: { context: PluginConte
     </div>}
     <div className="qm-editor-toolbar">
       <label className="qm-field"><span>Title</span><input value={draft.title} maxLength={200} disabled={locked || mode === "json"} onChange={event => update({ ...draft, title: event.currentTarget.value }, false)} /></label>
-      <details className="qm-editor-tools"><summary>Quiz options</summary><div className="qm-editor-tools-content">
-        <button type="button" disabled={locked || pending} onClick={() => switchMode(mode === "json" ? "form" : "json")}>{mode === "json" ? "Edit form" : "Edit JSON"}</button>
+      <details className="qm-editor-tools qm-editor-quiz-options qm-editor-tools-menu"><summary>Tools</summary><div className="qm-editor-tools-content qm-editor-quiz-options-panel">
+      <div className="qm-editor-mode-tools">
+        <button type="button" disabled={locked || pending} onClick={() => switchMode(mode === "json" ? "form" : "json")}>{mode === "json" ? "Back to form" : "Edit quiz JSON"}</button>
         <div className="qm-editor-history" role="group" aria-label="Edit history">
-      <button type="button" className="qm-icon-button" aria-label="Undo" title="Undo" disabled={locked || pending || Boolean(questionJsonError) || mode === "json" || !history.current.canUndo} onClick={() => travel("undo")}><Icon name="undo" /></button>
-      <button type="button" className="qm-icon-button" aria-label="Redo" title="Redo" disabled={locked || pending || Boolean(questionJsonError) || mode === "json" || !history.current.canRedo} onClick={() => travel("redo")}><Icon name="arrow" /></button>
-    </div>
-      <details className="qm-editor-quiz-details"><summary>Quiz details</summary>
+          <button type="button" className="qm-icon-button" aria-label="Undo" title="Undo" disabled={locked || pending || Boolean(questionJsonError) || mode === "json" || !history.current.canUndo} onClick={() => travel("undo")}><Icon name="undo" /></button>
+          <button type="button" className="qm-icon-button" aria-label="Redo" title="Redo" disabled={locked || pending || Boolean(questionJsonError) || mode === "json" || !history.current.canRedo} onClick={() => travel("redo")}><Icon name="arrow" /></button>
+        </div>
+      </div>
+      <div className="qm-editor-export-tools"><button type="button" disabled={!valid || locked} onClick={() => { if (valid) openInterchange(context, valid); }}>Export</button><button type="button" disabled={!valid || quality?.valid === false || locked} onClick={() => { void save(true); }}>Save and study</button></div>
+      <section className="qm-editor-quiz-details" aria-label="Quiz details"><h3 className="qm-editor-tools-heading">Quiz details</h3>
         {draft.provenance?.kind === "ai" && <p className="qm-muted">{draft.provenance.provider ? providerNames[draft.provenance.provider] : "AI"}{draft.provenance.model ? ` · ${draft.provenance.model}` : ""}</p>}
         <label className="qm-field"><span>Description</span><textarea rows={2} value={draft.description ?? ""} disabled={locked || mode === "json"} onChange={event => { const next = { ...draft }; if (event.currentTarget.value) next.description = event.currentTarget.value; else delete next.description; update(next, false); }} /></label>
         {revisions.length > 0 && <details><summary>Saved versions · {revisions.length}</summary><label className="qm-field"><span>Version</span><select value={revisionId} disabled={locked || mode === "json"} onChange={event => setRevisionId(event.currentTarget.value)}><option value="">Choose a version</option>{revisions.map(item => <option key={item.id} value={item.id}>{new Date(item.savedAt).toLocaleString()} · {item.reason}</option>)}</select></label>{revisions.find(item => item.id === revisionId) && <><p>{revisions.find(item => item.id === revisionId)?.quiz.title} · {revisions.find(item => item.id === revisionId)?.quiz.questions.length} questions</p><button type="button" disabled={locked || mode === "json" || Boolean(questionJsonError) || questionJsonPending} onClick={() => { const item = revisions.find(value => value.id === revisionId); if (!item) return; try { if (update(validateQuiz({ ...item.quiz, id: draft.id }))) { setSelection(0); setStatus("Version restored to draft."); } } catch (issue) { setError(errorMessage(issue)); } }}>Restore to draft</button></>}</details>}
         <SessionFields config={draft.runConfig} disabled={locked || mode === "json"} onChange={config => { const next = { ...draft }; if (config) next.runConfig = config; else delete next.runConfig; update(next, false); }} />
-      </details>
-      <button type="button" disabled={!valid || locked} onClick={() => { if (valid) openInterchange(context, valid); }}>Export</button>
+      </section>
       </div></details>
     </div>
     {quality?.valid === false && <p role="alert" className="qm-error">Resolve conflicting answers before saving.</p>}
@@ -339,17 +341,23 @@ function QuizEditor({ context, initial, control, close }: { context: PluginConte
     {mode === "json" ? <label className="qm-field"><span>Quiz JSON</span><textarea className="qm-json-input" rows={24} spellCheck={false} maxLength={MAX_QUIZ_BYTES} value={json} disabled={locked} onChange={event => { setJson(event.currentTarget.value); setDirty(true); setError(""); setStatus(""); }} /></label> : <>
       <div className="qm-editor-layout">
         <aside className="qm-editor-outline" aria-label="Questions">
-          <details className="qm-editor-manage" open={bulkMode} onToggle={event => { const open = event.currentTarget.open; setBulkMode(open); if (!open) setBulk([]); }}><summary>Select questions</summary>
+          <div className="qm-editor-outline-toolbar">
+          <div className="qm-editor-outline-heading"><h3>Questions <span className="qm-muted">{draft.questions.length}</span></h3></div>
+          <details className="qm-editor-manage" open={bulkMode} onToggle={event => { const open = event.currentTarget.open; setBulkMode(open); if (!open) setBulk([]); }}><summary aria-label="Manage questions" title="Manage questions"><Icon name="more" /></summary>
           {bulkMode && <div className="qm-editor-bulk" aria-label="Selected questions"><p>{bulk.length} selected</p><button type="button" disabled={locked || questionJsonPending || Boolean(questionJsonError)} onClick={() => setBulk(draft.questions.map((_, index) => index))}>Select all</button><label className="qm-field"><span>Add tags</span><input value={bulkTags} onChange={event => setBulkTags(event.currentTarget.value)} placeholder="Separate with commas" /></label><button type="button" disabled={!bulk.length || !bulkTags.trim() || locked || questionJsonPending || Boolean(questionJsonError)} onClick={() => applyBulk({ kind: "tags", tags: bulkTags.split(",") })}>Apply tags</button><label className="qm-field"><span>Difficulty</span><select value={bulkDifficulty} onChange={event => setBulkDifficulty(event.currentTarget.value as Difficulty)}><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></select></label><button type="button" disabled={!bulk.length || locked || questionJsonPending || Boolean(questionJsonError)} onClick={() => applyBulk({ kind: "difficulty", difficulty: bulkDifficulty })}>Apply difficulty</button><details><summary>Remove selected</summary><p>Remove {bulk.length} questions? Undo remains available.</p><button type="button" disabled={!bulk.length || bulk.length === draft.questions.length || locked || questionJsonPending || Boolean(questionJsonError)} onClick={() => applyBulk({ kind: "remove" })}>Remove {bulk.length} questions</button></details></div>}
           </details>
-          <ol>{draft.questions.map((question, index) => <li key={question.id ?? index}>{bulkMode && <input type="checkbox" aria-label={`Select question ${index + 1}`} checked={bulk.includes(index)} disabled={locked} onChange={event => setBulk(event.currentTarget.checked ? [...bulk, index] : bulk.filter(value => value !== index))} />}<button type="button" className={`qm-editor-question-link${index === selection ? " is-active" : ""}`} aria-current={index === selection ? "true" : undefined} disabled={locked} onClick={() => choose(index)}><span>{index + 1}</span><span>{question.question || "Untitled question"}</span></button></li>)}</ol>
-          <label className="qm-field"><span>Add question</span><select value={newType} disabled={locked} onChange={event => setNewType(event.currentTarget.value as QuestionType)}>{questionTypes.map(type => <option key={type} value={type}>{questionTypeLabels[type]}</option>)}</select></label>
-          <button type="button" disabled={locked || draft.questions.length >= MAX_QUESTIONS || Boolean(questionJsonError) || questionJsonPending} onClick={() => { if (update({ ...draft, questions: [...draft.questions, createQuestion(newType)] })) setSelection(draft.questions.length); }}>Add question</button>
+          </div>
+          <ol className="qm-editor-outline-list">{draft.questions.map((question, index) => <li key={question.id ?? index}>{bulkMode && <input type="checkbox" aria-label={`Select question ${index + 1}`} checked={bulk.includes(index)} disabled={locked} onChange={event => setBulk(event.currentTarget.checked ? [...bulk, index] : bulk.filter(value => value !== index))} />}<button type="button" className={`qm-editor-question-link${index === selection ? " is-active" : ""}`} aria-current={index === selection ? "true" : undefined} disabled={locked} onClick={() => choose(index)}><span>{index + 1}</span><span>{question.question || "Untitled question"}</span></button></li>)}</ol>
+          <details className="qm-editor-add-question"><summary><Icon name="plus" />Add question</summary><div className="qm-editor-add-question-fields">
+            <label className="qm-field"><span>Question format</span><select value={newType} disabled={locked} onChange={event => setNewType(event.currentTarget.value as QuestionType)}>{questionTypes.map(type => <option key={type} value={type}>{questionTypeLabels[type]}</option>)}</select></label>
+            <button type="button" disabled={locked || draft.questions.length >= MAX_QUESTIONS || Boolean(questionJsonError) || questionJsonPending} onClick={() => { if (update({ ...draft, questions: [...draft.questions, createQuestion(newType)] })) setSelection(draft.questions.length); }}>Add question</button>
+          </div></details>
         </aside>
         <main className="qm-editor-detail">
           {selected && <fieldset className="qm-editor-fields" disabled={locked}>
-            <legend>Question {selection + 1} · {questionTypeLabels[selected.type]}</legend>
-            <details className="qm-editor-question-menu"><summary>Question actions</summary><div className="qm-editor-question-actions">
+            <legend className="qm-sr-only">Question {selection + 1}</legend>
+            <div className="qm-editor-question-header"><h3>Question {selection + 1} <span className="qm-muted">{questionTypeLabels[selected.type]}</span></h3>
+            <details className="qm-editor-question-menu"><summary aria-label="Question actions" title="Question actions"><Icon name="more" /></summary><div className="qm-editor-question-actions">
               <button type="button" className="qm-icon-button" aria-label="Move up" title="Move up" disabled={selection === 0 || Boolean(questionJsonError) || questionJsonPending} onClick={() => { update(moveQuestion(draft, selection, selection - 1)); setSelection(selection - 1); }}><Icon name="chevron-up" /></button>
               <button type="button" className="qm-icon-button" aria-label="Move down" title="Move down" disabled={selection === draft.questions.length - 1 || Boolean(questionJsonError) || questionJsonPending} onClick={() => { update(moveQuestion(draft, selection, selection + 1)); setSelection(selection + 1); }}><Icon name="chevron-down" /></button>
               <button type="button" disabled={draft.questions.length >= MAX_QUESTIONS || Boolean(questionJsonError) || questionJsonPending} onClick={() => { if (update(duplicateQuestion(draft, selection))) setSelection(selection + 1); }}><Icon name="plus" />Duplicate</button>
@@ -358,7 +366,7 @@ function QuizEditor({ context, initial, control, close }: { context: PluginConte
                 const provider = context.settings.provider;
                 setConfirmRegenerate({ provider, config: { ...context.settings.providers[provider] } });
               }}><Icon name="refresh" />Regenerate</button>}
-            </div></details>
+            </div></details></div>
             {confirmRemove && <div ref={removePrompt} className="qm-editor-confirm" role="alert"><p>Remove this question?</p><button type="button" onClick={() => setConfirmRemove(false)}>Keep question</button><button type="button" onClick={() => { update(removeQuestion(draft, selection)); setSelection(Math.max(0, Math.min(selection, draft.questions.length - 2))); setConfirmRemove(false); }}>Remove question</button></div>}
             {confirmRegenerate && <div ref={regeneratePrompt} className="qm-editor-confirm" role="alert"><p>Send these notes to {providerNames[confirmRegenerate.provider]} to replace this question?</p><ul>{draft.sources.map(path => <li key={path}>{path}</li>)}</ul><button type="button" onClick={() => setConfirmRegenerate(null)}>Cancel</button><button type="button" className="mod-cta" onClick={() => { void regenerate(); }}>Regenerate question</button></div>}
             {draft.sourceSelection && <p className="qm-muted">To regenerate, select the source passage again. This quiz uses selected text.</p>}
@@ -384,10 +392,9 @@ function QuizEditor({ context, initial, control, close }: { context: PluginConte
     </>}
     <InlineError>{error || (!pending && (questionJsonError || validation.error))}</InlineError>
     <footer className="qm-editor-footer">
-      <span className="qm-editor-validation" role="status" aria-live="polite">{status || (pending ? "Checking JSON…" : valid ? `${valid.questions.length} ${valid.questions.length === 1 ? "question" : "questions"}${dirty ? " · Unsaved changes" : ""}` : "Fix the errors before saving.")}</span>
+      <span className="qm-editor-validation" role="status" aria-live="polite">{status || (pending ? "Checking JSON…" : valid ? dirty ? "Unsaved changes" : "" : "Fix the errors before saving.")}</span>
       {busy === "regenerate" && <button type="button" data-qm-cancel-regenerate onClick={() => abort.current?.abort()}>Cancel regeneration</button>}
 
-      <button type="button" disabled={!valid || quality?.valid === false || locked} onClick={() => { void save(true); }}>Save and study</button>
       <button type="button" className="mod-cta" disabled={!valid || quality?.valid === false || locked} onClick={() => { void save(); }}>{busy === "save" ? "Saving…" : "Save quiz"}</button>
     </footer>
   </section>;

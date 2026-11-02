@@ -5,7 +5,7 @@
 <p align="center">Create, study and review quizzes inside Obsidian.</p>
 
 <p align="center">
-  <a href="https://github.com/Abenovv/quiz-maker-obsidian-edition/releases/latest"><img src="assets/badges/release.svg" height="26" alt="Version 2.0.0"></a>
+  <a href="https://github.com/Abenovv/quiz-maker-obsidian-edition/releases/latest"><img src="assets/badges/release.svg" height="26" alt="Version 2.0.1"></a>
   <a href="#install"><img src="assets/badges/platform.svg" height="26" alt="Obsidian 1.8.7 or newer"></a>
   <a href="LICENSE"><img src="assets/badges/license.svg" height="26" alt="MIT license"></a>
 </p>
@@ -21,7 +21,7 @@ Start with your notes, import existing questions or write them yourself. Save a 
 
 ![Quiz maker practice view in native Obsidian](docs/images/native-study-2.0.png)
 
-Native Obsidian capture using public test questions. Private workspace content is masked; provider requests were mocked.
+Quiz maker 2.0.1 in Obsidian, using public demo questions.
 
 ## Install
 
@@ -36,19 +36,19 @@ To update, replace only those three files and reload Obsidian. Keep your local s
 
 ## Make your first quiz
 
-**From a note:** open a Markdown note and run **Quiz maker: Quick quiz**. Choose a study pack, review the sources and question mix, then generate.
+**From a note:** open a Markdown note and run **Quiz maker: Quick quiz**. Choose a study pack and question count, then generate. **Add source** offers notes or folders; **Customize** holds the question mix and other options.
 
-**Without a provider:** run **Quiz maker: New quiz** to write questions. Or choose **Create quiz → Import** and try the public [JavaScript sample](docs/examples/javascript-essentials.json).
+**Without a provider:** run **Quiz maker: New quiz** to write questions. Or choose **Library tools → Import** and try the public [JavaScript sample](docs/examples/javascript-essentials.json).
 
 **From selected text:** select a passage in the editor and run **Quiz maker: Quiz selected text**. Only that selection is used as source text.
 
-New quiz stays available when **Extra commands** is off. The [guide](docs/guide.md) covers editing, saving readable notes, import/export and recovery.
+Open the library and choose **New quiz** to generate from notes. The **New quiz** command opens the manual editor; both it and **Quick quiz** stay available when **Extra commands** is off. The [guide](docs/guide.md) covers editing, saving readable notes, import/export and recovery.
 
 ## Watch the walkthrough
 
 [![Watch the Quiz maker 2.0 walkthrough](docs/media/quiz-maker-2.0-tutorial.jpg)](docs/media/quiz-maker-2.0-tutorial.mp4)
 
-**84 seconds · English narration.** A walkthrough built from real native Obsidian captures, public sample notes and a demo provider. [Watch MP4](docs/media/quiz-maker-2.0-tutorial.mp4) · [Captions](docs/media/quiz-maker-2.0-tutorial.vtt) · [Transcript](docs/media/quiz-maker-2.0-tutorial.md).
+**84 seconds · English narration · version 2.0.0.** Menus are simpler in 2.0.1; the [guide](docs/guide.md) follows the current interface. A walkthrough built from real native Obsidian captures, public sample notes and a demo provider. [Watch MP4](docs/media/quiz-maker-2.0-tutorial.mp4) · [Captions](docs/media/quiz-maker-2.0-tutorial.vtt) · [Transcript](docs/media/quiz-maker-2.0-tutorial.md).
 
 ## Study your way
 

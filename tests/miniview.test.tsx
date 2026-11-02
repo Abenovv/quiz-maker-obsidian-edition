@@ -71,10 +71,36 @@ test("unreadable storage is surfaced instead of appearing as an empty library", 
 });
 
 test("active exams cannot reveal a stored answer or hint in the mini view", () => {
-  const exam = { ...session("exam"), checked: [0] };
+  const exam = { ...session("exam"), checked: [0], responses: { 0: true } };
   const html = renderToStaticMarkup(createElement(MiniStudy, { context: contextFor(exam) }));
   assert.match(html, /Finish exam/);
-  assert.doesNotMatch(html, /Reference answer|Reveal answer|Check answer|Look at the orbit|Earth follows its orbit/);
+  assert.doesNotMatch(html, /Reference answer|Reveal answer|Check answer|Look at the orbit|Earth follows its orbit|qm-mini-feedback|Compare your answer/);
+});
+
+test("mini feedback uses the checked response and stays absent before checking", () => {
+  const initial = session();
+  const answered = reduceSession(initial, { type: "answer", response: true }, initial.updatedAt + 1);
+  const render = (active: Session): string => renderToStaticMarkup(createElement(MiniStudy, { context: contextFor(active) }));
+  assert.doesNotMatch(render(answered), /qm-mini-feedback|Reference answer/);
+  const correct = reduceSession(answered, { type: "check" }, answered.updatedAt + 1);
+  const html = render(correct);
+  assert.match(html, /qm-grade-correct[^>]*role="status"[^>]*>Correct<\/p>/);
+  assert.match(html, /<section[^>]*aria-label="Reference answer"[^>]*><p[^>]*qm-mini-feedback/);
+  assert.doesNotMatch(html, /<h3>Answer<\/h3>/);
+  const wrong = reduceSession(initial, { type: "answer", response: false }, initial.updatedAt + 1);
+  const incorrect = reduceSession(wrong, { type: "check" }, wrong.updatedAt + 1);
+  assert.match(render(incorrect), /qm-grade-incorrect[^>]*role="status"[^>]*>Incorrect<\/p>/);
+});
+
+test("written answers offer reference comparison without an objective grade", () => {
+  const written: Quiz = { ...quiz, questions: [{ type: "short-answer", question: "Describe an orbit.", answer: "A path around another body." }] };
+  const initial = createSession(written, { mode: "practice" });
+  const answered = reduceSession(initial, { type: "answer", response: "A repeating path." });
+  const render = (active: Session): string => renderToStaticMarkup(createElement(MiniStudy, { context: contextFor(active) }));
+  assert.match(render(answered), />Show reference<\/button>/);
+  const checked = reduceSession(answered, { type: "check" });
+  assert.match(render(checked), /qm-grade-self-review[^>]*>Compare with the reference\.<\/p>/);
+  assert.doesNotMatch(render(checked), /qm-grade-correct|qm-grade-incorrect/);
 });
 
 test("flashcard reveal and rating controls follow the same engine permissions", () => {
@@ -88,6 +114,7 @@ test("flashcard reveal and rating controls follow the same engine permissions", 
   assert.match(back, />Again</);
   assert.match(back, />Good</);
   assert.match(back, />Easy</);
+  assert.doesNotMatch(back, /qm-mini-feedback|qm-grade-correct|qm-grade-incorrect/);
 });
 
 test("pausing the shared session removes response controls until resuming", () => {
@@ -115,9 +142,36 @@ test("compact icon controls retain distinct accessible labels and pressed state"
   assert.match(html, /aria-label="Open full view"/);
   assert.match(html, /aria-label="Flag question"[^>]*aria-pressed="true"/);
   assert.match(html, /aria-label="Bookmark question"[^>]*aria-pressed="true"/);
-  assert.match(html, /aria-label="Previous question"/);
-  assert.match(html, /aria-label="Next question"/);
+  assert.doesNotMatch(html, /aria-label="Previous question"|aria-label="Next question"/);
   assert.match(html, /aria-label="Pause quiz"/);
+  assert.match(html, /aria-label="Pause quiz"[^>]*>[\s\S]*?Pause<\/button>/);
+  assert.match(html, /<summary[^>]*aria-label="Quiz options"/);
+  assert.doesNotMatch(html, /<details[^>]*class="qm-mini-options"[^>]*open/);
+  assert.match(html, /Flagged<\/button>/);
+  assert.match(html, /Bookmarked<\/button>/);
+});
+
+test("mini study shows one next action and keeps secondary tools in a closed disclosure", () => {
+  const longer: Quiz = { ...quiz, questions: [quiz.questions[0], { type: "true-false", question: "The Moon orbits Earth.", answer: true }] };
+  const initial = createSession(longer, { mode: "practice" });
+  const render = (active: Session): string => renderToStaticMarkup(createElement(MiniStudy, { context: contextFor(active) }));
+  const front = render(initial);
+  const options = front.match(/<details class="qm-mini-options">([\s\S]*?)<\/details>/)?.[1];
+  assert.ok(options, "secondary tools remain available in one closed native disclosure");
+  for (const label of ["Quiz options", "Pause quiz", "Skip question", "Finish quiz"]) assert.ok(options.includes(label), `${label} remains reachable`);
+  assert.match(options, /<progress[^>]*aria-label="Questions answered"/);
+  const afterOptions = front.slice(front.indexOf("</details>") + "</details>".length);
+  assert.match(afterOptions, /Check answer/);
+  assert.doesNotMatch(afterOptions, /Skip question|Pause quiz|Finish quiz|qm-mini-mode|<progress|aria-label="Next question"|aria-label="Previous question"/);
+  const answered = reduceSession(initial, { type: "answer", response: true });
+  const checked = reduceSession(answered, { type: "check" });
+  const checkedHtml = render(checked);
+  assert.match(checkedHtml, /class="mod-cta" aria-label="Next question"/);
+  assert.doesNotMatch(checkedHtml, /Check answer|Skip question/);
+  const next = reduceSession(checked, { type: "next" });
+  const nextHtml = render(next);
+  assert.match(nextHtml, /aria-label="Previous question"/);
+  assert.match(nextHtml, /Check answer/);
 });
 
 test("paused timed practice shows the saved time without a live announcement each second", () => {

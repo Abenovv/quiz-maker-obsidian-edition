@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { TFile, TFolder, normalizePath } from "obsidian";
 import { serializeQuiz } from "../core/schema";
 import type { PluginContext, Quiz } from "../core/types";
@@ -6,7 +6,7 @@ import { parseDelimited, previewAnki, exportAnki, type FieldMapping, type Import
 import { InlineError, errorMessage, openReactModal, localImagePath } from "./shared";
 
 export function openInterchange(context: PluginContext, quiz?: Quiz): void {
-  openReactModal(context, close => <Interchange context={context} quiz={quiz} close={close} />, { title: quiz ? "Export quiz" : "Import cards", className: "qm-interchange-modal" });
+  openReactModal(context, close => <Interchange context={context} quiz={quiz} close={close} />, { title: quiz ? "Export quiz" : "Import cards", className: "qm-interchange-modal", compact: true });
 }
 async function saveExport(context: PluginContext, title: string, extension: string, content: string | Uint8Array): Promise<string> {
   const folder = context.settings.saveFolder.trim().replace(/\\/g, "/");
@@ -68,6 +68,7 @@ export async function runCancellableExport(work: () => Promise<{ path: string }>
   if (!signal.aborted) saved(result.path);
 }
 export function Interchange({ context, quiz, close }: { context: PluginContext; quiz?: Quiz; close(this: void): void }): ReactNode {
+  const hintId = useId();
   const pdfController = useRef<AbortController>();
   const mounted = useRef(true);
   const pending = useRef(false);
@@ -132,35 +133,37 @@ export function Interchange({ context, quiz, close }: { context: PluginContext; 
     else if (!busy) close();
   };
   const reviewText = (): void => { setPreview(undefined); setError(""); try { const table = parseDelimited(text); const matched = table.comments.some(comment => comment === "#columns:Front\tBack\tTags\tNoteID\tQuizMakerJSON"); setPreview(previewAnki(table, matched ? { ...mapping, tags: 2, id: 3, payload: 4 } : mapping, title, skipHeader)); } catch (cause) { setError(errorMessage(cause)); } };
-  return <div className="qm-stack"><fieldset disabled={busy} className="qm-stack qm-interchange-fields">
+  return <div className="qm-stack qm-interchange"><fieldset disabled={busy} aria-busy={busy} className="qm-stack qm-interchange-fields">
     {quiz ? <>
-      <label className="qm-field">Format<select value={format} disabled={busy} onChange={event => setFormat(event.target.value)}><option value="json">Quiz JSON (.json)</option><option value="tsv">Anki text (.tsv)</option><option value="apkg">Anki deck (.apkg)</option><option value="pdf">PDF</option></select></label>
-      {format === "json" ? <p className="qm-muted">Keep all question formats and answers. Saved in your export folder.</p> : format === "pdf" ? <label className="qm-check"><input type="checkbox" checked={answers} onChange={event => setAnswers(event.target.checked)} />Include answer key</label> : <p className="qm-muted">Anki uses front/back cards. The original question format is kept in the QuizMakerJSON field. Scheduling stays separate.</p>}
-      {format === "pdf" && <p className="qm-muted">PDF pages are images. Text cannot be selected or read by a screen reader.</p>}
-      {format !== "pdf" && !!exportPreview?.warnings.length && <details><summary>Conversion notes ({exportPreview.warnings.length})</summary><ul>{exportPreview.warnings.slice(0, 30).map((warning, index) => <li key={index}>{warning}</li>)}</ul></details>}
+      <label className="qm-field">Format<select value={format} disabled={busy} aria-describedby={`${hintId}-format`} onChange={event => setFormat(event.target.value)}><option value="json">Quiz JSON (.json)</option><option value="tsv">Anki text (.tsv)</option><option value="apkg">Anki deck (.apkg)</option><option value="pdf">PDF (.pdf)</option></select></label>
+      <p id={`${hintId}-format`} className="qm-muted qm-interchange-hint">{format === "json" ? "Keep all question formats and answers. Saved in your export folder." : format === "pdf" ? "PDF pages are images. Text cannot be selected or read by a screen reader." : "Anki uses front/back cards. The original question format is kept in the QuizMakerJSON field. Scheduling stays separate."}</p>
+      {format === "pdf" && <label className="qm-check"><input type="checkbox" checked={answers} onChange={event => setAnswers(event.target.checked)} />Include answer key</label>}
+      {format !== "pdf" && !!exportPreview?.warnings.length && <details className="qm-interchange-report"><summary>Conversion notes ({exportPreview.warnings.length})</summary><ul>{exportPreview.warnings.slice(0, 30).map((warning, index) => <li key={index}>{warning}</li>)}</ul></details>}
     </> : <>
-      <p className="qm-muted">Import Anki notes as text or a deck package. Review conversions before saving. The original file stays unchanged.</p>
-      <label className="qm-field">File<input type="file" accept=".txt,.tsv,.csv,.apkg" disabled={busy} onChange={event => { const file = event.target.files?.[0]; if (!file) return; setPreview(undefined); void attempt(async () => {
+      <p className="qm-muted qm-interchange-hint">Choose an Anki file or paste card text, then review before saving.</p>
+      <label className="qm-field">Anki file<input type="file" accept=".txt,.tsv,.csv,.apkg" disabled={busy} aria-describedby={`${hintId}-file`} onChange={event => { const file = event.target.files?.[0]; if (!file) return; setPreview(undefined); void attempt(async () => {
         if (file.size > 16 * 1024 * 1024) throw new Error("Choose a file smaller than 16 MiB.");
         if (/\.apkg$/i.test(file.name)) { const { previewAnkiPackage } = await import("../interchange/package"); setPreview(await previewAnkiPackage(new Uint8Array(await file.arrayBuffer()), title)); }
         else { setText(await file.text()); setPreview(undefined); }
       }); }} /></label>
+      <p id={`${hintId}-file`} className="qm-muted qm-interchange-hint">TXT, TSV, CSV or APKG · 16 MiB maximum. The original file stays unchanged.</p>
       <label className="qm-field">Quiz title<input value={title} maxLength={200} onChange={event => { setTitle(event.target.value); setPreview(undefined); }} /></label>
-      <details open={!preview}><summary>Text and field mapping</summary><label className="qm-field">Text<textarea value={text} rows={6} onChange={event => { setText(event.target.value); setPreview(undefined); }} /></label>
-        <div className="qm-form-grid">{(["front", "back", "tags", "id", "payload"] as const).map(field => <label className="qm-field" key={field}>{({ front: "Front", back: "Back", tags: "Tags", id: "Note ID", payload: "QuizMakerJSON" })[field]}<input type="number" min={field === "front" || field === "back" ? 1 : 0} max={100} value={mapping[field] === undefined ? 0 : mapping[field] + 1} onChange={event => { const value = Number(event.target.value); setMapping(current => ({ ...current, [field]: value ? value - 1 : undefined })); setPreview(undefined); }} /></label>)}</div>
-        <p className="qm-muted">Column numbers start at 1. Use 0 for an unused optional field.</p>
+      <details open={!preview}><summary>Text and field mapping</summary><label className="qm-field">Card text<textarea value={text} rows={6} onChange={event => { setText(event.target.value); setPreview(undefined); }} /></label>
+        <p id={`${hintId}-mapping`} className="qm-muted qm-interchange-hint">Front and Back are required. Columns start at 1; use 0 for an unused optional field.</p>
+        <div className="qm-form-grid qm-interchange-mapping">{(["front", "back", "tags", "id", "payload"] as const).map(field => <label className="qm-field" key={field}>{({ front: "Front", back: "Back", tags: "Tags (optional)", id: "Note ID (optional)", payload: "QuizMakerJSON (optional)" })[field]}<input type="number" min={field === "front" || field === "back" ? 1 : 0} max={100} aria-describedby={`${hintId}-mapping`} aria-required={field === "front" || field === "back"} value={mapping[field] === undefined ? 0 : mapping[field] + 1} onChange={event => { const value = Number(event.target.value); setMapping(current => ({ ...current, [field]: value ? value - 1 : undefined })); setPreview(undefined); }} /></label>)}</div>
         <label className="qm-check"><input type="checkbox" checked={skipHeader} onChange={event => { setSkipHeader(event.target.checked); setPreview(undefined); }} />First row contains column names</label>
         <label className="qm-check"><input type="checkbox" checked={!!mapping.cloze} onChange={event => { setMapping(current => ({ ...current, cloze: event.target.checked })); setPreview(undefined); }} />Front contains Anki cloze deletions</label>
         <button disabled={busy || !text.trim()} onClick={reviewText}>Review import</button>
       </details>
-      {preview && <section aria-live="polite"><p>{preview.converted} of {preview.rows} notes ready{preview.skipped ? ` · ${preview.skipped} skipped` : ""}</p><p>{preview.quiz.questions[0]?.question}</p>{duplicateCount > 0 && <p className="qm-muted">{duplicateCount} notes already exist in the library. This creates a separate quiz; existing quizzes stay unchanged.</p>}{!!preview.media?.length && <label className="qm-check"><input type="checkbox" checked={includeMedia} onChange={event => setIncludeMedia(event.target.checked)} />Attach {preview.media.length} images to this vault</label>}{!!preview.issues.length && <details open={preview.skipped > 0}><summary>Review notes ({preview.issues.length})</summary><ul>{preview.issues.map((issue, index) => <li key={index}>{issue.row ? `Row ${issue.row}: ` : ""}{issue.message}</li>)}</ul></details>}</section>}
+      {preview && <section className="qm-interchange-preview" aria-label="Import preview"><p role="status">{preview.converted} of {preview.rows} notes ready{preview.skipped ? ` · ${preview.skipped} skipped` : ""}</p><p className="qm-interchange-sample">{preview.quiz.questions[0]?.question}</p>{duplicateCount > 0 && <p className="qm-muted">{duplicateCount} notes already exist in the library. This creates a separate quiz; existing quizzes stay unchanged.</p>}{!!preview.media?.length && <label className="qm-check"><input type="checkbox" checked={includeMedia} onChange={event => setIncludeMedia(event.target.checked)} />Attach {preview.media.length} images to this vault</label>}{!!preview.issues.length && <details className="qm-interchange-report" open={preview.skipped > 0}><summary>Review notes ({preview.issues.length})</summary><ul>{preview.issues.map((issue, index) => <li key={index}>{issue.row ? `Row ${issue.row}: ` : ""}{issue.message}</li>)}</ul></details>}</section>}
     </>}
   </fieldset>
+    <p className="qm-sr-only" role="status">{busy ? quiz ? "Exporting quiz…" : preview ? "Saving reviewed notes…" : "Reading import file…" : ""}</p>
     <InlineError>{error}</InlineError>
     <div className="qm-actions">
       <button disabled={busy && !pdfController.current} onClick={cancel}>{busy && pdfController.current ? "Cancel export" : "Cancel"}</button>
       {quiz ? <button className="mod-cta" disabled={busy} onClick={event => handleExport(event.currentTarget.ownerDocument)}>{busy ? "Exporting…" : "Export"}</button>
-        : <button className="mod-cta" disabled={busy || !preview} onClick={handleImport}>{busy ? "Saving…" : "Import reviewed notes"}</button>}
+        : <button className="mod-cta" disabled={busy || !preview} onClick={handleImport}>{busy ? preview ? "Saving…" : "Reading…" : "Import reviewed notes"}</button>}
     </div>
   </div>;
 }

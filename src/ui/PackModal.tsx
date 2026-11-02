@@ -48,16 +48,16 @@ function PackEditor({ context, initial, close, saved }: { context: PluginContext
     <details className="qm-generator-details"><summary>Topics <span className="qm-muted">{rows.length ? `${rows.length} allocations` : "Optional"}</span></summary>
       <p className="qm-muted">Divide the {total} questions by topic and difficulty.</p>
       {rows.map((row, index) => <div className="qm-blueprint-row" key={index}>
-        <label className="qm-field"><span className="qm-sr-only">Topic {index + 1}</span><input placeholder="Topic" value={row.topic} maxLength={300} disabled={busy} onChange={event => updateRow(index, { topic: event.currentTarget.value })}/></label>
-        <label className="qm-field"><span className="qm-sr-only">Difficulty {index + 1}</span><select value={row.difficulty} disabled={busy} onChange={event => updateRow(index, { difficulty: event.currentTarget.value as Difficulty })}><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></select></label>
-        <label className="qm-field"><span className="qm-sr-only">Question count {index + 1}</span><input type="number" min={1} max={100} value={row.count || ""} disabled={busy} onChange={event => updateRow(index, { count: Number(event.currentTarget.value) })}/></label>
+        <label className="qm-field"><span>Topic <span className="qm-sr-only">{index + 1}</span></span><input placeholder="Topic" value={row.topic} maxLength={300} disabled={busy} onChange={event => updateRow(index, { topic: event.currentTarget.value })}/></label>
+        <label className="qm-field"><span>Difficulty <span className="qm-sr-only">{index + 1}</span></span><select value={row.difficulty} disabled={busy} onChange={event => updateRow(index, { difficulty: event.currentTarget.value as Difficulty })}><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></select></label>
+        <label className="qm-field"><span>Questions <span className="qm-sr-only">{index + 1}</span></span><input type="number" min={1} max={100} value={row.count || ""} disabled={busy} onChange={event => updateRow(index, { count: Number(event.currentTarget.value) })}/></label>
         <button type="button" disabled={busy} aria-label={`Remove topic ${index + 1}`} onClick={() => setRows(current => current.filter((_, position) => position !== index))}>Remove</button>
       </div>)}
       <button type="button" disabled={busy || rows.length >= 50} onClick={() => setRows(current => [...current, { topic: "", difficulty: pack.difficulty, count: Math.max(1, total - current.reduce((sum, row) => sum + row.count, 0)) }])}>Add topic</button>
       <InlineError>{blueprintError(rows, total)}</InlineError>
     </details>
     <InlineError>{error}</InlineError>
-    <footer className="qm-footer-actions"><button type="button" disabled={busy} onClick={close}>Cancel</button>{customPack && <button type="button" disabled={busy} onClick={() => { void save(true); }}>Save a copy</button>}<button type="button" className="mod-cta qm-primary" disabled={busy} onClick={() => { void save(false); }}>{busy ? "Saving…" : customPack ? "Save changes" : "Save pack"}</button></footer>
+    <footer className="qm-footer-actions"><button type="button" disabled={busy} onClick={close}>Cancel</button><div className="qm-pack-save-actions">{customPack && <button type="button" disabled={busy} onClick={() => { void save(true); }}>Save a copy</button>}<button type="button" className="mod-cta qm-primary" disabled={busy} onClick={() => { void save(false); }}>{busy ? "Saving…" : customPack ? "Save changes" : "Save pack"}</button></div></footer>
   </div>;
 }
 

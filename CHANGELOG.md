@@ -1,5 +1,20 @@
 # Release notes
 
+## 2.0.1
+
+Simplify the default screens around creating and answering a quiz.
+
+- Replace multiple study headers with one position/timer/options toolbar. Check becomes Next; skipping and secondary tools remain in Options.
+- Use Add source for note/folder selection beside the notes, with a compact responsive picker.
+- Use a one-column creation form with notes, pack/count and Generate. Put advanced controls in one flat Customize section; keep required setup and errors visible.
+- Open the library with searchable quiz rows and one New quiz action. Move bank, packs, history, backups and note actions into Library tools.
+- Reduce setup, results, mini view and editor controls. Combine status, reference and explanation in one feedback block.
+- Preserve saved choices, native settings search, keyboard focus, 44px targets, all four appearances and reduced motion.
+- Keep short-window answer bars clear of content and let result tiles fit wrapped text.
+- Improve enabled button-label contrast while preserving accent backgrounds, disabled labels and forced colours.
+
+Local validation: 633 tests, official lint, typecheck, reproducible builds and source/release checks pass. Native workflows and keyboard/layout checks use public fixtures. Physical-device and external directory checks remain separate.
+
 ## 2.0.0
 
 Personal study packs, reviewable editing and local interchange, with a simpler Obsidian-native setup.
