@@ -2,8 +2,9 @@ import { FuzzySuggestModal, Menu, TFile, TFolder } from "obsidian";
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { questionTypeLabels } from "../core/schema";
 import { providers, questionTypes, type BlueprintAllocation, type Difficulty, type GenerationConnection, type GenerationRequest, type ModelInfo, type PluginContext, type Provider, type Quiz, type RequestedMethod, type SessionConfig } from "../core/types";
-import { MAX_GENERATED_QUESTIONS, MAX_GENERATION_SOURCES, MAX_SOURCE_CHARACTERS, estimateGenerationOutput } from "../ai/generation";
+import { MAX_GENERATED_QUESTIONS, MAX_GENERATION_SOURCES, MAX_SOURCE_CHARACTERS, estimateGenerationOutput, PartialGenerationError } from "../ai/generation";
 import { modelDiscoveryMessage } from "../ai/models";
+import { requiresProviderKey } from "../ai/transport";
 import { DEFAULT_PRESET_ID, findPreset } from "../presets";
 import { availablePresets, findUserPreset } from "../presets/user";
 import { detectLanguage } from "../ai/language";
@@ -33,11 +34,7 @@ export class SourcePicker extends FuzzySuggestModal<SourceBrowseItem> {
   }
 }
 
-function localEndpoint(provider: Provider, baseUrl: string): boolean {
-  if (provider === "ollama") return true;
-  try { return ["localhost", "127.0.0.1", "[::1]"].includes(new URL(baseUrl).hostname); }
-  catch { return false; }
-}
+interface RecoveryDraft { quiz: Quiz; request: GenerationRequest; connection: GenerationConnection }
 
 export interface GeneratorOptions { selection?: { path: string; content: string; fromLine: number; toLine: number; fromOffset?: number; toOffset?: number } }
 
@@ -69,7 +66,7 @@ export function Generator({ context, close, presetId, options }: { context: Plug
   const [model, setModel] = useState(context.settings.providers[context.settings.provider].model);
   const [connectionSetup] = useState(() => {
     const current = context.settings.providers[context.settings.provider];
-    return !current.model.trim() || (!current.apiKey && !localEndpoint(context.settings.provider, current.baseUrl));
+    return !current.model.trim() || (!current.apiKey && requiresProviderKey(context.settings.provider, current.baseUrl));
   });
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [modelsBusy, setModelsBusy] = useState(false);
@@ -77,6 +74,8 @@ export function Generator({ context, close, presetId, options }: { context: Plug
   const [busy, setBusy] = useState(false);
   const [saving, setSaving] = useState(false);
   const [pendingQuiz, setPendingQuiz] = useState<Quiz | null>(null);
+  const [recovery, setRecovery] = useState<RecoveryDraft | null>(null);
+  const checkpoint = useRef<RecoveryDraft | null>(null);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const alive = useRef(true);
@@ -91,7 +90,7 @@ export function Generator({ context, close, presetId, options }: { context: Plug
   const selectedPack = packs.find(pack => pack.id === packId);
   const blueprintIssue = blueprintError(blueprint, total);
   const estimate = estimateGenerationOutput({ methods, includeHints, includeExplanations, includeSources });
-  const needsApiKey = !context.settings.providers[provider].apiKey && !localEndpoint(provider, context.settings.providers[provider].baseUrl);
+  const needsApiKey = !context.settings.providers[provider].apiKey && requiresProviderKey(provider, context.settings.providers[provider].baseUrl);
 
   useEffect(() => {
     alive.current = true;
@@ -203,6 +202,7 @@ export function Generator({ context, close, presetId, options }: { context: Plug
     request.controller.abort();
     activeRequest.current = null;
     setBusy(false);
+    if (checkpoint.current) setRecovery(checkpoint.current);
     setStatus("Stopped waiting. Your provider may still finish an in-flight request.");
   };
 
@@ -237,15 +237,51 @@ export function Generator({ context, close, presetId, options }: { context: Plug
     }
   };
 
+  const continueDraft = async (keepOnly = false): Promise<void> => {
+    if (!recovery || activeRequest.current) return;
+    const controller = new AbortController();
+    const id = ++requestSequence.current;
+    activeRequest.current = { id, controller };
+    const current = (): boolean => alive.current && activeRequest.current?.id === id && !controller.signal.aborted;
+    setBusy(true); setError("");
+    try {
+      if (keepOnly) {
+        setRecovery(null); checkpoint.current = null;
+        await persistResult({ ...recovery.quiz, runConfig: { ...config } }, current);
+      } else {
+        const request: GenerationRequest = { ...recovery.request, retained: recovery.quiz, signal: controller.signal,
+          onProgress: message => { if (current()) setStatus(message); },
+          onCheckpoint: quiz => { if (current()) checkpoint.current = { ...recovery, quiz }; }
+        };
+        const result = await context.generation.generate(request, recovery.connection);
+        if (current()) {
+          setRecovery(null); checkpoint.current = null;
+          await persistResult({ ...result, runConfig: { ...config } }, current);
+        }
+      }
+    } catch (failure) {
+      if (!current()) return;
+      if (failure instanceof PartialGenerationError) {
+        const draft = { ...recovery, quiz: failure.quiz };
+        checkpoint.current = draft; setRecovery(draft);
+      }
+      setError(errorMessage(failure)); setStatus("");
+    } finally {
+      if (alive.current && activeRequest.current?.id === id) { activeRequest.current = null; setBusy(false); setSaving(false); }
+    }
+  };
+
   const generate = async (): Promise<void> => {
     if (activeRequest.current) return;
+    if (recovery) { await continueDraft(recovery.quiz.questions.length >= total); return; }
+    checkpoint.current = null;
     setError("");
     if (!validCounts) { setError(`Choose 1–${MAX_GENERATED_QUESTIONS} questions, with 1–20 per format.`); return; }
     if (blueprintIssue) { setError(blueprintIssue); return; }
     if (!files.length && !selection) { setError("Choose at least one note."); return; }
     const account = context.settings.providers[provider];
     const connection: GenerationConnection = { provider, config: { ...account, model: model.trim() } };
-    if (!account.apiKey && !localEndpoint(provider, account.baseUrl)) { if (!connectionSetup) setOptionsOpen(true); setError(`Add your ${providerNames[provider]} API key in Settings → Quiz maker.`); return; }
+    if (!account.apiKey && requiresProviderKey(provider, account.baseUrl)) { if (!connectionSetup) setOptionsOpen(true); setError(`Add your ${providerNames[provider]} API key in Settings → Quiz maker.`); return; }
     if (!model.trim()) { if (!connectionSetup) setOptionsOpen(true); setError("Enter or select a model ID."); return; }
     if (!language.trim()) { setOptionsOpen(true); setError("Enter the language for your questions."); return; }
     const controller = new AbortController();
@@ -254,6 +290,7 @@ export function Generator({ context, close, presetId, options }: { context: Plug
     const current = (): boolean => alive.current && activeRequest.current?.id === id && !controller.signal.aborted;
     setBusy(true);
     setStatus("Reading notes…");
+    let generationRequest: GenerationRequest | undefined;
     try {
       const sources = selection ? selectionSources(selection, MAX_SOURCE_CHARACTERS) : await readSelectedNotes(files, file => context.app.vault.cachedRead(file), { maxNotes: MAX_GENERATION_SOURCES, maxCharacters: MAX_SOURCE_CHARACTERS, signal: controller.signal });
       if (!current()) return;
@@ -274,12 +311,19 @@ export function Generator({ context, close, presetId, options }: { context: Plug
         signal: controller.signal,
         onProgress: message => { if (current()) setStatus(message); }
       };
+      generationRequest = request;
+      request.onCheckpoint = quiz => { if (current()) checkpoint.current = { quiz, request, connection }; };
       const result = await context.generation.generate(request, connection);
       if (!current()) return;
       const quiz = { ...result, runConfig: { ...config } };
+      checkpoint.current = null;
       await persistResult(quiz, current);
     } catch (failure) {
       if (!current()) return;
+      if (failure instanceof PartialGenerationError && generationRequest) {
+        const draft = { quiz: failure.quiz, request: generationRequest, connection };
+        checkpoint.current = draft; setRecovery(draft);
+      }
       setError(errorMessage(failure, "Could not make this quiz. Try fewer questions or choose another model."));
       setStatus("");
     } finally {
@@ -294,8 +338,8 @@ export function Generator({ context, close, presetId, options }: { context: Plug
   const connectionFields = <section className="qm-generator-connection" aria-label="Model connection">
     <h3>{connectionSetup ? "Connect a model" : "Model"}</h3>
     <div className="qm-generator-model">
-      <label className="qm-field">Provider<select value={provider} disabled={busy} onChange={event => { const next = event.currentTarget.value as Provider; setProvider(next); setModel(context.settings.providers[next].model); setModelsError(""); }}>{providers.map(item => <option value={item} key={item}>{providerNames[item]}</option>)}</select></label>
-      <ModelPicker key={provider} value={model} onChange={value => { setModel(value); setModelsError(""); }} models={models} loading={modelsBusy} error={modelsError} disabled={busy} onRefresh={() => { void refreshModels(true); }}/>
+      <label className="qm-field">Provider<select value={provider} disabled={busy || Boolean(recovery)} onChange={event => { const next = event.currentTarget.value as Provider; setProvider(next); setModel(context.settings.providers[next].model); setModelsError(""); }}>{providers.map(item => <option value={item} key={item}>{providerNames[item]}</option>)}</select></label>
+      <ModelPicker key={provider} value={model} onChange={value => { setModel(value); setModelsError(""); }} models={models} loading={modelsBusy} error={modelsError} disabled={busy || Boolean(recovery)} onRefresh={() => { void refreshModels(true); }}/>
     </div>
     {needsApiKey && <p className="qm-help">Add your {providerNames[provider]} API key in Settings → Quiz maker.</p>}
   </section>;
@@ -304,15 +348,15 @@ export function Generator({ context, close, presetId, options }: { context: Plug
     <div className="qm-generator-columns">
       <section className="qm-generator-sources" aria-labelledby={notesHeadingId}>
         <header className="qm-section-heading"><h3 id={notesHeadingId}>{selection ? "Selected text" : "Notes"}</h3>{!selection && <span className="qm-muted" aria-label={`${files.length} of ${MAX_GENERATION_SOURCES} notes selected`} title={`Choose up to ${MAX_GENERATION_SOURCES} notes`}>{files.length} {files.length === 1 ? "note" : "notes"}</span>}</header>
-        {!selection && <button type="button" aria-haspopup="menu" aria-expanded={sourceMenuOpen} onClick={event => chooseSource(event.currentTarget)} disabled={busy}><Icon name="plus"/>Add source<Icon name="chevron-down" size={16}/></button>}
+        {!selection && <button type="button" aria-haspopup="menu" aria-expanded={sourceMenuOpen} onClick={event => chooseSource(event.currentTarget)} disabled={busy || Boolean(recovery)}><Icon name="plus"/>Add source<Icon name="chevron-down" size={16}/></button>}
         {selection ? <p className="qm-source-path" title={selection.path}>{selection.path.split("/").pop()} · {selection.content.length.toLocaleString()} characters</p> : !files.length ? <p className="qm-empty-description">Choose your source notes.</p> : <ul className="qm-source-list">{files.map(file => <li className="qm-source-row" key={file.path}>
           <span className="qm-source-path" title={file.path}>{files.some(other => other.path !== file.path && other.basename === file.basename) ? file.path : file.basename}</span>
-          <button type="button" className="qm-icon-button qm-quiet" aria-label={`Remove ${file.path}`} disabled={busy} onClick={() => setFiles(current => current.filter(item => item.path !== file.path))}><Icon name="close"/></button>
+          <button type="button" className="qm-icon-button qm-quiet" aria-label={`Remove ${file.path}`} disabled={busy || Boolean(recovery)} onClick={() => setFiles(current => current.filter(item => item.path !== file.path))}><Icon name="close"/></button>
         </li>)}</ul>}
       </section>
       <section className="qm-generator-configuration" aria-label="Study pack">
         <div className="qm-generator-pack-summary">
-          <label className="qm-field">Study pack<select value={packId} onChange={event => selectPack(event.currentTarget.value)} disabled={busy}>
+          <label className="qm-field">Study pack<select value={packId} onChange={event => selectPack(event.currentTarget.value)} disabled={busy || Boolean(recovery)}>
             <option value="custom">Custom</option>{packs.map(pack => <option key={pack.id} value={pack.id}>{pack.name}</option>)}
           </select></label>
           <span className="qm-generator-count">{total} {total === 1 ? "question" : "questions"}</span>
@@ -329,40 +373,40 @@ export function Generator({ context, close, presetId, options }: { context: Plug
           <div className="qm-method-head" aria-hidden="true"><span>Format</span><span>Questions</span></div>
           <ul className="qm-method-list">{methods.map(method => <li className="qm-method-row" key={method.type}>
             <label htmlFor={`${methodIdPrefix}-${method.type}`}>{questionTypeLabels[method.type]}</label>
-            <input id={`${methodIdPrefix}-${method.type}`} type="number" inputMode="numeric" min={1} max={20} step={1} value={method.count || ""} aria-label={`${questionTypeLabels[method.type]} count`} disabled={busy} onChange={event => {
+            <input id={`${methodIdPrefix}-${method.type}`} type="number" inputMode="numeric" min={1} max={20} step={1} value={method.count || ""} aria-label={`${questionTypeLabels[method.type]} count`} disabled={busy || Boolean(recovery)} onChange={event => {
               const count = Math.min(20, Math.max(0, Number(event.currentTarget.value) || 0));
               setMethods(current => current.map(item => item.type === method.type ? { ...item, count } : item)); setPackId("custom");
             }}/>
-            <button type="button" className="qm-icon-button qm-quiet" aria-label={`Remove ${questionTypeLabels[method.type]}`} disabled={busy} onClick={() => { setMethods(current => current.filter(item => item.type !== method.type)); setPackId("custom"); }}><Icon name="close"/></button>
+            <button type="button" className="qm-icon-button qm-quiet" aria-label={`Remove ${questionTypeLabels[method.type]}`} disabled={busy || Boolean(recovery)} onClick={() => { setMethods(current => current.filter(item => item.type !== method.type)); setPackId("custom"); }}><Icon name="close"/></button>
           </li>)}</ul>
-          {methods.length < questionTypes.length && <label className="qm-field qm-add-format"><span className="qm-sr-only">Add a question format</span><select value="" disabled={busy} onChange={event => {
+          {methods.length < questionTypes.length && <label className="qm-field qm-add-format"><span className="qm-sr-only">Add a question format</span><select value="" disabled={busy || Boolean(recovery)} onChange={event => {
             const type = questionTypes.find(item => item === event.currentTarget.value);
             if (type) { setMethods(current => [...current, { type, count: 1 }]); setPackId("custom"); }
           }}><option value="">Add a format…</option>{questionTypes.filter(type => !methods.some(method => method.type === type)).map(type => <option key={type} value={type}>{questionTypeLabels[type]}</option>)}</select></label>}
         </section>
         <section className="qm-generator-options" aria-label="Question preferences">
           <h3>Question preferences</h3>
-          <label className="qm-field">Quiz title<input value={title} onChange={event => setTitle(event.currentTarget.value)} placeholder={files[0]?.basename || "Optional"} maxLength={200} disabled={busy}/></label>
+          <label className="qm-field">Quiz title<input value={title} onChange={event => setTitle(event.currentTarget.value)} placeholder={files[0]?.basename || "Optional"} maxLength={200} disabled={busy || Boolean(recovery)}/></label>
           <div className="qm-form-row">
-            <label className="qm-field">Difficulty<select value={difficulty} disabled={busy} onChange={event => { setDifficulty(event.currentTarget.value as Difficulty); setPackId("custom"); }}><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></select></label>
-            <label className="qm-field">Language<input value={language} maxLength={80} disabled={busy} onChange={event => { setLanguage(event.currentTarget.value); setLanguageMessage(""); }}/></label>
+            <label className="qm-field">Difficulty<select value={difficulty} disabled={busy || Boolean(recovery)} onChange={event => { setDifficulty(event.currentTarget.value as Difficulty); setPackId("custom"); }}><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></select></label>
+            <label className="qm-field">Language<input value={language} maxLength={80} disabled={busy || Boolean(recovery)} onChange={event => { setLanguage(event.currentTarget.value); setLanguageMessage(""); }}/></label>
           </div>
-          <button type="button" className="qm-quiet" disabled={busy || (!selection && !files.length)} onClick={() => { void suggestLanguage(); }}>Suggest language</button>
+          <button type="button" className="qm-quiet" disabled={busy || Boolean(recovery) || (!selection && !files.length)} onClick={() => { void suggestLanguage(); }}>Suggest language</button>
           {languageMessage && <p className="qm-muted" role="status">{languageMessage}</p>}
-          <label className="qm-field">Topic<input value={topic} maxLength={300} disabled={busy} placeholder="Optional focus" onChange={event => setTopic(event.currentTarget.value)}/></label>
-          <label className="qm-check"><input type="checkbox" checked={includeHints} disabled={busy} onChange={event => setIncludeHints(event.currentTarget.checked)}/>Hints</label>
-          <label className="qm-check"><input type="checkbox" checked={includeExplanations} disabled={busy} onChange={event => setIncludeExplanations(event.currentTarget.checked)}/>Explanations</label>
-          <label className="qm-check"><input type="checkbox" checked={includeSources} disabled={busy} onChange={event => setIncludeSources(event.currentTarget.checked)}/>Source references</label>
+          <label className="qm-field">Topic<input value={topic} maxLength={300} disabled={busy || Boolean(recovery)} placeholder="Optional focus" onChange={event => setTopic(event.currentTarget.value)}/></label>
+          <label className="qm-check"><input type="checkbox" checked={includeHints} disabled={busy || Boolean(recovery)} onChange={event => setIncludeHints(event.currentTarget.checked)}/>Hints</label>
+          <label className="qm-check"><input type="checkbox" checked={includeExplanations} disabled={busy || Boolean(recovery)} onChange={event => setIncludeExplanations(event.currentTarget.checked)}/>Explanations</label>
+          <label className="qm-check"><input type="checkbox" checked={includeSources} disabled={busy || Boolean(recovery)} onChange={event => setIncludeSources(event.currentTarget.checked)}/>Source references</label>
           <p className="qm-muted">About {estimate.toLocaleString()} output tokens. Actual usage varies.</p>
         </section>
         {!selection && files.length > 1 && <section className="qm-generator-source-tools" aria-label="Additional sources">
           <h3>Sources</h3>
-          <button type="button" className="qm-quiet" onClick={() => setFiles([])} disabled={busy}>Clear all</button>
+          <button type="button" className="qm-quiet" onClick={() => setFiles([])} disabled={busy || Boolean(recovery)}>Clear all</button>
         </section>}
         {!connectionSetup && connectionFields}
         <div className="qm-generator-edit-options">
-          <button type="button" className="qm-quiet" disabled={busy} onClick={() => openPackEditor(context, { ...(selectedPack ?? packBase), methods: methods.map(method => ({ ...method })), config: { ...config }, difficulty, language, includeHints, includeExplanations, blueprint: blueprint.map(row => ({ ...row })) }, pack => { if (!alive.current) return; setPacks(availablePresets(context)); selectPack(pack.id); })}>Edit pack</button>
-          {!pendingQuiz && <button type="button" className="qm-quiet" disabled={busy} onClick={() => { close(); context.openEditor(); }}>Create manually</button>}
+          <button type="button" className="qm-quiet" disabled={busy || Boolean(recovery)} onClick={() => openPackEditor(context, { ...(selectedPack ?? packBase), methods: methods.map(method => ({ ...method })), config: { ...config }, difficulty, language, includeHints, includeExplanations, blueprint: blueprint.map(row => ({ ...row })) }, pack => { if (!alive.current) return; setPacks(availablePresets(context)); selectPack(pack.id); })}>Edit pack</button>
+          {!pendingQuiz && <button type="button" className="qm-quiet" disabled={busy || Boolean(recovery)} onClick={() => { close(); context.openEditor(); }}>Create manually</button>}
         </div>
       </div>
     </details>
@@ -371,10 +415,12 @@ export function Generator({ context, close, presetId, options }: { context: Plug
       <div className="qm-status" role="status" aria-live="polite">{status}</div>
       {!validCounts && <InlineError>Choose 1–{MAX_GENERATED_QUESTIONS} questions, with 1–20 per format.</InlineError>}
       <InlineError>{error || blueprintIssue}</InlineError>
+      {recovery && <p className="qm-muted" role="status">{recovery.quiz.questions.length >= total ? "All questions are ready. Save the quiz without another request." : `${recovery.quiz.questions.length} of ${total} questions are ready. Keep them or continue the missing questions. Continuing makes another provider request.`}</p>}
       {pendingQuiz && !busy && <p className="qm-muted">{pendingQuiz.questions.length} generated questions are kept here. Save again without another model request.</p>}
       <div className="qm-footer-actions">
-        {pendingQuiz && <button type="button" className="qm-quiet" disabled={busy} onClick={() => { close(); context.openEditor(pendingQuiz); }}>Edit draft</button>}
-        {busy ? <button type="button" disabled={saving} onClick={cancel}>{saving ? "Saving…" : "Cancel"}</button> : pendingQuiz ? <button type="button" className="mod-cta qm-primary" onClick={() => { void retrySave(); }}>Save and start</button> : <button type="button" className="mod-cta qm-primary" disabled={!validCounts || Boolean(blueprintIssue) || (!files.length && !selection)} onClick={() => { void generate(); }}>Generate quiz</button>}
+        {recovery && !busy && <>{recovery.quiz.questions.length < total && <button type="button" onClick={() => { void continueDraft(true); }}>Keep {recovery.quiz.questions.length} questions</button>}<button type="button" className="qm-quiet" onClick={() => { setRecovery(null); checkpoint.current = null; setError(""); setStatus(""); }}>Discard draft</button></>}
+        {pendingQuiz && <button type="button" className="qm-quiet" disabled={busy || Boolean(recovery)} onClick={() => { close(); context.openEditor(pendingQuiz); }}>Edit draft</button>}
+        {busy ? <button type="button" disabled={saving} onClick={cancel}>{saving ? "Saving…" : "Cancel"}</button> : pendingQuiz ? <button type="button" className="mod-cta qm-primary" onClick={() => { void retrySave(); }}>Save and start</button> : <button type="button" className="mod-cta qm-primary" disabled={!validCounts || Boolean(blueprintIssue) || (!files.length && !selection)} onClick={() => { void generate(); }}>{recovery ? recovery.quiz.questions.length >= total ? "Save and start" : `Continue ${total - recovery.quiz.questions.length} questions` : "Generate quiz"}</button>}
       </div>
     </footer>
   </div>;

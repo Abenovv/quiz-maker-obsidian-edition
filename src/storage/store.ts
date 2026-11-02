@@ -146,10 +146,12 @@ function validateSummary(value: unknown): SessionSummary {
     || !timestamp(value.completedAt)
     || ["durationSeconds", "score", "maxScore", "correct", "incorrect", "unanswered", "selfReview"].some(key => !timestamp(value[key]))
     || Number(value.score) > Number(value.maxScore)) fail("Study history contains an invalid result.");
+  if (value.partial !== undefined && (!integer(value.partial) || Number(value.partial) > 500)) fail("Study history contains an invalid partial-answer count.");
   return {
     id: value.id, quizId: value.quizId, title: value.title, mode: value.mode as SessionSummary["mode"],
     completedAt: value.completedAt, durationSeconds: Number(value.durationSeconds), score: Number(value.score), maxScore: Number(value.maxScore),
     correct: Number(value.correct), incorrect: Number(value.incorrect), unanswered: Number(value.unanswered), selfReview: Number(value.selfReview),
+    ...(value.partial !== undefined && timestamp(value.partial) ? { partial: Number(value.partial) } : {}),
     ...(value.session !== undefined ? { session: validateSession(value.session) } : {})
   };
 }
@@ -157,7 +159,11 @@ function validateSummary(value: unknown): SessionSummary {
 function validateReview(value: unknown): ReviewCard {
   if (!record(value) || !identifier(value.quizId) || !integer(value.questionIndex) || !timestamp(value.dueAt)
     || !timestamp(value.intervalDays) || value.intervalDays > 36_500 || !["again", "good", "easy"].includes(String(value.rating))) fail("Flashcard review data is invalid.");
-  return { quizId: value.quizId, questionIndex: value.questionIndex, dueAt: value.dueAt, intervalDays: value.intervalDays, rating: value.rating as ReviewCard["rating"] };
+  const result: ReviewCard = { quizId: value.quizId, questionIndex: value.questionIndex, dueAt: value.dueAt, intervalDays: value.intervalDays, rating: value.rating as ReviewCard["rating"] };
+  if (value.ease !== undefined) { if (typeof value.ease !== "number" || !Number.isFinite(value.ease) || value.ease < 1.3 || value.ease > 3.5) fail("Saved recall difficulty is invalid."); result.ease = value.ease; }
+  for (const key of ["repetitions", "lapses"] as const) if (value[key] !== undefined) { if (!integer(value[key]) || Number(value[key]) > 1000000) fail("Saved recall counts are invalid."); result[key] = Number(value[key]); }
+  if (value.reviewedAt !== undefined) { if (!timestamp(value.reviewedAt)) fail("Saved review time is invalid."); result.reviewedAt = value.reviewedAt; }
+  return result;
 }
 
 function decode(text: string): StudyData {
@@ -213,6 +219,10 @@ export class QuizStore implements QuizStorePort {
   private loading: Promise<void> | undefined;
   private disposed = false;
   private listeners = new Set<() => void>();
+  private libraryListeners = new Set<() => void>();
+  private baseJson: string | undefined;
+  private baseBytes = 0;
+  private pendingSince: number | undefined;
   private revision = 0;
   private persistedRevision = 0;
   private writeQueue: Promise<void> = Promise.resolve();
@@ -253,6 +263,7 @@ export class QuizStore implements QuizStorePort {
         if (stat && stat.size > MAX_STUDY_BYTES) fail("Study data exceeds 32 MiB and was left unchanged.");
         this.rawRecovery = await this.adapter.read(this.path);
         this.data = decode(this.rawRecovery);
+        this.baseJson = undefined;
         if ((JSON.parse(this.rawRecovery.replace(/^\uFEFF/, "")) as { version: number }).version === 1) { this.migrationSource = this.rawRecovery; this.revision++; }
         this.loadIssue = undefined;
         this.rawRecovery = undefined;
@@ -275,6 +286,10 @@ export class QuizStore implements QuizStorePort {
 
   listQuizzes(): Quiz[] { return copy(this.data.quizzes); }
   getQuiz(id: string): Quiz | undefined { const quiz = this.data.quizzes.find(item => item.id === id); return quiz ? copy(quiz) : undefined; }
+  getActiveSessionRevision(): { id: string; updatedAt: number } | undefined {
+    const session = this.data.activeSession;
+    return session ? { id: session.id, updatedAt: session.updatedAt } : undefined;
+  }
   getActiveSession(): Session | undefined { return this.data.activeSession ? copy(this.data.activeSession) : undefined; }
   getHistory(): SessionSummary[] { return copy(this.data.history); }
   getReviews(quizId?: string): ReviewCard[] { return copy(this.data.reviews.filter(item => !quizId || item.quizId === quizId)); }
@@ -368,13 +383,16 @@ export class QuizStore implements QuizStorePort {
     return { imported: incoming.length, existing: preview.quizzes.length - incoming.length, total: preview.total, errors: preview.errors, warnings: preview.warnings };
   }
 
-  subscribe(listener: () => void): () => void {
-    this.listeners.add(listener);
-    return () => { this.listeners.delete(listener); };
+  subscribe(listener: () => void, scope: "all" | "library" = "all"): () => void {
+    const listeners = scope === "library" ? this.libraryListeners : this.listeners;
+    listeners.add(listener);
+    return () => { listeners.delete(listener); };
   }
 
-  async saveQuiz(value: Quiz): Promise<Quiz> {
+  async saveQuiz(value: Quiz, options: { ifMissing?: boolean } = {}): Promise<Quiz> {
     await this.ensureReady();
+    const existing = this.data.quizzes.find(item => item.id === value.id);
+    if (options.ifMissing && existing) return copy(existing);
     const quiz = ensureQuestionIds(storedQuiz(value), this.data.quizzes.find(item => item.id === value.id));
     const index = this.data.quizzes.findIndex(item => item.id === quiz.id);
     if (index < 0 && this.data.quizzes.length >= MAX_LIBRARY_QUIZZES) fail("The library contains 200 quizzes. Export or remove an older quiz before adding another.");
@@ -441,7 +459,7 @@ export class QuizStore implements QuizStorePort {
     if (identity === this.lastSessionIdentity) { if (immediate) await this.flush(); return; }
     this.data.activeSession = session;
     this.lastSessionIdentity = identity;
-    this.changed();
+    this.changed(false, previous?.id !== session.id || previous.phase !== session.phase || previous.position !== session.position);
     if (immediate) await this.flush();
     else this.schedule();
   }
@@ -451,7 +469,7 @@ export class QuizStore implements QuizStorePort {
     if (!this.data.activeSession) return;
     delete this.data.activeSession;
     this.lastSessionIdentity = undefined;
-    this.changed();
+    this.changed(false, true);
     await this.flush();
   }
 
@@ -532,6 +550,7 @@ export class QuizStore implements QuizStorePort {
   }
 
   async flush(): Promise<void> {
+    this.pendingSince = undefined;
     if (this.timer !== undefined) { window.clearTimeout(this.timer); this.timer = undefined; }
     if (this.loadIssue) fail(this.loadIssue);
     if (!this.loaded) await this.load();
@@ -539,8 +558,15 @@ export class QuizStore implements QuizStorePort {
     const next = this.writeQueue.catch(() => undefined).then(async () => {
       while (this.persistedRevision < this.revision) {
         const revision = this.revision;
-        const text = JSON.stringify(this.data);
-        if (bytes(text) > MAX_STUDY_BYTES) fail("Study data has reached 32 MiB. Export or remove older quizzes before saving more.");
+        if (this.baseJson === undefined) {
+          const { activeSession: _active, ...content } = this.data;
+          const serialized = JSON.stringify(content);
+          this.baseJson = serialized.slice(0, -1);
+          this.baseBytes = bytes(serialized) - 1;
+        }
+        const progress = this.data.activeSession ? ',"activeSession":' + JSON.stringify(this.data.activeSession) : "";
+        const text = this.baseJson + progress + "}";
+        if (this.baseBytes + bytes(progress) + 1 > MAX_STUDY_BYTES) fail("Study data has reached 32 MiB. Export or remove older quizzes before saving more.");
         const slash = this.path.lastIndexOf("/");
         if (slash >= 0) {
           const parent = this.path.slice(0, slash);
@@ -569,6 +595,7 @@ export class QuizStore implements QuizStorePort {
     if (this.disposed) return;
     this.disposed = true;
     this.listeners.clear();
+    this.libraryListeners.clear();
     if (this.timer !== undefined) { window.clearTimeout(this.timer); this.timer = undefined; }
     if (!this.loadIssue) await this.flush();
   }
@@ -584,7 +611,10 @@ export class QuizStore implements QuizStorePort {
 
   private schedule(): void {
     if (this.timer !== undefined) window.clearTimeout(this.timer);
-    this.timer = window.setTimeout(() => { this.timer = undefined; void this.flush().catch(() => undefined); }, this.options.debounceMs ?? 300);
+    const now = Date.now();
+    this.pendingSince ??= now;
+    const delay = Math.max(0, Math.min(this.options.debounceMs ?? 750, 2500 - Math.max(0, now - this.pendingSince)));
+    this.timer = window.setTimeout(() => { this.timer = undefined; void this.flush().catch(() => undefined); }, delay);
   }
 
   private async flushPendingOnly(): Promise<void> {
@@ -599,7 +629,15 @@ export class QuizStore implements QuizStorePort {
     this.data.reviews = [...this.data.reviews.filter(item => item.quizId !== quizId || item.questionIndex !== questionIndex), next];
   }
 
-  private changed(): void { this.revision++; this.emit(); }
+  private changed(contentChanged = true, libraryChanged = contentChanged): void {
+    this.revision++;
+    if (contentChanged) this.baseJson = undefined;
+    this.emit(libraryChanged);
+  }
   private notify(message: string): void { try { this.options.onError?.(message); } catch { /* A closed notification view must not interrupt persistence. */ } }
-  private emit(): void { for (const listener of this.listeners) { try { listener(); } catch { /* One closed view must not block saving. */ } } }
+  private emit(library = true): void {
+    for (const listener of new Set([...this.listeners, ...(library ? this.libraryListeners : [])])) {
+      try { listener(); } catch { /* One closed view must not block saving. */ }
+    }
+  }
 }

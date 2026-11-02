@@ -113,14 +113,24 @@ export function resolveBaseUrl(provider: Provider, baseUrl = ""): string {
   return url.toString().replace(/\/+$/, "");
 }
 
-export function providerHeaders(provider: Provider, apiKey: string): Record<string, string> {
+export function requiresProviderKey(provider: Provider, baseUrl: string): boolean {
+  return provider !== "ollama" && !isLocalNetworkHost(new URL(resolveBaseUrl(provider, baseUrl)).hostname);
+}
+
+export function providerHeaders(provider: Provider, apiKey: string, workspaceId?: string): Record<string, string> {
   const key = apiKey.trim();
   if (containsControlCharacter(key)) throw new TransportError("configuration", "The provider key contains an invalid character.");
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (provider === "google") {
     if (key) headers["x-goog-api-key"] = key;
   } else if (key) headers.Authorization = `Bearer ${key}`;
-  if (provider === "anthropic") headers["anthropic-version"] = "2026-10-21";
+  if (provider === "anthropic") {
+    headers["anthropic-version"] = "2026-10-21";
+    if (workspaceId) {
+      if (!/^wrkspc_[A-Za-z0-9]{1,100}$/.test(workspaceId)) throw new TransportError("configuration", "Enter a valid Anthropic workspace ID.");
+      headers["anthropic-workspace-id"] = workspaceId;
+    }
+  }
   return headers;
 }
 
@@ -155,8 +165,14 @@ function retryDelay(headers: Record<string, string>): number | undefined {
 
 function statusError(response: HttpResponse): TransportError {
   const status = response.status;
+  const body = record(response.json) && record(response.json.error) ? response.json.error : record(response.json) ? response.json : {};
+  const detail = [body.type, body.code, body.message].filter(value => typeof value === "string").map(value => value.slice(0, 2000)).join(" ");
+  // Classify only known diagnostics; provider text never becomes UI text.
+  if ((status === 400 || status === 404) && /anthropic-workspace-id|workspace.{0,80}(?:required|missing|not found|not scoped)/i.test(detail)) return new TransportError("configuration", "Add or check the Anthropic workspace ID in Advanced connection.", status);
+  if ((status === 400 || status === 413 || status === 422) && /context[_ -](?:length|window)|too many (?:input )?tokens|input.{0,20}too (?:long|large)/i.test(detail)) return new TransportError("payload", "The selected material exceeds this model's context limit. Choose fewer notes or a model with a larger context window.", status);
+  if ((status === 400 || status === 403 || status === 429) && /insufficient[_ -](?:quota|credits)|billing[_ -]|credit balance|spending limit/i.test(detail)) return new TransportError("quota", "The provider's account balance or spending limit was reached. Check its billing settings before retrying.", status, retryDelay(response.headers));
   if (status === 401 || status === 403 || status === 498) return new TransportError("auth", "The provider rejected access. Check your key, account permissions, and selected model.", status);
-  if (status === 429) return new TransportError("quota", "The provider's request or spending limit was reached. Wait before retrying, or check your account limits.", status, retryDelay(response.headers));
+  if (status === 429) return new TransportError("quota", "The provider's request limit or spending cap was reached. Wait before retrying, or check your account limits.", status, retryDelay(response.headers));
   if (status === 413) return new TransportError("payload", "The selected notes are too large for this provider. Select fewer notes.", status);
   if (status === 408 || status === 504) return new TransportError("timeout", "The provider took too long to reply. A request it received may still finish there.", status);
   if (status === 404) return new TransportError("configuration", "The provider could not find this API endpoint or model. Refresh models and check the API base URL.", status);
@@ -250,11 +266,11 @@ export async function generateText(config: TransportConfig, messages: ChatMessag
   const base = resolveBaseUrl(config.provider, config.baseUrl);
   const model = config.model.trim();
   if (!model || model.length > 200 || containsControlCharacter(model)) throw new TransportError("configuration", "Choose a valid text model before generating.");
-  if (config.provider !== "ollama" && !config.apiKey.trim()) throw new TransportError("auth", "Add your provider key in Quiz maker settings before generating.");
+  if (requiresProviderKey(config.provider, config.baseUrl) && !config.apiKey.trim()) throw new TransportError("auth", "Add your provider key in Quiz maker settings before generating.");
   if (!messages.length || messages.some(message => !["system", "user", "assistant"].includes(message.role) || typeof message.content !== "string")) throw new TransportError("configuration", "The generation request contains invalid messages.");
   const maxTokens = config.maxOutputTokens ?? 8192;
   if (!Number.isInteger(maxTokens) || maxTokens < 1 || maxTokens > 65_536) throw new TransportError("configuration", "Choose an output limit between 1 and 65,536 tokens.");
-  const headers = providerHeaders(config.provider, config.apiKey);
+  const headers = providerHeaders(config.provider, config.apiKey, config.workspaceId);
   const system = messages.filter(message => message.role === "system").map(message => message.content).join("\n\n");
   const turns = messages.filter(message => message.role !== "system");
   let path: string;
@@ -269,10 +285,6 @@ export async function generateText(config: TransportConfig, messages: ChatMessag
     body = { contents: turns.map(message => ({ role: message.role === "assistant" ? "model" : "user", parts: [{ text: message.content }] })), ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}), generationConfig: { maxOutputTokens: maxTokens, responseMimeType: "application/json" } };
   } else if (config.provider === "anthropic") {
     path = "/messages";
-    if (config.workspaceId) {
-      if (!/^wrkspc_[A-Za-z0-9]+$/.test(config.workspaceId)) throw new TransportError("configuration", "Enter a valid Anthropic workspace ID.");
-      headers["anthropic-workspace-id"] = config.workspaceId;
-    }
     body = { model, messages: turns, ...(system ? { system } : {}), max_tokens: maxTokens, stream: false };
   } else if (config.provider === "cohere") {
     path = "/chat";

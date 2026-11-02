@@ -59,6 +59,6 @@ An attestation identifies the build origin; it is not an audit or an Obsidian en
 
 ## Dependency audit status
 
-The verified 2.0.0 baseline reports zero vulnerabilities in both the full dependency audit and `npm audit --omit=dev`. The development lint runner uses pinned minimatch 11.0.1 with a tested compatibility adapter for older lint rules. Run `npm run lint`; direct ESLint invocations bypass that adapter. Dependency changes require fresh audit, lint and compatibility checks.
+The 2.1.0 release checks report zero vulnerabilities in the full dependency audit. The development lint runner uses pinned minimatch 11.0.1 with a tested compatibility adapter for older lint rules. Run `npm run lint`; direct ESLint invocations bypass that adapter. Dependency changes require fresh audit, lint and compatibility checks.
 
 Moment remains pinned to 2.31.0. Dependabot proposes updates through review; the plugin does not update its own dependencies at runtime. A clean audit is a result for a particular dependency set, not a permanent security guarantee.

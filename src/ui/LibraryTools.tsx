@@ -80,6 +80,6 @@ export function LocalTrends({ context, embedded = false }: { context: PluginCont
   const history = context.store.getHistory();
   const trends = useMemo(() => studyTrends(history), [history]);
   if (!trends.sessions) return embedded ? <EmptyState title="No study history">Finish a quiz to see your study trends.</EmptyState> : null;
-  const content = <><p>{trends.sessions} sessions · {Math.round(trends.totalSeconds / 60)} min{trends.accuracy !== null ? ` · ${trends.accuracy}% objective accuracy` : ""}</p>{trends.selfReview > 0 && <p className="qm-muted">{trends.selfReview} written responses need self-review.</p>}{trends.topics.length > 0 && <ul>{trends.topics.slice(0, 5).map(topic => <li key={topic.tag}>{topic.tag}: {topic.correct}/{topic.attempted} correct</li>)}</ul>}</>;
+  const content = <><p>{trends.sessions} sessions · {Math.round(trends.totalSeconds / 60)} min{trends.accuracy !== null ? ` · ${trends.accuracy}% objective accuracy` : ""}</p>{trends.selfReview > 0 && <p className="qm-muted">{trends.selfReview} self-reviewed answers.</p>}{trends.topics.length > 0 && <ul>{trends.topics.slice(0, 5).map(topic => <li key={topic.tag}>{topic.tag}: {topic.correct}/{topic.attempted} correct</li>)}</ul>}</>;
   return embedded ? <section className="qm-trends">{content}</section> : <details className="qm-studio-disclosure qm-trends"><summary>Study trends</summary>{content}</details>;
 }

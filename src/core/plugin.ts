@@ -8,6 +8,8 @@ import { refreshAppearance } from "../appearance";
 import { makeQuizNoteReadable, openQuizFromNote, registerNoteFeatures } from "../notes";
 import { normalizeSettings, QuizMakerSettingsTab } from "../settings";
 import { QuizStore } from "../storage/store";
+import { hydrateProviderKeys, protectProviderKeys } from "../storage/secrets";
+import { providers } from "./types";
 import { openEditor, openImport } from "../ui/EditorModal";
 import { openGenerator } from "../ui/GeneratorModal";
 import { MiniQuizView, MINI_VIEW_TYPE, openMiniView } from "../ui/MiniView";
@@ -39,6 +41,7 @@ export default class QuizMakerPlugin extends Plugin implements PluginContext {
       if (boot !== this.bootVersion) return;
       this.settings = settings;
       this.settingsUnavailable = false;
+      if (hydrateProviderKeys(settings, this.app)) this.showNotice("Some provider keys are unavailable on this device. Re-enter them in Quiz maker settings.");
     } catch {
       if (boot !== this.bootVersion) return;
       this.settingsUnavailable = true;
@@ -52,7 +55,7 @@ export default class QuizMakerPlugin extends Plugin implements PluginContext {
     });
     this.store = store;
     this.models = new ModelService();
-    this.generation = new GenerationService(() => this.settings);
+    this.generation = new GenerationService(() => this.settings, { modelInfo: (provider, config) => this.models.get(provider, config, config.model) });
     await store.load();
     if (boot !== this.bootVersion) { await store.dispose(); return; }
     this.ready = true;
@@ -96,7 +99,7 @@ export default class QuizMakerPlugin extends Plugin implements PluginContext {
     });
     this.addCommand({
       id: "new-quiz", name: "New quiz",
-      callback: () => this.openEditor()
+      callback: () => this.openGenerator(this.settings.defaultPreset)
     });
     this.addCommand({
       id: "import-quiz", name: "Import quiz",
@@ -160,7 +163,18 @@ export default class QuizMakerPlugin extends Plugin implements PluginContext {
     const boot = this.bootVersion;
     const write = this.settingsWriteQueue.catch(() => undefined).then(() => {
       if (!this.ready || boot !== this.bootVersion) throw new Error("Quiz maker closed before these settings could be saved.");
-      return this.saveData(snapshot);
+      for (const provider of providers) {
+        const current = this.settings.providers[provider];
+        if (current.apiKey === snapshot.providers[provider].apiKey && current.apiKeySecret) snapshot.providers[provider].apiKeySecret = current.apiKeySecret;
+      }
+      const saved = protectProviderKeys(snapshot, this.app);
+      return this.saveData(saved).then(() => {
+        if (!this.ready || boot !== this.bootVersion) return;
+        for (const provider of providers) {
+          const current = this.settings.providers[provider];
+          if (current.apiKey === snapshot.providers[provider].apiKey && saved.providers[provider].apiKeySecret) current.apiKeySecret = saved.providers[provider].apiKeySecret;
+        }
+      });
     });
     this.settingsWriteQueue = write;
     await write;

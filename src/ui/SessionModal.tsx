@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type Keyboard
 import { Scope } from "obsidian";
 import type { PluginContext, Quiz, Session, SessionConfig, SessionSummary, StudyMode, Theme, TimerMode } from "../core/types";
 import { canAnswer, canCheck, canPause, canReveal, createReviewSession, createSession, currentQuestionIndex, normalizeSessionConfig, reduceSession, summarizeSession, tickSession, type SessionAction } from "../session/engine";
-import { gradeQuestion, isAnswered } from "../session/grading";
+import { gradeQuestion, isAnswered, formatScore } from "../session/grading";
 import { saveQuizNote } from "../notes";
 import { playFeedback } from "../feedback";
 import { bindAccentContrast, subscribeAppearance } from "../appearance";
@@ -74,13 +74,13 @@ export function SessionContent({ context, quiz, initialConfig, resume, close }: 
     return unsubscribe;
   }, [context]);
 
-  const persist = useCallback((snapshot: Session): void => {
+  const persist = useCallback((snapshot: Session, immediate = false): void => {
     const version = ++saveVersion.current;
     let writing: Promise<void>;
     try {
       writing = snapshot.phase === "finished"
         ? context.store.completeSession(snapshot, summarizeSession(snapshot))
-        : context.store.saveSession(snapshot);
+        : context.store.saveSession(snapshot, immediate);
     } catch (error) {
       if (mounted.current) setSaveError(errorMessage(error, "Progress could not be saved. Your answers are still here."));
       return;
@@ -95,14 +95,15 @@ export function SessionContent({ context, quiz, initialConfig, resume, close }: 
   const apply = useCallback((action: SessionAction, now = Date.now()): void => {
     const current = latest.current;
     if (!current) return;
-    const shared = context.store.getActiveSession();
+    const version = context.store.getActiveSessionRevision?.();
+    const shared = version?.id === current.id && version.updatedAt <= current.updatedAt ? undefined : context.store.getActiveSession();
     const base = shared?.id === current.id && shared.updatedAt > current.updatedAt ? shared : current;
     const next = reduceSession(base, action, now);
     if (next === current) return;
     latest.current = next;
     setSession(next);
     setConfirmFinish(false);
-    persist(next);
+    persist(next, action.type !== "answer");
   }, [context, persist]);
   const onExpire = useCallback((now: number) => apply({ type: "tick" }, now), [apply]);
   const pauseFromControl = (button: HTMLButtonElement): void => {
@@ -114,7 +115,10 @@ export function SessionContent({ context, quiz, initialConfig, resume, close }: 
     mounted.current = true;
     const stop = context.store.subscribe(() => {
       const current = latest.current;
+      if (context.store.writeIssue) setSaveError(context.store.writeIssue);
       if (!current) return;
+      const version = context.store.getActiveSessionRevision?.();
+      if (version?.id === current.id && version.updatedAt <= current.updatedAt) return;
       const shared = context.store.getActiveSession();
       const completed = !shared ? context.store.getHistory().find(item => item.id === current.id)?.session : undefined;
       const next = shared?.id === current.id ? shared : completed;
@@ -136,7 +140,7 @@ export function SessionContent({ context, quiz, initialConfig, resume, close }: 
     const next = createSession(quiz, config);
     latest.current = next;
     setSession(next);
-    void context.store.saveQuiz(quiz).catch(error => {
+    void context.store.saveQuiz(quiz, { ifMissing: true }).catch(error => {
       if (mounted.current) setSaveError(errorMessage(error, "The quiz could not be added to your library."));
     });
     persist(next);
@@ -177,7 +181,7 @@ export function SessionContent({ context, quiz, initialConfig, resume, close }: 
   const timer = session && session.phase !== "finished" ? <SessionTimer deadline={session.deadline} pausedRemaining={session.pausedRemaining} paused={session.phase === "paused"} label={session.config.timerMode === "per-question" ? "Question time remaining" : "Time remaining"} onExpire={onExpire} /> : null;
 
   return <div ref={appearanceRoot} className="qm-session qm-root" data-qm-theme={theme} data-theme={theme} data-qm-mode={session?.config.mode ?? "setup"} data-focus={focused || undefined} onKeyDown={keyDown}>
-    {saveError && <div className="qm-save-error"><InlineError>{saveError}</InlineError><button type="button" onClick={() => { if (latest.current) persist(latest.current); }}>Retry saving</button></div>}
+    {saveError && <div className="qm-save-error"><InlineError>{saveError}</InlineError><button type="button" onClick={() => { if (latest.current) persist(latest.current, true); }}>Retry saving</button></div>}
     {!session && <SessionSetup quiz={quiz} initialConfig={initialConfig} viewOptions={viewOptions} onStart={start} onEdit={() => { close(); context.openEditor(quiz); }} />}
     {session?.phase === "paused" && <section className="qm-session-paused"><Icon name="pause" size={24} /><h3>Paused</h3>{timer}<button ref={resumeButton} type="button" className="mod-cta" onClick={() => apply({ type: "resume" })}><Icon name="play" />Resume</button></section>}
     {session?.phase === "running" && <RunningSession context={context} session={session} timer={timer} viewOptions={viewOptions} apply={apply} onPause={pauseFromControl} pendingFeedbackFocus={pendingFeedbackFocus} confirmFinish={confirmFinish} setConfirmFinish={setConfirmFinish} />}
@@ -246,6 +250,7 @@ function RunningSession({ context, session, timer, viewOptions, apply, onPause, 
   const canProceed = !flashcards && (questionChecked || session.config.mode === "exam" || expired);
   const feedback = grade && {
     correct: "Correct",
+    partial: grade.feedback ?? "Partly correct",
     incorrect: "Incorrect",
     unanswered: expired ? "Time expired. No answer submitted." : "No answer",
     "self-review": "Self-review"
@@ -413,8 +418,9 @@ function SessionResults({ context, session, viewOptions, onReview, onRepeat, onE
     { label: "Unanswered", value: summary.unanswered, visible: summary.unanswered > 0 },
     { label: "Written", value: summary.selfReview, visible: summary.selfReview > 0 }
   ];
+  if (summary.partial) statistics.push({ label: "Partly correct", value: summary.partial, visible: true });
   statistics.push({ label: "Time", value: formatDuration(summary.durationSeconds), visible: true });
-  const missed = flashcards ? session.order.filter(index => !session.ratings?.[index] || session.ratings[index] === "again") : grades.filter(item => item.grade.status === "incorrect" || item.grade.status === "unanswered").map(item => item.index);
+  const missed = flashcards ? session.order.filter(index => !session.ratings?.[index] || session.ratings[index] === "again") : grades.filter(item => item.grade.status === "partial" || item.grade.status === "incorrect" || item.grade.status === "unanswered").map(item => item.index);
   const question = session.quiz.questions[selected];
   const saveNote = async (): Promise<void> => {
     setSavingNote(true);
@@ -427,7 +433,7 @@ function SessionResults({ context, session, viewOptions, onReview, onRepeat, onE
   return <section className="qm-results">
     <h3 ref={resultsHeading} tabIndex={-1}>{session.finishReason === "expired" ? "Time expired" : "Session complete"}</h3>
     <div className="qm-results-summary">
-      <div><strong>{summary.maxScore ? `${Math.round(summary.score / summary.maxScore * 100)}%` : "Self-review"}</strong><span>{summary.maxScore ? `${summary.score} / ${summary.maxScore} points` : session.config.mode === "flashcards" ? "Recall ratings saved" : "Written responses saved"}</span></div>
+      <div><strong>{summary.maxScore ? `${Math.round(summary.score / summary.maxScore * 100)}%` : "Self-review"}</strong><span>{summary.maxScore ? `${formatScore(summary.score)} / ${summary.maxScore} points` : session.config.mode === "flashcards" ? "Recall ratings saved" : "Written responses saved"}</span></div>
     </div>
     <div className="qm-session-actions qm-results-actions">{missed.length > 0 && <button type="button" className="mod-cta" onClick={() => onReview(missed)}><Icon name="refresh" />Review missed</button>}<button type="button" className={missed.length ? undefined : "mod-cta"} onClick={onRepeat}><Icon name="play" />Repeat quiz</button>{session.bookmarks.length > 0 && <button type="button" onClick={() => onReview(session.bookmarks)}><Icon name="bookmark" />Bookmarks ({session.bookmarks.length})</button>}<details className="qm-result-more"><summary>Options</summary><div><button type="button" onClick={onEdit}><Icon name="edit" />Edit quiz</button><button type="button" disabled={savingNote} onClick={() => { void saveNote(); }}><Icon name="book" />{savingNote ? "Saving…" : "Save note"}</button><button type="button" onClick={() => { void import("./InterchangeModal").then(({ openInterchange }) => openInterchange(context, session.quiz)).catch(error => context.showNotice(errorMessage(error, "Export could not be opened."))); }}><Icon name="download" />Export</button>{viewOptions}</div></details></div>
     {noteError ? <InlineError>{noteStatus}</InlineError> : <p className={noteStatus ? "qm-help" : "qm-sr-only"} role="status">{noteStatus}</p>}
@@ -440,7 +446,7 @@ function SessionResults({ context, session, viewOptions, onReview, onRepeat, onE
     </dl>{trends.selfReview > 0 && <p className="qm-help">Written responses and recall ratings are excluded from graded accuracy.</p>}
     {trends.topics.length > 0 && <ul>{trends.topics.slice(0, 3).map(topic => <li key={topic.tag}>{topic.tag}: {topic.correct} / {topic.attempted}</li>)}</ul>}</section>
     <div className="qm-results-grid">
-      <nav className="qm-result-list" aria-label="Question results">{grades.map(({ index, grade }, position) => <button key={index} type="button" aria-current={index === selected ? "true" : undefined} onClick={() => setSelected(index)}><span>{position + 1}</span><span>{resultQuestionLabel(session.quiz.questions[index].question)}</span><span className={`qm-result-status qm-grade-${grade.status}`}>{session.config.mode === "flashcards" ? session.ratings?.[index] ?? "Unrated" : grade.status === "self-review" ? "Written" : grade.status === "correct" ? "Correct" : grade.status === "incorrect" ? "Missed" : "Unanswered"}</span></button>)}</nav>
+      <nav className="qm-result-list" aria-label="Question results">{grades.map(({ index, grade }, position) => <button key={index} type="button" aria-current={index === selected ? "true" : undefined} onClick={() => setSelected(index)}><span>{position + 1}</span><span>{resultQuestionLabel(session.quiz.questions[index].question)}</span><span className={`qm-result-status qm-grade-${grade.status}`}>{session.config.mode === "flashcards" ? session.ratings?.[index] ?? "Unrated" : grade.status === "self-review" ? "Written" : grade.status === "correct" ? "Correct" : grade.status === "partial" ? "Partly correct" : grade.status === "incorrect" ? "Missed" : "Unanswered"}</span></button>)}</nav>
       <section className="qm-result-detail" aria-labelledby={reviewHeadingId}><h4 id={reviewHeadingId} className="qm-result-review-heading">Answer review <span>Question {session.order.indexOf(selected) + 1} of {session.order.length}</span></h4><QuestionView question={question} response={session.responses[selected]} onChange={unchanged} reveal={true} disabled={true} mode="review" /><StudySources context={context} session={session} questionIndex={selected} /></section>
     </div>
     </details>

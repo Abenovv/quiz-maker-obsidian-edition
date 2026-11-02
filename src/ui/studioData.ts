@@ -1,7 +1,7 @@
 import type { BankQuestion, Quiz, ReviewCard, SessionSummary, WorkspaceData } from "../core/types";
 import { validateQuiz } from "../core/schema";
 import { ensureQuestionIds, validateWorkspace } from "../core/workspace";
-import { gradeQuestion } from "../session/grading";
+import { gradeQuestion, formatScore } from "../session/grading";
 
 export type LibraryFilter = "all" | "due" | "missed" | "bookmarked";
 
@@ -43,8 +43,9 @@ export function libraryEntries(quizzes: readonly Quiz[], history: readonly Sessi
     const bookmarkQuiz = bookmarks?.has(quiz.id) ? quiz : session?.quiz;
     const bookmarkIndices = bookmarks?.get(quiz.id) ?? session?.bookmarks ?? [];
     const missed = session ? attempted.filter(index => {
+      if (session.config.mode === "flashcards") return !session.ratings?.[index] || session.ratings[index] === "again";
       const status = gradeQuestion(session.quiz.questions[index], session.responses[index]).status;
-      return status === "incorrect" || status === "unanswered";
+      return status === "partial" || status === "incorrect" || status === "unanswered";
     }) : [];
     return {
       quiz,
@@ -71,7 +72,7 @@ export function reviewSource(entry: LibraryEntry, filter: Exclude<LibraryFilter,
 }
 
 export function scoreLabel(result: Pick<SessionSummary, "score" | "maxScore">): string {
-  return result.maxScore > 0 ? `${result.score}/${result.maxScore}` : "Self-review";
+  return result.maxScore > 0 ? `${formatScore(result.score)}/${result.maxScore}` : "Self-review";
 }
 
 /** Page changes bound the mounted rows even after repeatedly browsing a large library. */

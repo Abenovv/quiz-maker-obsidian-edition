@@ -4,6 +4,7 @@ import { createQuiz, MAX_QUIZ_BYTES, parseQuiz, questionTypeLabels, toQuestion, 
 import { sanitizeQuizMarkdown } from "./core/markdown";
 import { questionContext, referenceAnswer } from "./session/grading";
 import { bindAppearance } from "./appearance";
+import { localImagePath, imageDimensionsAllowed } from "./core/media";
 
 const BEGIN = "<!-- quiz-maker:begin -->";
 const END = "<!-- quiz-maker:end -->";
@@ -33,6 +34,10 @@ export function encodeNoteData(quiz: Quiz): string {
   return encoded;
 }
 
+export function questionImageMarkdown(question: Question): string[] {
+  return (question.media ?? []).filter(media => localImagePath(media.path)).map(media => `![${media.alt.replace(/[\\[\]\r\n]/g, " ")}](<${media.path.split("/").map(encodeURIComponent).join("/")}>)`);
+}
+
 function frontMatter(question: Question): string[] {
   const content = [question.question, ...questionContext(question)];
   if ("options" in question) {
@@ -45,6 +50,7 @@ export function questionAsCallout(question: Question, index: number): string {
   const [first = "", ...rest] = question.question.split(/\r?\n/);
   const lines = ["> [!question|qm-quiz] " + (index + 1) + ". " + viewText(first)];
   if (rest.length) lines.push(quoted(rest.join("\n")));
+  for (const image of questionImageMarkdown(question)) lines.push(">", image.split("\n").map(line => "> " + line).join("\n"));
   for (const paragraph of frontMatter(question).slice(1)) lines.push(">", quoted(paragraph));
   if (question.hint) lines.push(">", "> > [!tip]- Hint", quoted(question.hint, "> > "));
   lines.push(">", "> > [!success]- Answer");
@@ -55,7 +61,7 @@ export function questionAsCallout(question: Question, index: number): string {
 }
 
 export function questionAsFlashcard(question: Question): string {
-  const front = frontMatter(question).map(viewText).join("\n\n");
+  const front = [...frontMatter(question).map(viewText), ...questionImageMarkdown(question)].join("\n\n");
   const back = [...referenceAnswer(question), ...(question.explanation ? [question.explanation] : [])].map(viewText).join("\n\n");
   // A standalone separator, not a question-mark embedded in prose, is the SR boundary.
   return front + "\n?\n" + back;
@@ -354,6 +360,18 @@ async function renderSavedQuiz(context: PluginContext, quiz: Quiz, target: HTMLE
       item.setAttribute("aria-label", questionTypeLabels[question.type]);
       append(item, "p", "qm-note-number", "Question " + (shown + 1));
       await render(question.question, append(item, "div", "qm-note-prompt"));
+      for (const media of question.media ?? []) {
+        const figure = append(item, "figure", "qm-question-image");
+        const unavailable = (): void => { figure.className = "qm-muted"; figure.textContent = "Image unavailable: " + (media.alt || media.path); };
+        try {
+          const file = localImagePath(media.path) ? context.app.vault.getAbstractFileByPath(media.path) : null;
+          if (!(file instanceof TFile) || !Number.isFinite(file.stat.size) || file.stat.size < 0 || file.stat.size > 10 * 1024 * 1024) { unavailable(); continue; }
+          const image = figure.createEl("img", { attr: { alt: media.alt, loading: "lazy", decoding: "async" } });
+          component.registerDomEvent(image, "load", () => { if (alive && !imageDimensionsAllowed(image.naturalWidth, image.naturalHeight)) unavailable(); });
+          component.registerDomEvent(image, "error", () => { if (alive) unavailable(); });
+          image.src = context.app.vault.getResourcePath(file);
+        } catch { unavailable(); }
+      }
       for (const content of questionContext(question)) await render(content, append(item, "div", "qm-note-context"));
       if ("options" in question) {
         const options = append(item, "ol", "qm-note-options");

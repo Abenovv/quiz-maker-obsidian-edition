@@ -878,7 +878,7 @@
 }
 @media (max-width: 380px) {
   .qm-root .qm-form-row,
-  .qm-root .qm-generator-model,
+  .qm-root .qm-generator-model { grid-template-columns: minmax(0, 1fr); }
 }
 @container qm-generator (max-width: 700px) {
   .qm-root :is(.qm-generator-columns, .qm-generator-layout) { grid-template-columns: minmax(0, 1fr); gap: 16px; }
@@ -929,7 +929,7 @@
 .qm-root.qm-settings > :is(.qm-settings-tabs, .qm-settings-panel, .qm-settings-save, .qm-settings-version) { inline-size: 100%; max-inline-size: 840px; margin-inline: auto; }
 .qm-root.qm-settings > .qm-settings-tabs { position: sticky; inset-block-start: 0; z-index: 2; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; margin-block-end: 16px; padding-block: 0 12px; border-block-end: 1px solid var(--qm-border); background: var(--qm-bg); }
 .qm-root.qm-settings .qm-settings-tabs button { flex: 1 1 auto; min-inline-size: 0; padding-inline: 12px; border-color: transparent; background: transparent; font-size: 14px; }
-.qm-root.qm-settings .qm-settings-tabs button[aria-selected="true"] { border-color: var(--qm-accent-border); color: var(--qm-link); background: var(--qm-surface-alt); }
+.qm-root.qm-settings .qm-settings-tabs button[aria-selected="true"] { border-color: var(--qm-accent-border); color: var(--qm-text); background: var(--qm-surface-alt); }
 .qm-root.qm-settings :is(.setting-item, :where(.setting-group) > .setting-item) {
   align-items: center;
   gap: 18px;
@@ -1179,6 +1179,7 @@
 .qm-root .qm-mini-feedback { margin: 0; }
 .qm-root .qm-grade-correct { color: var(--qm-positive, var(--color-green)); }
 .qm-root .qm-grade-incorrect { color: var(--qm-danger, var(--text-error)); }
+.qm-root .qm-grade-partial { color: var(--qm-warning, var(--text-warning)); }
 .qm-root .qm-flashcard-ratings { display: flex; flex-wrap: wrap; gap: 8px; margin-block-start: 20px; }
 .qm-root .qm-flashcard-ratings button { flex: 1; min-inline-size: 72px; }
 .qm-root .qm-finish-confirmation { margin-block-start: 16px; padding: 16px; border: 1px solid var(--qm-warning, var(--text-warning)); border-radius: var(--qm-radius-md, 10px); background: var(--qm-surface-alt, var(--background-secondary)); }

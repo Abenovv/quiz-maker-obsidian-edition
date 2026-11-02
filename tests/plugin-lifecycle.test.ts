@@ -344,3 +344,17 @@ test("a stale study load disposes its own library while the newer library stays 
     else Reflect.deleteProperty(globalThis, "document");
   }
 });
+
+
+test("queued keychain saves reuse a verified reference without exposing the key", async () => {
+  const values = new Map<string, string>();
+  const app = { workspace: { getLeavesOfType: () => [] }, secretStorage: { getSecret: (id: string) => values.get(id) ?? null, setSecret: (id: string, value: string) => { values.set(id, value); } } } as unknown as App;
+  const plugin = fixture(app); const writes: Settings[] = [];
+  plugin.settings.providers.google.apiKey = "public-keychain-fixture";
+  plugin.saveData = async value => { writes.push(structuredClone(value) as Settings); };
+  await Promise.all([plugin.saveSettings(), plugin.saveSettings(), plugin.saveSettings()]);
+  assert.equal(values.size, 1); assert.equal(writes.length, 3);
+  assert.ok(writes.every(value => value.providers.google.apiKey === ""));
+  assert.equal(new Set(writes.map(value => value.providers.google.apiKeySecret)).size, 1);
+  assert.equal(plugin.settings.providers.google.apiKey, "public-keychain-fixture");
+});

@@ -1,6 +1,7 @@
 import { createQuiz, MAX_QUESTIONS, validateQuiz } from "../core/schema";
 import type { PackageImage } from "./media";
 import type { Question, Quiz } from "../core/types";
+import { questionContext, referenceAnswer } from "../session/grading";
 
 const MAX_TEXT_BYTES = 4 * 1024 * 1024;
 const MAX_FIELD = 50000;
@@ -100,32 +101,11 @@ export function previewAnki(table: DelimitedTable, mapping: FieldMapping, title 
 }
 function escapeHtml(text: string): string { return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>"); }
 function answerText(question: Question): string {
-  switch (question.type) {
-    case "true-false": return question.answer ? "True" : "False";
-    case "multiple-choice": case "error-correction": case "assertion-reason": case "prediction": case "what-if": return question.options[question.answer] ?? "";
-    case "select-all": case "evidence-selection": case "concept-map": return question.answer.map(index => question.options[index]).join("\n");
-    case "two-stage": return `${question.options[question.answer]}\n${question.reasons[question.reasonAnswer]}`;
-    case "matching": return question.answer.map(pair => `${pair.leftOption} — ${pair.rightOption}`).join("\n");
-    case "sequencing": return question.answer.map(index => question.items[index]).join("\n");
-    case "categorization": return question.items.map((item, index) => `${item} — ${question.categories[question.answer[index]]}`).join("\n");
-    case "branching-scenario": return question.answer.map((answer, index) => question.steps[index]?.options[answer] ?? "").join("\n");
-    case "fill-in-the-blank": return question.answer.join("\n");
-    default: return question.answer;
-  }
+  return [...referenceAnswer(question), ...(question.explanation ? [question.explanation] : [])].join("\n\n");
 }
 function frontText(question: Question): string {
-  const lines = [question.question];
-  if ("context" in question) lines.push(question.context);
-  if ("passage" in question) lines.push(question.passage);
-  if ("claim" in question) lines.push(question.claim);
-  if (question.type === "assertion-reason") lines.push(`Assertion: ${question.assertion}`, `Reason: ${question.reason}`);
-  if (question.type === "what-if") lines.push(`Baseline: ${question.baseline}`, `Change: ${question.change}`);
+  const lines = [question.question, ...questionContext(question)];
   if ("options" in question) lines.push(...question.options.map((option, index) => `${index + 1}. ${option}`));
-  if ("items" in question) lines.push(...question.items.map(item => `• ${item}`));
-  if ("categories" in question) lines.push(`Categories: ${question.categories.join("; ")}`);
-  if (question.type === "matching") lines.push(`Left: ${question.answer.map(pair => pair.leftOption).join("; ")}`, `Right: ${question.answer.map(pair => pair.rightOption).sort().join("; ")}`);
-  if (question.type === "concept-map") lines.push(`Concepts: ${question.nodes.join("; ")}`);
-  if (question.type === "branching-scenario") lines.push(...question.steps.map((step, index) => `Step ${index + 1}: ${step.prompt}\n${step.options.map((option, optionIndex) => `${optionIndex + 1}. ${option}`).join("\n")}`));
   return lines.join("\n\n");
 }
 export function exportAnki(quiz: Quiz, delimiter: "," | "\t" = "\t"): { text: string; warnings: string[] } {

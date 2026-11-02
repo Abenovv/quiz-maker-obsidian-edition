@@ -2,7 +2,8 @@ import { PluginSettingTab, Setting, type App, type ButtonComponent, type Dropdow
 import { providers, type ModelInfo, type PluginContext, type Provider, type Settings } from "./core/types";
 import { presets } from "./presets";
 import { testSound } from "./feedback";
-import { DEFAULT_BASE_URLS, resolveBaseUrl } from "./ai/transport";
+import { providerKeychain } from "./storage/secrets";
+import { DEFAULT_BASE_URLS, resolveBaseUrl, requiresProviderKey } from "./ai/transport";
 import { modelDiscoveryMessage } from "./ai/models";
 
 export const providerNames: Record<Provider, string> = {
@@ -55,7 +56,10 @@ export function normalizeSettings(value: unknown): Settings {
       return [provider, {
         apiKey: boundedText(config.apiKey, 4096),
         model: boundedText(config.model, 200),
-        baseUrl
+        baseUrl,
+        ...(typeof config.workspaceId === "string" && /^wrkspc_[A-Za-z0-9]{1,100}$/.test(config.workspaceId) ? { workspaceId: config.workspaceId } : {}),
+        ...(config.protocol === "responses" || config.protocol === "chat-completions" ? { protocol: config.protocol } : {}),
+        ...(typeof config.apiKeySecret === "string" && /^quiz-maker-[a-z0-9-]{1,100}$/.test(config.apiKeySecret) ? { apiKeySecret: config.apiKeySecret } : {})
       }];
     })) as Settings["providers"],
     provider: providers.includes(input.provider as Provider) ? input.provider as Provider : DEFAULT_SETTINGS.provider,
@@ -193,8 +197,8 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
         { type: "page", name: "More options", items: rows("General", general.slice(3)) }
       ] },
       { type: "page", name: "Models", items: [
-        { type: "group", heading: "Connection", cls: "qm-settings-group", items: rows("Models", models.slice(0, -1)) },
-        { type: "page", name: "Advanced connection", items: rows("Models", models.slice(-1)) }
+        { type: "group", heading: "Connection", cls: "qm-settings-group", items: rows("Models", models.filter(item => !["Endpoint", "Workspace ID", "API protocol"].includes(item.name))) },
+        { type: "page", name: "Advanced connection", items: rows("Models", models.filter(item => ["Endpoint", "Workspace ID", "API protocol"].includes(item.name))) }
       ] },
       { type: "page", name: "Quizzes", items: [
         { type: "group", heading: "Defaults", cls: "qm-settings-group", items: rows("Quizzes", quizzes.slice(0, 3)) },
@@ -466,6 +470,7 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
     let panel: HTMLElement;
     let invalidKey = false;
     let invalidEndpoint = false;
+    let invalidWorkspace = false;
     let keyError: HTMLElement | undefined;
     let endpointError: HTMLElement | undefined;
     let modelError: HTMLElement | undefined;
@@ -476,7 +481,7 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
     let results: HTMLElement | undefined;
     let refresh: HTMLButtonElement | undefined;
     let availableModels: ModelInfo[] = [];
-    let account: { apiKey: string; baseUrl: string } | undefined;
+    let account: { apiKey: string; baseUrl: string; workspaceId?: string } | undefined;
     let status: HTMLElement;
     const fieldError = (host: HTMLElement, name: string): HTMLElement => {
       host.classList.add("qm-setting-with-error");
@@ -496,11 +501,11 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
       find?.buttonEl.setAttribute("aria-expanded", "false");
     };
     const currentAccount = (): boolean => version === this.renderVersion && provider === this.context.settings.provider
-      && account?.apiKey === config.apiKey && account.baseUrl === config.baseUrl;
+      && account?.apiKey === config.apiKey && account.baseUrl === config.baseUrl && account.workspaceId === config.workspaceId;
     const updateControls = (): void => {
-      const needsKey = provider !== "ollama" && !config.apiKey;
-      find?.setDisabled(invalidKey || invalidEndpoint || needsKey || this.task !== undefined);
-      if (refresh) refresh.disabled = invalidKey || invalidEndpoint || needsKey || this.task !== undefined;
+      const needsKey = requiresProviderKey(provider, config.baseUrl) && !config.apiKey;
+      find?.setDisabled(invalidKey || invalidEndpoint || invalidWorkspace || needsKey || this.task !== undefined);
+      if (refresh) refresh.disabled = invalidKey || invalidEndpoint || invalidWorkspace || needsKey || this.task !== undefined;
       if (!status) return;
       if (needsKey && !invalidKey) {
         status.dataset.state = "idle";
@@ -583,7 +588,7 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
       panel.insertBefore(finder, status);
     };
     const discover = async (fresh = false): Promise<void> => {
-      if (invalidKey || invalidEndpoint || provider !== "ollama" && !config.apiKey || this.task) return;
+      if (invalidKey || invalidEndpoint || invalidWorkspace || requiresProviderKey(provider, config.baseUrl) && !config.apiKey || this.task) return;
       this.cancelModelTask();
       const controller = new AbortController();
       this.task = controller;
@@ -599,9 +604,9 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
       updateControls();
       try {
         const models = await this.context.models.list(provider, snapshot, { signal: controller.signal, refresh: fresh });
-        if (controller.signal.aborted || version !== this.renderVersion || config.apiKey !== snapshot.apiKey || config.baseUrl !== snapshot.baseUrl) return;
+        if (controller.signal.aborted || version !== this.renderVersion || config.apiKey !== snapshot.apiKey || config.baseUrl !== snapshot.baseUrl || config.workspaceId !== snapshot.workspaceId) return;
         availableModels = models;
-        account = { apiKey: snapshot.apiKey, baseUrl: snapshot.baseUrl };
+        account = { apiKey: snapshot.apiKey, baseUrl: snapshot.baseUrl, workspaceId: snapshot.workspaceId };
         if (refresh) refresh.textContent = "Refresh";
         renderResults();
         search?.focus();
@@ -620,7 +625,7 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
         }
       }
     };
-    const keyDefinition: SearchableSetting = { name: "API key", desc: "Stored in local, unencrypted settings. Keep the file private.", aliases: ["authentication", "credentials", "token"], render: keySetting => {
+    const keyDefinition: SearchableSetting = { name: "API key", desc: providerKeychain(this.app) ? "Stored in Obsidian Keychain on this device." : "Stored in local settings on this Obsidian version. Keep them private.", aliases: ["authentication", "credentials", "token"], render: keySetting => {
       keySetting
         .addText(input => {
           input.setValue(config.apiKey);
@@ -641,6 +646,7 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
               input.inputEl.removeAttribute("aria-invalid");
               this.context.models.clear(provider);
               config.apiKey = key;
+              if (!key) delete config.apiKeySecret;
               this.scheduleSave();
             }
             if (keyError) keyError.textContent = invalidKey ? "Remove spaces and line breaks from the key." : "";
@@ -731,18 +737,43 @@ export class QuizMakerSettingsTab extends PluginSettingTab {
       });
       endpointError = fieldError(endpointSetting.settingEl, "endpoint");
     } };
-    return [providerDefinition, ...(provider === "ollama" ? [] : [keyDefinition]), modelDefinition, endpointDefinition];
+    const advanced: SearchableSetting[] = [endpointDefinition];
+    if (provider === "anthropic") advanced.push({ name: "Workspace ID", desc: "Required only for keys that can access multiple workspaces.", aliases: ["Anthropic workspace", "organization"], render: setting => {
+      let issue: HTMLElement;
+      setting.addText(input => {
+        input.setValue(config.workspaceId ?? "").setPlaceholder("Workspace ID");
+        input.inputEl.setAttribute("aria-label", "Workspace ID");
+        input.inputEl.maxLength = 108;
+        input.inputEl.autocomplete = "off";
+        input.onChange(value => {
+          const id = value.trim();
+          if (id && !/^wrkspc_[A-Za-z0-9]{1,100}$/.test(id)) { invalidWorkspace = true; this.cancelModelTask(); clearFinder(); input.inputEl.setAttribute("aria-invalid", "true"); issue.textContent = "Use the workspace ID from your Claude console."; updateControls(); return; }
+          invalidWorkspace = false; input.inputEl.removeAttribute("aria-invalid"); issue.textContent = "";
+          this.cancelModelTask(); clearFinder(); this.context.models.clear(provider);
+          if (id) config.workspaceId = id; else delete config.workspaceId;
+          this.scheduleSave(); updateControls();
+        });
+      });
+      issue = fieldError(setting.settingEl, "workspace");
+    } });
+    if (provider === "openai" || provider === "perplexity") advanced.push({ name: "API protocol", desc: "Automatic uses the provider default. Change this when your proxy requires another protocol.", aliases: ["Responses API", "chat completions", "proxy"], render: setting => {
+      setting.addDropdown(select => labelDropdown(select, "API protocol").addOptions({ auto: "Automatic", responses: "Responses", "chat-completions": "Chat completions" }).setValue(config.protocol ?? "auto").onChange(value => {
+        if (value === "responses" || value === "chat-completions") config.protocol = value; else delete config.protocol;
+        this.scheduleSave();
+      }));
+    } });
+    return [providerDefinition, ...(provider === "ollama" ? [] : [keyDefinition]), modelDefinition, ...advanced];
   }
 
   private renderModels(panel: HTMLElement): void {
     panel = settingsGroup(panel, "Connection");
     const definitions = this.modelDefinitions();
-    this.renderRows(panel, definitions.slice(0, -1));
+    this.renderRows(panel, definitions.filter(item => !["Endpoint", "Workspace ID", "API protocol"].includes(item.name)));
     const advanced = panel.createEl("details", { cls: "qm-settings-advanced" });
     const provider = this.context.settings.provider;
     advanced.open = provider === "ollama" || this.context.settings.providers[provider].baseUrl !== endpoints[provider];
     advanced.createEl("summary", { text: "Advanced connection" });
-    this.renderRows(advanced, definitions.slice(-1));
+    this.renderRows(advanced, definitions.filter(item => ["Endpoint", "Workspace ID", "API protocol"].includes(item.name)));
   }
 
   private quizDefinitions(): SearchableSetting[] {

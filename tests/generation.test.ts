@@ -109,13 +109,12 @@ test("output planning accounts for format complexity and requested teaching fiel
   assert.ok(estimateGenerationOutput(allTypes) > estimateGenerationOutput(prepareGenerationRequest(request())));
 });
 
-test("an unrealistic output mix is rejected before a paid provider request", async () => {
+test("large mixes use bounded batches without retrying an invalid first response", async () => {
   let calls = 0;
   const service = generator(undefined, async () => { calls++; return { text: "{}" }; });
-  const input = request(["branching-scenario"]);
-  input.methods[0].count = 100;
-  await assert.rejects(service.generate(input), /larger response/);
-  assert.equal(calls, 0);
+  const input = request(["branching-scenario"]); input.methods[0].count = 100;
+  await assert.rejects(service.generate(input), /invalid question list/);
+  assert.equal(calls, 1);
 });
 
 test("prompts include only selected content and opaque source IDs, never settings or note paths", () => {

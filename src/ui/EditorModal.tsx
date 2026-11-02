@@ -1,6 +1,6 @@
 import { TFile, TFolder, normalizePath } from "obsidian";
-import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { createQuestion, createQuiz, MAX_QUIZ_BYTES, MAX_QUESTIONS, questionTypeLabels, questionTypes, serializeQuiz, validateQuiz } from "../core/schema";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { createQuestion, createQuiz, MAX_QUIZ_BYTES, MAX_QUESTIONS, questionTypeLabels, questionTypes, partialCreditTypes, serializeQuiz, validateQuiz } from "../core/schema";
 import type { GenerationConnection, GenerationRequest, PluginContext, Provider, Difficulty, Question, QuestionType, Quiz, SessionConfig } from "../core/types";
 import { Icon, InlineError, QuestionImage, localImagePath, ReactModal, errorMessage } from "./shared";
 import { duplicateQuestion, editorError, exportFilename, moveQuestion, previewImport, removeQuestion, replaceQuestion, validateEditorDraft } from "./editor/model";
@@ -150,6 +150,7 @@ function ImportQuiz({ context, close }: { context: PluginContext; close(this: vo
 
 function QuizEditor({ context, initial, control, close }: { context: PluginContext; initial?: Quiz; control: CloseControl; close(this: void): void }): ReactNode {
   const [draft, setDraft] = useState<Quiz>(() => initial ? structuredClone(initial) : createQuiz([createQuestion("multiple-choice")], { provenance: { kind: "manual" } }));
+  const validationDraft = useDeferredValue(draft);
   const draftRef = useRef(draft);
   draftRef.current = draft;
   const [selection, setSelection] = useState(0);
@@ -186,7 +187,7 @@ function QuizEditor({ context, initial, control, close }: { context: PluginConte
   const settledJson = useSettledText(json, editor);
   const settledQuestionJson = useSettledText(questionJson ?? "", editor);
   const questionJsonPending = questionJson !== undefined && settledQuestionJson !== questionJson;
-  const pending = (mode === "json" && settledJson !== json) || questionJsonPending;
+  const pending = (mode === "json" && settledJson !== json) || questionJsonPending || (mode === "form" && validationDraft !== draft);
   control.dirty = dirty || Boolean(replacement);
   control.request = () => setConfirmClose(true);
   useEffect(() => { active.current = true; return () => { active.current = false; abort.current?.abort(); control.request = undefined; }; }, [control]);
@@ -204,13 +205,13 @@ function QuizEditor({ context, initial, control, close }: { context: PluginConte
     }
     wasConfirming.current = confirming;
   }, [confirmClose, confirmRemove, confirmRegenerate, busy]);
-  const validation = useMemo(() => validateEditorDraft(draft, mode === "json" ? settledJson : undefined), [draft, mode, settledJson]);
+  const validation = useMemo(() => validateEditorDraft(validationDraft, mode === "json" ? settledJson : undefined), [validationDraft, mode, settledJson]);
   const valid = validation.quiz && !questionJsonError && !pending ? validation.quiz : undefined;
   const selected = draft.questions[selection];
   const quality = useMemo(() => valid ? inspectQuiz(valid) : undefined, [valid]);
   const revisions = context.store.getRevisions?.(draft.id) ?? context.store.getWorkspace?.().revisions.filter(item => item.quizId === draft.id) ?? [];
-  const update = (next: Quiz, resetQuestionJson = true): boolean => {
-    try { history.current.record(draft, next); }
+  const update = (next: Quiz, resetQuestionJson = true, group?: string): boolean => {
+    try { history.current.record(draft, next, group); }
     catch (issue) { setError(errorMessage(issue)); return false; }
     setDraft(next); setDirty(true); setError(""); setStatus(""); setReplacement(undefined); setBulk([]);
     if (resetQuestionJson) { setQuestionJson(undefined); setQuestionJsonError(""); }
@@ -370,9 +371,10 @@ function QuizEditor({ context, initial, control, close }: { context: PluginConte
             {confirmRemove && <div ref={removePrompt} className="qm-editor-confirm" role="alert"><p>Remove this question?</p><button type="button" onClick={() => setConfirmRemove(false)}>Keep question</button><button type="button" onClick={() => { update(removeQuestion(draft, selection)); setSelection(Math.max(0, Math.min(selection, draft.questions.length - 2))); setConfirmRemove(false); }}>Remove question</button></div>}
             {confirmRegenerate && <div ref={regeneratePrompt} className="qm-editor-confirm" role="alert"><p>Send these notes to {providerNames[confirmRegenerate.provider]} to replace this question?</p><ul>{draft.sources.map(path => <li key={path}>{path}</li>)}</ul><button type="button" onClick={() => setConfirmRegenerate(null)}>Cancel</button><button type="button" className="mod-cta" onClick={() => { void regenerate(); }}>Regenerate question</button></div>}
             {draft.sourceSelection && <p className="qm-muted">To regenerate, select the source passage again. This quiz uses selected text.</p>}
-            <label className="qm-field"><span>Question</span><textarea rows={3} value={selected.question} onChange={event => update(replaceQuestion(draft, selection, { ...selected, question: event.currentTarget.value }))} /></label>
-            <QuestionFields question={selected} onChange={question => update(replaceQuestion(draft, selection, question))} />
+            <label className="qm-field"><span>Question</span><textarea rows={3} value={selected.question} onChange={event => update(replaceQuestion(draft, selection, { ...selected, question: event.currentTarget.value }), true, `question-${selection}-prompt`)} /></label>
+            <QuestionFields question={selected} onChange={(question, group) => update(replaceQuestion(draft, selection, question), true, group ? `question-${selection}-${group}` : undefined)} />
             <details className="qm-editor-question-details"><summary>Question details</summary><div className="qm-editor-question-metadata"><label className="qm-field"><span>Tags</span><TagInput values={selected.tags ?? []} onChange={tags => update(replaceQuestion(draft, selection, { ...selected, tags }))} /></label><label className="qm-field"><span>Topic</span><input value={selected.topic ?? ""} onChange={event => { const next = { ...selected }; if (event.currentTarget.value.trim()) next.topic = event.currentTarget.value; else delete next.topic; update(replaceQuestion(draft, selection, next)); }} /></label><label className="qm-field"><span>Difficulty</span><select value={selected.difficulty ?? ""} onChange={event => { const next = { ...selected }; if (event.currentTarget.value) next.difficulty = event.currentTarget.value as Difficulty; else delete next.difficulty; update(replaceQuestion(draft, selection, next)); }}><option value="">Not set</option><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></select></label></div>
+            <GradingFields key={selection} question={selected} onChange={question => update(replaceQuestion(draft, selection, question))} />
             <details><summary>Images{selected.media?.length ? ` · ${selected.media.length}` : ""}</summary>{selected.media?.map((media, index) => <div key={`${media.path}-${index}`}><QuestionImage path={media.path} alt={media.alt} /><button type="button" onClick={() => update(replaceQuestion(draft, selection, { ...selected, media: selected.media?.filter((_, position) => position !== index) }))}>Remove image {index + 1}</button></div>)}<label className="qm-field"><span>Image path in this vault</span><input value={imagePath} placeholder="Attachments/diagram.png" onChange={event => setImagePath(event.currentTarget.value)} /></label><label className="qm-field"><span>Image description</span><input value={imageAlt} onChange={event => setImageAlt(event.currentTarget.value)} /></label><button type="button" disabled={!imagePath.trim() || !imageAlt.trim() || (selected.media?.length ?? 0) >= 8} onClick={() => {
               const path = imagePath.trim();
               const file = localImagePath(path) ? context.app.vault.getAbstractFileByPath(path) : null;
@@ -415,8 +417,45 @@ function AnswerSelect({ label = "Correct answer", options, value, onChange }: { 
   return <label className="qm-field"><span>{label}</span><select value={Number.isInteger(value) && value >= 0 && value < options.length ? value : ""} onChange={event => onChange(Number(event.currentTarget.value))}><option value="" disabled>Choose an answer</option>{options.map((option, index) => <option key={index} value={index}>{index + 1}. {option || "Empty option"}</option>)}</select></label>;
 }
 
-function QuestionFields({ question, onChange }: { question: Question; onChange(this: void, question: Question): void }): ReactNode {
-  const patch = (changes: Record<string, unknown>): void => onChange({ ...question, ...changes });
+function ReviewLines({ values, label, onChange }: { values: string[]; label: string; onChange(this: void, values: string[]): void }): ReactNode {
+  const [text, setText] = useState(values.join("\n"));
+  const emitted = useRef(values.join("\n"));
+  useEffect(() => {
+    const next = values.join("\n");
+    if (next !== emitted.current) { emitted.current = next; setText(next); }
+  }, [values]);
+  return <label className="qm-field"><span>{label}</span><textarea rows={3} placeholder="One per line" value={text} onBlur={() => setText(values.join("\n"))} onChange={event => {
+    const next = [...new Set(event.currentTarget.value.split(/\r?\n/).map(value => value.trim()).filter(Boolean))];
+    emitted.current = next.join("\n");
+    setText(event.currentTarget.value);
+    onChange(next);
+  }} /></label>;
+}
+
+function GradingFields({ question, onChange }: { question: Question; onChange(this: void, question: Question): void }): ReactNode {
+  const multipart = partialCreditTypes.includes(question.type);
+  const written = question.type === "short-answer" || question.type === "long-answer";
+  if (!multipart && !written) return null;
+  const update = (changes: NonNullable<Question["grading"]>): void => onChange({ ...question, grading: { ...question.grading, ...changes } });
+  return <fieldset><legend>Answer checking</legend>
+    {multipart && <label className="qm-checkbox"><input type="checkbox" checked={question.grading?.partialCredit === true} onChange={event => update({ partialCredit: event.currentTarget.checked })} />Partial credit</label>}
+    {question.type === "fill-in-the-blank" && <>
+      <label className="qm-checkbox"><input type="checkbox" checked={question.grading?.caseSensitive !== false} onChange={event => update({ caseSensitive: event.currentTarget.checked })} />Case-sensitive answers</label>
+      {question.answer.map((_, index) => <ReviewLines key={index} label={`Other accepted answers for blank ${index + 1}`} values={question.grading?.acceptedAnswers?.[index] ?? []} onChange={values => {
+        const answers = question.answer.map((_, blank) => [...question.grading?.acceptedAnswers?.[blank] ?? []]);
+        answers[index] = values; update({ acceptedAnswers: answers });
+      }} />)}
+    </>}
+    {written && <><ReviewLines label="Review checklist" values={question.grading?.rubric ?? []} onChange={rubric => update({ rubric })} /><p className="qm-help">Shown with the reference answer. Written answers remain self-reviewed.</p></>}
+  </fieldset>;
+}
+
+function QuestionFields({ question, onChange }: { question: Question; onChange(this: void, question: Question, group?: string): void }): ReactNode {
+  const patch = (changes: Record<string, unknown>): void => {
+    const entries = Object.entries(changes);
+    const typing = entries.length === 1 && (typeof entries[0][1] === "string" || Array.isArray(entries[0][1]) && entries[0][1].every(item => typeof item === "string"));
+    onChange({ ...question, ...changes }, typing ? entries[0][0] : undefined);
+  };
   const fields: ReactNode[] = [];
   const contextFields: Partial<Record<QuestionType, Array<[string, string]>>> = {
     "error-correction": [["passage", "Passage"], ["correction", "Correction (optional)"]],

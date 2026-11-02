@@ -303,6 +303,7 @@ export function summarizeSession(session: Session, now = Date.now()): SessionSum
     summary.score += grade.score;
     summary.maxScore += grade.maxScore;
     if (grade.status === "correct") summary.correct++;
+    else if (grade.status === "partial") summary.partial = (summary.partial ?? 0) + 1;
     else if (grade.status === "incorrect") summary.incorrect++;
     else if (grade.status === "self-review") summary.selfReview++;
     else summary.unanswered++;
@@ -314,7 +315,14 @@ export function summarizeSession(session: Session, now = Date.now()): SessionSum
 export function scheduleReview(previous: ReviewCard | undefined, rating: FlashcardRating, quizId: string, questionIndex: number, now = Date.now()): ReviewCard {
   timestamp(now);
   const interval = previous?.intervalDays && Number.isFinite(previous.intervalDays) ? Math.max(1, previous.intervalDays) : 1;
-  const intervalDays = rating === "again" ? 0 : rating === "good" ? Math.min(365, previous ? Math.max(1, Math.round(interval * 2)) : 1)
-    : Math.min(365, previous ? Math.max(3, Math.round(interval * 3)) : 3);
-  return { quizId, questionIndex, rating, intervalDays, dueAt: now + (rating === "again" ? 10 * 60 * 1000 : intervalDays * 24 * 60 * 60 * 1000) };
+  const priorEase = previous?.ease ?? 2.5;
+  const ease = Math.min(3.5, Math.max(1.3, priorEase + (rating === "again" ? -0.2 : rating === "easy" ? 0.15 : 0)));
+  const priorRepetitions = previous?.repetitions ?? (previous?.intervalDays ? 1 : 0);
+  const repetitions = rating === "again" ? 0 : priorRepetitions + 1;
+  const elapsed = previous?.reviewedAt === undefined ? interval : Math.max(0, (now - previous.reviewedAt) / 86400000);
+  const overdueBonus = Math.min(interval, Math.max(0, elapsed - interval)) * 0.25;
+  const intervalDays = rating === "again" ? 0 : !priorRepetitions ? rating === "easy" ? 3 : 1
+    : Math.min(365, Math.max(rating === "easy" ? 3 : 1, Math.round((interval + overdueBonus) * ease * (rating === "easy" ? 1.3 : 1))));
+  return { quizId, questionIndex, rating, intervalDays, dueAt: now + (rating === "again" ? 600000 : intervalDays * 86400000),
+    ease: Math.round(ease * 100) / 100, repetitions, lapses: (previous?.lapses ?? 0) + Number(rating === "again"), reviewedAt: now };
 }

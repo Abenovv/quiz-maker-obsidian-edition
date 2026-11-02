@@ -122,5 +122,5 @@ test("selection markers and inert Anki source fields survive portable round trip
   assert.deepEqual(saved.sourceSelection, raw.sourceSelection);
   assert.deepEqual(saved.questions[0].importData, raw.questions[0].importData);
   assert.throws(() => ensureQuestionIds({ ...raw, sourceSelection: { ...raw.sourceSelection!, fromLine: 0 } }), /positive line/);
-  assert.throws(() => ensureQuestionIds({ ...raw, sourceSelection: { ...raw.sourceSelection!, toOffset: 0 } }), /end must follow/);
+  assert.throws(() => ensureQuestionIds({ ...raw, sourceSelection: { ...raw.sourceSelection!, toLine: 2, toOffset: 0 } }), /end must follow/);
 });

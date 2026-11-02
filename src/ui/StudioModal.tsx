@@ -93,11 +93,11 @@ export function Studio({ context, close }: { context: PluginContext; close(this:
   const previousTool = useRef(tool);
   const tools = useRef<HTMLDetailsElement>(null);
   const store = context.store;
-  const presets = availablePresets(context);
+  const presets = useMemo(() => availablePresets(context), [context, revision]);
 
   useEffect(() => {
     mounted.current = true;
-    const unsubscribe = store.subscribe(() => setRevision(value => value + 1));
+    const unsubscribe = store.subscribe(() => setRevision(value => value + 1), "library");
     void store.load().then(() => {
       if (mounted.current) setRevision(value => value + 1);
     }).catch(reason => {
@@ -114,7 +114,7 @@ export function Studio({ context, close }: { context: PluginContext; close(this:
   const results = useMemo(() => filterLibrary(entries, deferredQuery, filter), [entries, deferredQuery, filter]);
   const pageData = libraryPage(results, page, PAGE_SIZE);
   const history = useMemo(() => [...store.getHistory()].sort((left, right) => right.completedAt - left.completedAt).slice(0, 5), [store, revision]);
-  const active = store.getActiveSession();
+  const active = useMemo(() => store.getActiveSession(), [store, revision]);
   const blocked = !!store.loadIssue || loadFailed;
   const pending = !!busy;
   const currentFile = context.app.workspace.getActiveFile();
@@ -237,7 +237,7 @@ export function Studio({ context, close }: { context: PluginContext; close(this:
 
     {tool === "quizzes" && active && active.phase !== "finished" && !loading && <section className="qm-resume" aria-label="Unfinished session">
       <div><span className="qm-muted">{active.phase === "paused" ? "Paused" : "Unfinished"}</span><h2>{active.quiz.title}</h2><p>Question {Math.min(active.position + 1, active.order.length)} of {active.order.length}</p></div>
-      <button className="mod-cta" type="button" disabled={pending || blocked} onClick={() => leave(() => context.startQuiz(active.quiz, active.config, active))}>Continue</button>
+      <button className="mod-cta" type="button" disabled={pending || blocked} onClick={() => leave(() => { const latest = store.getActiveSession(); if (latest) context.startQuiz(latest.quiz, latest.config, latest); })}>Continue</button>
     </section>}
 
     {tool === "quizzes" ? <section className="qm-library-section" aria-label="Saved quizzes">

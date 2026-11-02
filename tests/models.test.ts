@@ -49,7 +49,7 @@ for (const fixture of providerFixtures) {
     if (fixture.provider === "google") {
       assert.equal(requests[0].headers?.["x-goog-api-key"], settings().apiKey);
       assert.equal(new URL(requests[0].url).searchParams.has("key"), false);
-      assert.equal(models[0].contextWindow, 1_000);
+      assert.equal(models[0].inputTokenLimit, 1_000);
     } else {
       assert.equal(requests[0].headers?.Authorization, "Bearer " + settings().apiKey);
       if (fixture.provider === "anthropic") assert.equal(requests[0].headers?.["anthropic-version"], "2026-10-21");
@@ -233,7 +233,7 @@ test("Anthropic pagination and lifecycle filters keep active catalogue entries",
   } });
   const models = await service.list("anthropic", settings());
   assert.deepEqual(models.map(model => model.id), ["claude-current"]);
-  assert.equal(models[0].contextWindow, 100_000);
+  assert.equal(models[0].inputTokenLimit, 100_000);
 });
 
 test("Anthropic pagination cannot silently cache a partial catalogue without a cursor", async () => {
@@ -477,4 +477,38 @@ test("copied Cohere discovery endpoint uses v1 catalog and reuses its cache", as
   await service.list("cohere", settings("https://api.cohere.com/v2"));
   assert.equal(requests.length, 1);
   assert.equal(new URL(requests[0].url).pathname, "/v1/models");
+});
+
+test("workspace-scoped discovery and cached limits remain isolated between accounts", async () => {
+  let calls = 0;
+  const service = new ModelService({ http: async request => {
+    calls++;
+    assert.match(request.headers?.["anthropic-workspace-id"] ?? "", /^wrkspc_/);
+    return ok({ data: [{ id: "claude-public", max_input_tokens: 200000, max_output_tokens: 16384 }] });
+  } });
+  const first = { ...settings(), workspaceId: "wrkspc_first" };
+  await service.list("anthropic", first);
+  assert.equal(service.get("anthropic", first, "claude-public")?.outputTokenLimit, 16384);
+  const second = { ...first, workspaceId: "wrkspc_second" };
+  assert.equal(service.get("anthropic", second, "claude-public"), undefined);
+  await service.list("anthropic", second);
+  assert.equal(calls, 2);
+  assert.equal(service.get("anthropic", first, "claude-public"), undefined);
+});
+
+test("local OpenAI-compatible discovery can use an anonymous local endpoint", async () => {
+  const service = new ModelService({ http: async request => { assert.equal(request.headers?.Authorization, undefined); return ok({ data: [{ id: "local-chat" }] }); } });
+  assert.equal((await service.list("openai", { apiKey: "", model: "", baseUrl: "http://localhost:1234/v1" }))[0].id, "local-chat");
+});
+
+
+test("generation limits use only fresh cached model metadata without another request", async () => {
+  let now = 1000; let calls = 0;
+  const service = new ModelService({ now: () => now, ttlMs: 100, http: async () => { calls++; return ok({ data: [{ id: "public-limits", max_output_tokens: 4096 }] }); } });
+  const config = settings();
+  await service.list("openai", config);
+  assert.equal(service.get("openai", config, "public-limits")?.outputTokenLimit, 4096);
+  now += 101;
+  assert.equal(service.get("openai", config, "public-limits"), undefined);
+  assert.equal(calls, 1);
 });

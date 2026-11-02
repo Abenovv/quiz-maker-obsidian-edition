@@ -1,6 +1,6 @@
 # Using Quiz maker
 
-This guide describes Quiz maker 2.0.1. Install the three plugin files from GitHub, then reload Obsidian before following the steps.
+This guide describes Quiz maker 2.1.0. Install the three plugin files from GitHub, then reload Obsidian before following the steps.
 
 ## Create your first quiz
 
@@ -14,7 +14,7 @@ Opening the generator does not request models. Use **Find models** when you want
 
 To work without a provider account, use **Library tools → Write questions** or **Library tools → Import**. The public [sample quiz](examples/javascript-essentials.json) is ready to import.
 
-The command palette shows **Quiz maker: Open**, **Quiz maker: Quick quiz**, and **Quiz maker: New quiz** by default. New quiz opens the question editor without a provider account. Quick quiz opens setup with the active Markdown note and your default study pack; it does not read note content or contact a provider before you generate. Enable the remaining individual actions and their existing hotkeys through **General → More options → Extra commands**, which is off by default. Existing saved choices are preserved.
+The command palette shows **Quiz maker: Open**, **Quiz maker: Quick quiz**, and **Quiz maker: New quiz** by default. New quiz and Quick quiz open setup with the active Markdown note and your default study pack; it does not read note content or contact a provider before you generate. Enable the remaining individual actions and their existing hotkeys through **General → More options → Extra commands**, which is off by default. Existing saved choices are preserved.
 
 Selected notes are sent only when you generate or regenerate questions. Choosing a folder includes its selected note contents, so check the source list first.
 
@@ -46,7 +46,9 @@ Practice lets you reveal feedback as you work. In Exam, hints and reference answ
 
 Flag a question to revisit it during the attempt. Bookmark a question to keep it for later review. Written answers use self-review and are excluded from the automatic objective score.
 
-Flashcards use **Again**, **Good**, and **Easy** ratings to schedule later review. Ratings are not marked as objectively correct or incorrect.
+Flashcards use **Again**, **Good**, and **Easy** ratings to schedule later review. Intervals adapt to past ratings and missed reviews, with a maximum of one year. Ratings are not marked as objectively correct or incorrect.
+
+In the editor, expand **Question details → Answer checking** to accept alternate blank answers, ignore letter case, or enable partial credit for supported multipart formats. Existing questions keep strict grading. Written-answer review checklists help you compare your response with the reference; they do not produce an automatic score.
 
 During an active session, open Quiz maker and choose **Library tools → Open mini view** to continue in a compact panel. It shares the same answers and timer as the full study view. Answer a practice question before choosing **Check**; exam answers stay hidden until submission.
 
@@ -108,13 +110,19 @@ In the **Models** settings:
 
 | Situation | What to check |
 | --- | --- |
-| Authentication fails | Confirm the provider, endpoint, and API key. |
+| Authentication fails | Confirm the provider, endpoint, and API key. For workspace errors, check the Anthropic workspace ID in Advanced connection. |
 | A model is unavailable | Use **Find models** or enter a model ID enabled for your account. |
 | Model listing is unsupported | A server may return 404 or 405 for discovery. Enter the exact **Model ID** manually. |
 | Usage or rate limit reached | Check the provider's usage page and retry when its limit permits. |
-| Response is incomplete or invalid | Request fewer questions or less source material, then try again. |
+| Response is incomplete or invalid | Keep any validated questions shown in the recovery prompt. Continue only when you want another request, or discard the draft and adjust the question count. |
 | A local model cannot be reached | Check that Ollama is running and its address is reachable. Addresses with or without an `/api` suffix are accepted. |
 | Study data cannot be saved | Keep the current quiz open, inspect the storage error, and retry or export before closing. |
+
+**Advanced connection** also supports Anthropic workspace IDs and Responses or Chat Completions for compatible OpenAI/Perplexity servers. Local compatible servers can work without a key; remote hosted providers still require authentication.
+
+Larger sets are generated in sequential batches. Each completed batch is validated before another starts. If generation stops, **Keep questions** saves the valid draft; **Continue** explicitly requests only the missing question counts. Truncated JSON is not repaired or treated as a valid answer. A continuation can incur provider charges. Nothing is retried automatically.
+
+When model discovery supplies input, context and output limits, generation uses the cached limits for that exact connection and model. Input-only limits remain separate from a shared input/output context budget. Token estimates remain approximate. A manually entered model ID still works when discovery is unavailable; reduce source material if the provider reports its context limit. See the [Gemini](https://ai.google.dev/api/models) and [Claude](https://platform.claude.com/docs/en/api/models/list) metadata definitions.
 
 Cancel stops the local generation workflow. A provider may already be processing the request, so cancellation does not guarantee that its usage charge is avoided.
 
@@ -122,7 +130,9 @@ Cancel stops the local generation workflow. A provider may already be processing
 
 Settings are organized into **General** for appearance and playback, **Models** for the provider connection, and **Quizzes** for defaults and saved notes. Obsidian 1.13 or newer provides native pages with searchable individual settings. Earlier supported versions keep the three tabs. Both use the same controls and saved preferences.
 
-Settings, including provider keys, are stored locally in `data.json`. Study data is stored in `study.json`. Neither file is encrypted by Quiz maker or included in a release.
+Settings are stored locally in `data.json`; study data is stored in `study.json`. On supported Obsidian versions, a verified Keychain write replaces the saved plaintext key with a reference. Existing keys migrate on the next successful settings save. Older supported hosts keep the local plaintext setting. Encryption at rest depends on Obsidian, the operating system and its keyring.
+
+Keychain references are device-local. Re-enter your provider key on another device if its keychain cannot resolve the reference. Quiz documents, library backups and releases do not contain provider settings or credentials.
 
 Obsidian is the default quiz appearance and follows your vault's surfaces, fonts and accent. Paper, Midnight and High contrast offer optional local palettes. Settings always follow Obsidian. Fonts come from your system and vault, with no font download.
 
@@ -130,7 +140,7 @@ Saved appearance changes update open quiz views. Choosing a theme in the study v
 
 Sound is optional and off by default. Motion can follow your system setting or stay reduced.
 
-After updating, reload Obsidian and check for **2.0.1** at the bottom of Quiz maker settings. An older version there means the running plugin has not picked up the update.
+After updating, reload Obsidian and check for **2.1.0** at the bottom of Quiz maker settings. An older version there means the running plugin has not picked up the update.
 
 When reporting a problem, include that version, Obsidian version, device, and a small example with private content removed. Do not attach API keys, local settings, or study-history files.
 
@@ -195,4 +205,4 @@ The local export limit is 150 pages or 40 MiB. Explicit local PNG, JPEG, WebP an
 
 [Watch the 84-second MP4](media/quiz-maker-2.0-tutorial.mp4) · [English captions](media/quiz-maker-2.0-tutorial.vtt) · [Transcript](media/quiz-maker-2.0-tutorial.md)
 
-The walkthrough shows version 2.0.0; use the steps above for the simpler 2.0.1 menus. It covers Quick quiz, study packs, model selection, review, practice, mini view and export. It uses still captures of the installed plugin with public Solar System notes and a demonstration provider; it is not a live provider session or a continuous screen recording. English narration was generated locally with Microsoft Zira Desktop. No private notes or API keys appear.
+The walkthrough shows version 2.0.0; use the steps above for the current menus. It covers Quick quiz, study packs, model selection, review, practice, mini view and export. It uses still captures of the installed plugin with public Solar System notes and a demonstration provider; it is not a live provider session or a continuous screen recording. English narration was generated locally with Microsoft Zira Desktop. No private notes or API keys appear.

@@ -1,7 +1,7 @@
 import {
   providers, questionTypes,
   type Question, type QuestionType, type Quiz, type Provenance, type SessionConfig,
-  type QuestionBase, type QuestionRevision, type SourceEvidence, type QuestionMedia, type SourceSelection, type AnkiImportData
+  type QuestionBase, type QuestionGrading, type QuestionRevision, type SourceEvidence, type QuestionMedia, type SourceSelection, type AnkiImportData
 } from "./types";
 
 export { questionTypes } from "./types";
@@ -80,7 +80,7 @@ export function validateSourceSelection(input: unknown, path = "quiz.sourceSelec
     if (!Number.isSafeInteger(value[key]) || Number(value[key]) < 0) fail(path + "." + key, "expected a non-negative text offset");
     result[key] = Number(value[key]);
   }
-  if (result.fromOffset !== undefined && result.toOffset !== undefined && result.toOffset < result.fromOffset) fail(path, "selection end must follow its start");
+  if (result.fromLine === result.toLine && result.fromOffset !== undefined && result.toOffset !== undefined && result.toOffset < result.fromOffset) fail(path, "selection end must follow its start");
   return result;
 }
 function ankiImportData(input: unknown, path: string): AnkiImportData {
@@ -165,7 +165,7 @@ function detectType(value: Data, path: string): QuestionType {
   return fail(path, "question format could not be identified");
 }
 
-const commonFields = ["id", "type", "question", "answer", "hint", "explanation", "source", "difficulty", "contentRevision", "tags", "topic", "evidence", "media", "importData"];
+const commonFields = ["id", "type", "question", "answer", "hint", "explanation", "source", "difficulty", "contentRevision", "tags", "topic", "evidence", "media", "importData", "grading"];
 const extras: Record<QuestionType, readonly string[]> = {
   "true-false": [], "multiple-choice": ["options"], "select-all": ["options"], "fill-in-the-blank": [],
   matching: [], "short-answer": [], "long-answer": [], "branching-scenario": ["steps"],
@@ -174,6 +174,30 @@ const extras: Record<QuestionType, readonly string[]> = {
   "evidence-selection": ["claim", "options"], "two-stage": ["options", "reasons", "reasonAnswer"],
   "concept-map": ["nodes", "links", "options"], "what-if": ["context", "baseline", "change", "options"]
 };
+
+export const partialCreditTypes: readonly QuestionType[] = ["select-all", "evidence-selection", "fill-in-the-blank", "matching", "branching-scenario", "sequencing", "categorization", "two-stage", "concept-map"];
+
+function gradingRules(input: unknown, type: QuestionType, answer: unknown, path: string): QuestionGrading {
+  const value = record(input, path);
+  keys(value, ["partialCredit", "caseSensitive", "acceptedAnswers", "rubric"], path);
+  const rules: QuestionGrading = {};
+  for (const key of ["partialCredit", "caseSensitive"] as const) if (value[key] !== undefined) {
+    if (typeof value[key] !== "boolean") fail(path + "." + key, "expected true or false");
+    rules[key] = value[key];
+  }
+  if (rules.partialCredit && !partialCreditTypes.includes(type)) fail(path + ".partialCredit", "partial credit applies to questions with several parts");
+  if (rules.caseSensitive !== undefined && type !== "fill-in-the-blank") fail(path + ".caseSensitive", "case matching applies to blanks");
+  if (value.acceptedAnswers !== undefined) {
+    if (type !== "fill-in-the-blank" || !Array.isArray(answer)) fail(path + ".acceptedAnswers", "accepted answers apply to blanks");
+    rules.acceptedAnswers = array(value.acceptedAnswers, path + ".acceptedAnswers", answer.length, answer.length).map((raw, index) =>
+      array(raw, path + ".acceptedAnswers[" + index + "]", 0, 12).map((item, variant) => text(item, path + ".acceptedAnswers[" + index + "][" + variant + "]", 2000)));
+  }
+  if (value.rubric !== undefined) {
+    if (type !== "short-answer" && type !== "long-answer") fail(path + ".rubric", "review checklists apply to written answers");
+    rules.rubric = array(value.rubric, path + ".rubric", 0, 20).map((item, index) => text(item, path + ".rubric[" + index + "]", 500));
+  }
+  return rules;
+}
 
 export function toQuestion(input: unknown, path = "question"): Question {
   const value = record(input, path);
@@ -301,6 +325,7 @@ export function toQuestion(input: unknown, path = "question"): Question {
     if (extras[type].includes(key)) result[key] = text(value[key], path + "." + key);
   }
   if (type === "error-correction" && value.correction !== undefined) result.correction = text(value.correction, path + ".correction");
+  if (value.grading !== undefined) result.grading = gradingRules(value.grading, type, result.answer, path + ".grading");
   return result as unknown as Question;
 }
 

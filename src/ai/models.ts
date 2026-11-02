@@ -1,5 +1,5 @@
 import type { ModelInfo, ModelServicePort, Provider, ProviderSettings } from "../core/types";
-import { defaultHttpClient, providerHeaders, requestJson, resolveBaseUrl, TransportError } from "./transport";
+import { defaultHttpClient, providerHeaders, requestJson, resolveBaseUrl, requiresProviderKey, TransportError } from "./transport";
 import type { HttpClient, HttpRequest } from "./transport";
 
 const DEFAULT_TTL_MS = 5 * 60_000;
@@ -15,6 +15,7 @@ interface DiscoveredModel extends ModelInfo { releasedAt?: number }
 interface CacheEntry {
   base: string;
   accountKey: string;
+  workspaceId: string;
   expiresAt: number;
   models?: ModelInfo[];
   pending?: Promise<ModelInfo[]>;
@@ -80,9 +81,10 @@ function modelInfo(provider: Provider, model: RecordValue, now = Date.now()): Di
   if (provider === "cohere" && Array.isArray(model.endpoints) && !model.endpoints.includes("chat")) return undefined;
   const name = (string(model.display_name) ?? string(model.displayName) ?? string(model.name) ?? id)
     .split("").map(character => controlCharacter(character) ? " " : character).join("").slice(0, 160);
-  const contextWindow = positive(model.max_input_tokens) ?? positive(model.inputTokenLimit)
-    ?? positive(model.max_context_length) ?? positive(model.context_length);
-  return { id, name, provider, ...(contextWindow ? { contextWindow } : {}), releasedAt: releasedAt(model) };
+  const inputTokenLimit = positive(model.max_input_tokens) ?? positive(model.inputTokenLimit);
+  const contextWindow = positive(model.max_context_length) ?? positive(model.context_length);
+  const outputTokenLimit = positive(model.max_output_tokens) ?? positive(model.outputTokenLimit);
+  return { id, name, provider, ...(contextWindow ? { contextWindow } : {}), ...(inputTokenLimit ? { inputTokenLimit } : {}), ...(outputTokenLimit ? { outputTokenLimit } : {}), releasedAt: releasedAt(model) };
 }
 
 function catalogRows(provider: Provider, value: unknown): RecordValue[] {
@@ -178,22 +180,23 @@ export class ModelService implements ModelServicePort {
     this.revisions.set(provider, revision);
     const base = resolveBaseUrl(provider, config.baseUrl);
     const key = config.apiKey.trim();
-    if (provider !== "ollama" && !key) throw new TransportError("configuration", "Add your provider key before refreshing models.");
-    const headers = providerHeaders(provider, key);
+    if (requiresProviderKey(provider, base) && !key) throw new TransportError("configuration", "Add your provider key before refreshing models.");
+    const headers = providerHeaders(provider, key, config.workspaceId);
+    const workspaceId = config.workspaceId ?? "";
     // Give unload/cancellation a chance before contacting a provider. Cache identity is
     // an exact, memory-only snapshot; discovery does not require Web Crypto support.
     await Promise.resolve();
     assertActive(options.signal);
     if ((this.revisions.get(provider) ?? 0) !== revision) throw cancelled();
     let entry = this.cache.get(provider);
-    if (entry && (entry.base !== base || entry.accountKey !== key)) {
+    if (entry && (entry.base !== base || entry.accountKey !== key || entry.workspaceId !== workspaceId)) {
       entry.controller.abort();
       entry = undefined;
       this.cache.delete(provider);
     }
     if (entry?.models && !options.refresh && entry.expiresAt > this.now()) return entry.models.map(model => ({ ...model }));
     if (!entry?.pending) {
-      entry = { base, accountKey: key, expiresAt: 0, controller: new AbortController(), consumers: new Set() };
+      entry = { base, accountKey: key, workspaceId, expiresAt: 0, controller: new AbortController(), consumers: new Set() };
       this.cache.set(provider, entry);
       const current = entry;
       let timedOut = false;
@@ -218,6 +221,14 @@ export class ModelService implements ModelServicePort {
       });
     }
     return this.consume(provider, entry, options.signal);
+  }
+
+  /** Reads only this account’s completed metadata cache; never makes a request. */
+  get(provider: Provider, config: ProviderSettings, id: string): ModelInfo | undefined {
+    const entry = this.cache.get(provider);
+    if (!entry?.models || entry.expiresAt <= this.now() || entry.base !== resolveBaseUrl(provider, config.baseUrl) || entry.accountKey !== config.apiKey.trim() || entry.workspaceId !== (config.workspaceId ?? "")) return undefined;
+    const model = entry.models.find(item => item.id === id);
+    return model ? { ...model } : undefined;
   }
 
   /** Tests metadata reachability only; it does not establish generation access. */

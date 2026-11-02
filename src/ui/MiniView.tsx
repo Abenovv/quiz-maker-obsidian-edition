@@ -7,7 +7,7 @@ import {
   canAnswer, canCheck, canPause, canReveal, currentQuestionIndex, reduceSession,
   remainingSeconds, summarizeSession, type SessionAction
 } from "../session/engine";
-import { gradeQuestion, isAnswered } from "../session/grading";
+import { gradeQuestion, isAnswered, formatScore } from "../session/grading";
 import { QuestionView } from "./questions/QuestionView";
 import { EmptyState, InlineError, PluginReactContext, errorMessage } from "./shared";
 import { Icon } from "./Icon";
@@ -120,7 +120,10 @@ export function MiniStudy({ context }: { context: PluginContext }): ReactNode {
   useEffect(() => {
     alive.current = true;
     const update = (): void => {
-      const next = miniSessionSnapshot(context.store, sessionRef.current);
+      const version = context.store.getActiveSessionRevision?.();
+      const visible = sessionRef.current;
+      if (version?.id === visible?.id && version && visible && version.updatedAt <= visible.updatedAt) { setStorageIssue(context.store.loadIssue || context.store.writeIssue || ""); return; }
+      const next = miniSessionSnapshot(context.store, visible);
       sessionRef.current = next;
       setSession(next);
       setStorageIssue(context.store.loadIssue || context.store.writeIssue || "");
@@ -150,7 +153,8 @@ export function MiniStudy({ context }: { context: PluginContext }): ReactNode {
 
   const dispatch = useCallback((action: SessionAction, expectedId?: string): void => {
     const visible = sessionRef.current;
-    const active = context.store.getActiveSession();
+    const version = context.store.getActiveSessionRevision?.();
+    const active = version?.id === visible?.id && version && visible && version.updatedAt <= visible.updatedAt ? visible : context.store.getActiveSession();
     // Clearing a session or starting another one invalidates an old button click.
     if (!visible || !active || visible.id !== active.id || (expectedId !== undefined && visible.id !== expectedId)) return;
     const current = latestMiniSession(visible, active)!;
@@ -191,6 +195,7 @@ export function MiniStudy({ context }: { context: PluginContext }): ReactNode {
   const grade = reveal && !flashcards && session.config.mode !== "exam" ? gradeQuestion(question, session.responses[index]) : undefined;
   const feedback = grade && {
     correct: "Correct",
+    partial: grade.feedback ?? "Partly correct",
     incorrect: "Incorrect",
     "self-review": "Compare with the reference.",
     unanswered: "No answer recorded."
@@ -246,7 +251,7 @@ export function MiniStudy({ context }: { context: PluginContext }): ReactNode {
     <InlineError>{error || storageIssue}</InlineError>
     {(error || storageIssue) && <button type="button" onClick={() => { const current = sessionRef.current; if (current) persist(current); }}>Retry saving</button>}
     {summary ? <div className="qm-mini-results">
-      <p ref={resultSummary} className="qm-mini-score" tabIndex={-1}>{summary.maxScore ? `${summary.score} / ${summary.maxScore} points` : "Self-review complete"}</p>
+      <p ref={resultSummary} className="qm-mini-score" tabIndex={-1}>{summary.maxScore ? `${formatScore(summary.score)} / ${summary.maxScore} points` : "Self-review complete"}</p>
       {session.finishReason === "expired" && <p>Time expired.</p>}
       <button type="button" className="mod-cta" onClick={openFull}>Review results</button>
     </div> : session.phase === "paused" ? <div className="qm-mini-paused">

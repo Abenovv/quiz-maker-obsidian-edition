@@ -26,7 +26,14 @@ export interface SourceSelection { path: string; fromLine: number; toLine: numbe
 export interface AnkiImportData {
   format: "anki"; noteId: string; noteType: string; fields: Array<{ name: string; value: string }>; cardCount: number; scheduling?: string;
 }
+export interface QuestionGrading {
+  partialCredit?: boolean;
+  caseSensitive?: boolean;
+  acceptedAnswers?: string[][];
+  rubric?: string[];
+}
 export interface QuestionBase {
+  grading?: QuestionGrading;
   id?: string;
   contentRevision?: number;
   tags?: string[];
@@ -63,7 +70,7 @@ export type Question = BooleanQuestion | ChoiceQuestion | MultiChoiceQuestion | 
 
 export const providers = ["openai", "google", "anthropic", "mistral", "cohere", "perplexity", "ollama"] as const;
 export type Provider = typeof providers[number];
-export interface ProviderSettings { apiKey: string; model: string; baseUrl: string }
+export interface ProviderSettings { apiKey: string; model: string; baseUrl: string; workspaceId?: string; protocol?: "responses" | "chat-completions"; apiKeySecret?: string }
 /** A single request's transport configuration. Never stored with quiz content. */
 export interface GenerationConnection { provider: Provider; config: ProviderSettings }
 export type Theme = "obsidian" | "paper" | "midnight" | "contrast";
@@ -118,7 +125,7 @@ export interface QuestionRevision {
   model?: string;
   generatedAt: string;
 }
-export type GradeStatus = "correct" | "incorrect" | "unanswered" | "self-review";
+export type GradeStatus = "correct" | "partial" | "incorrect" | "unanswered" | "self-review";
 export interface Grade {
   status: GradeStatus;
   score: number;
@@ -162,6 +169,7 @@ export interface SessionSummary {
   maxScore: number;
   correct: number;
   incorrect: number;
+  partial?: number;
   unanswered: number;
   selfReview: number;
   session?: Session;
@@ -172,6 +180,10 @@ export interface ReviewCard {
   dueAt: number;
   intervalDays: number;
   rating: "again" | "good" | "easy";
+  ease?: number;
+  repetitions?: number;
+  lapses?: number;
+  reviewedAt?: number;
 }
 export interface QuizStorePort {
   readonly loadIssue?: string;
@@ -179,9 +191,10 @@ export interface QuizStorePort {
   load(): Promise<void>;
   listQuizzes(): Quiz[];
   getQuiz(id: string): Quiz | undefined;
-  saveQuiz(quiz: Quiz): Promise<Quiz>;
+  saveQuiz(quiz: Quiz, options?: { ifMissing?: boolean }): Promise<Quiz>;
   deleteQuiz(id: string): Promise<void>;
   getActiveSession(): Session | undefined;
+  getActiveSessionRevision?(): { id: string; updatedAt: number } | undefined;
   saveSession(session: Session, immediate?: boolean): Promise<void>;
   completeSession(session: Session, result?: SessionSummary): Promise<void>;
   clearSession(): Promise<void>;
@@ -195,7 +208,7 @@ export interface QuizStorePort {
   importLegacyLibrary?(text: string): Promise<{ imported: number; existing: number; total: number; errors: Array<{ entry: number; message: string }>; warnings: string[] }>;
   flush(): Promise<void>;
   dispose(): Promise<void>;
-  subscribe(listener: () => void): () => void;
+  subscribe(listener: () => void, scope?: "all" | "library"): () => void;
   getWorkspace?(): WorkspaceData;
   saveWorkspace?(data: WorkspaceData): Promise<void>;
   createBackup?(): Promise<StudyBackup>;
@@ -204,10 +217,11 @@ export interface QuizStorePort {
   getRevisions?(quizId: string): SavedQuizRevision[];
   restoreRevision?(revisionId: string): Promise<Quiz>;
 }
-export interface ModelInfo { id: string; name: string; provider: Provider; contextWindow?: number }
+export interface ModelInfo { id: string; name: string; provider: Provider; contextWindow?: number; inputTokenLimit?: number; outputTokenLimit?: number }
 export interface ModelServicePort {
   list(provider: Provider, config: ProviderSettings, options?: { signal?: AbortSignal; refresh?: boolean }): Promise<ModelInfo[]>;
   test(provider: Provider, config: ProviderSettings, signal?: AbortSignal): Promise<void>;
+  get?(provider: Provider, config: ProviderSettings, id: string): ModelInfo | undefined;
   clear(provider?: Provider): void;
 }
 export interface SourceNote { path: string; content: string }
@@ -224,8 +238,11 @@ export interface GenerationRequest {
   includeSources: boolean;
   blueprint?: BlueprintAllocation[];
   selection?: SourceSelection;
+  /** Validated questions retained from an explicitly resumed generation. */
+  retained?: Quiz;
   signal?: AbortSignal;
   onProgress?: (message: string) => void;
+  onCheckpoint?: (quiz: Quiz) => void;
 }
 export interface GenerationServicePort {
   generate(request: GenerationRequest, connection?: GenerationConnection): Promise<Quiz>;

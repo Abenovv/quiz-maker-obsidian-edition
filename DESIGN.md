@@ -39,7 +39,7 @@ Mini view uses title/open-full, one position/timer/options row, the question and
 
 The editor keeps title and Tools together, a question list, the current question and one Save quiz action. JSON, history, quiz metadata, export and Save and study are under Tools. Add question and bulk management open on request. Import/export dialogs stop at 640px; the two-pane editor retains 1120px on wide screens.
 
-Settings remain native. General shows appearance and motion, with optional sounds and command preferences under one More options disclosure. Test sound appears only when sounds are enabled. Quizzes keeps pack, language and note folder visible; format and evidence are optional. Model provider, required credential/server information and the chosen model remain clear. Discovery opens on request, manual IDs remain available, and errors stay visible. All fourteen native searchable definitions and saved defaults are preserved.
+Settings remain native. General shows appearance and motion, with optional sounds and command preferences under one More options disclosure. Test sound appears only when sounds are enabled. Quizzes keeps pack, language and note folder visible; format and evidence are optional. Model provider, required credential/server information and the chosen model remain clear. Discovery opens on request, manual IDs remain available, and errors stay visible. Existing searchable settings and saved defaults are preserved. Advanced connection fields stay within their existing group.
 
 At 600px and below, dialogs use the available width and respect safe areas. At 380px and below, groups wrap. Inputs use 16px text on narrow screens. Long text and JSON must not widen their container. Keep keyboard destinations visible when menus close or actions disappear.
 
@@ -49,4 +49,4 @@ Use 140ms control transitions and a 160ms entrance for questions and revealed an
 
 Check all four appearances, keyboard focus, long prompts, code, errors, empty states, settings panes, mini view, forced colors, and widths of 280, 320, 390, 768px and desktop. Documentation screenshots must show the installed plugin with public demo content.
 
-New quiz and Quick quiz are default commands alongside Open. It opens the active Markdown note with the saved study pack, without reading or sending its content until Generate. Other commands stay optional. Source selection browses only the current folder and folders the user opens; it does not build a vault-wide path index.
+New quiz and Quick quiz are default commands alongside Open. Both open setup with the active Markdown note and saved study pack, without reading or sending its content until Generate. Other commands stay optional. Source selection browses only the current folder and folders the user opens; it does not build a vault-wide path index.

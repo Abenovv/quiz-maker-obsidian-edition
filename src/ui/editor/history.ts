@@ -4,42 +4,51 @@ import { removeQuestion } from "./model";
 
 const MAX_STEPS = 40;
 const MAX_HISTORY_BYTES = 4 * MAX_QUIZ_BYTES;
-type Snapshot = { quiz: Quiz; bytes: number };
+type Snapshot = { text: string; bytes: number };
 
 /** Draft snapshots may be incomplete, but never retain unbounded text or live references. */
 export class DraftHistory {
   private past: Snapshot[] = [];
   private future: Snapshot[] = [];
+  private group: string | undefined;
+  private groupAt = 0;
   get canUndo(): boolean { return this.past.length > 0; }
   get canRedo(): boolean { return this.future.length > 0; }
   get retainedBytes(): number { return [...this.past, ...this.future].reduce((sum, item) => sum + item.bytes, 0); }
-  record(before: Quiz, after: Quiz): void {
-    if (JSON.stringify(before) === JSON.stringify(after)) return;
+  record(before: Quiz, after: Quiz, group?: string, now = Date.now()): void {
+    if (before === after) return;
+    const text = JSON.stringify(after);
+    this.checkSize(text);
+    if (group && group === this.group && now >= this.groupAt && now - this.groupAt <= 750 && this.past.length) {
+      this.future = []; this.groupAt = now; return;
+    }
     const snapshot = this.snapshot(before);
-    this.checkSize(after);
-    this.future = [];
-    this.past.push(snapshot);
-    this.trim();
+    if (snapshot.text === text) return;
+    this.group = group; this.groupAt = now;
+    this.future = []; this.past.push(snapshot); this.trim();
   }
   undo(current: Quiz): Quiz | undefined {
+    this.group = undefined;
     const previous = this.past.at(-1);
     if (!previous) return undefined;
     const snapshot = this.snapshot(current);
     this.past.pop(); this.future.push(snapshot); this.trim();
-    return structuredClone(previous.quiz);
+    return JSON.parse(previous.text) as Quiz;
   }
   redo(current: Quiz): Quiz | undefined {
+    this.group = undefined;
     const next = this.future.at(-1);
     if (!next) return undefined;
     const snapshot = this.snapshot(current);
     this.future.pop(); this.past.push(snapshot); this.trim();
-    return structuredClone(next.quiz);
+    return JSON.parse(next.text) as Quiz;
   }
   private snapshot(quiz: Quiz): Snapshot {
-    return { quiz: structuredClone(quiz), bytes: this.checkSize(quiz) };
+    const text = JSON.stringify(quiz);
+    return { text, bytes: this.checkSize(text) };
   }
-  private checkSize(quiz: Quiz): number {
-    const bytes = new TextEncoder().encode(JSON.stringify(quiz)).length;
+  private checkSize(text: string): number {
+    const bytes = new TextEncoder().encode(text).length;
     if (bytes > MAX_QUIZ_BYTES) throw new Error("This draft exceeds 2 MiB. Shorten it before editing further.");
     return bytes;
   }

@@ -263,3 +263,17 @@ test("default client rejects unreadable successful JSON and honors pre-dispatch 
     assert.equal(calls, 1);
   } finally { restore(); }
 });
+
+test("workspace errors retain actionable instructions without echoing provider bodies", async () => {
+  await assert.rejects(requestJson({ url: "https://api.anthropic.com/v1/models" }, async () => response({ error: { message: "anthropic-workspace-id is required; public-fixture-secret" } }, 400)), error => error instanceof TransportError && /workspace ID/.test(error.message) && !error.message.includes("public-fixture-secret"));
+  const fixture = mock({ content: [{ type: "text", text: quizText }], stop_reason: "end_turn" });
+  await generateText(config("anthropic", { workspaceId: "wrkspc_public" }), messages, undefined, fixture.http);
+  assert.equal(fixture.calls[0].headers?.["anthropic-workspace-id"], "wrkspc_public");
+});
+
+test("a configured Responses-only proxy keeps its selected protocol with an anonymous local server", async () => {
+  const fixture = mock({ status: "completed", output_text: quizText });
+  await generateText(config("openai", { apiKey: "", baseUrl: "http://127.0.0.1:1234/v1", protocol: "responses" }), messages, undefined, fixture.http);
+  assert.equal(fixture.calls[0].url, "http://127.0.0.1:1234/v1/responses");
+  assert.equal(fixture.calls[0].headers?.Authorization, undefined);
+});

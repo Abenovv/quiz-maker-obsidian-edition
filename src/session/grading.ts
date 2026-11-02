@@ -86,6 +86,16 @@ export function isAnswered(question: Question, response: unknown): boolean {
   catch { return false; }
 }
 
+function blankMatches(question: Extract<Question, { type: "fill-in-the-blank" }>, value: string, index: number): boolean {
+  const normalize = (text: string): string => {
+    const result = normalizeAnswerText(text);
+    return question.grading?.caseSensitive === false ? result.toLowerCase() : result;
+  };
+  return [question.answer[index], ...(question.grading?.acceptedAnswers?.[index] ?? [])].some(answer => normalize(value) === normalize(answer));
+}
+
+export function formatScore(score: number): string { return String(Math.round(score * 100) / 100); }
+
 function sameOrder(actual: number[], expected: number[]): boolean {
   return actual.length === expected.length && actual.every((value, index) => value === expected[index]);
 }
@@ -94,7 +104,7 @@ function sameSelection(actual: number[], expected: number[]): boolean {
   return actual.length === expected.length && expected.every(value => actual.includes(value));
 }
 
-/** Objective questions are all-or-nothing; written answers require self-review. */
+/** Objective questions use strict grading unless partial credit is enabled; written answers use self-review. */
 export function gradeQuestion(question: Question, response: unknown): Grade {
   const written = question.type === "short-answer" || question.type === "long-answer";
   const maxScore = written ? 0 : 1;
@@ -118,7 +128,7 @@ export function gradeQuestion(question: Question, response: unknown): Grade {
         break;
       case "fill-in-the-blank":
         correct = (response as string[]).every((value, index) =>
-          normalizeAnswerText(value) === normalizeAnswerText(question.answer[index]));
+          blankMatches(question, value, index));
         break;
       case "matching":
         correct = (response as number[]).every((rightIndex, leftIndex) =>
@@ -143,7 +153,31 @@ export function gradeQuestion(question: Question, response: unknown): Grade {
   } catch {
     return { status: "unanswered", score: 0, maxScore, answered: false };
   }
-  return { status: correct ? "correct" : "incorrect", score: correct ? 1 : 0, maxScore: 1, answered: true };
+  let credit = correct ? 1 : 0;
+  if (!correct && question.grading?.partialCredit) {
+    const values = response as number[];
+    switch (question.type) {
+      case "select-all": case "evidence-selection": {
+        const right = values.filter(value => question.answer.includes(value)).length;
+        const wrongChoices = question.options.length - question.answer.length;
+        credit = Math.max(0, right / question.answer.length - (wrongChoices ? (values.length - right) / wrongChoices : 0)); break;
+      }
+      case "fill-in-the-blank": credit = (response as string[]).filter((value, index) => blankMatches(question, value, index)).length / question.answer.length; break;
+      case "matching": credit = values.filter((value, index) => question.answer[value].rightOption === question.answer[index].rightOption).length / question.answer.length; break;
+      case "sequencing": case "categorization": case "concept-map": credit = values.filter((value, index) => value === question.answer[index]).length / question.answer.length; break;
+      case "two-stage": {
+        const selected = response as TwoStageResponse;
+        credit = (Number(selected.answer === question.answer) + Number(selected.reasonAnswer === question.reasonAnswer)) / 2; break;
+      }
+      case "branching-scenario": {
+        const path = visitedBranch(question, response) ?? [];
+        credit = path.length ? path.filter(index => (response as BranchResponse)[index] === question.answer[index]).length / path.length : 0; break;
+      }
+    }
+  }
+  credit = Math.round(Math.min(1, Math.max(0, credit)) * 10000) / 10000;
+  return { status: correct ? "correct" : credit > 0 ? "partial" : "incorrect", score: credit, maxScore: 1, answered: true,
+    ...(credit > 0 && credit < 1 ? { feedback: `Partly correct · ${formatScore(credit)} / 1 point` } : {}) };
 }
 
 const numbered = (values: string[]): string => values.map((value, index) => `${index + 1}. ${value}`).join("\n");
@@ -198,7 +232,7 @@ export function referenceAnswer(question: Question): string[] {
       return question.answer.map(pair => `${pair.leftOption} → ${pair.rightOption}`);
     case "short-answer":
     case "long-answer":
-      return [question.answer];
+      return [question.answer, ...(question.grading?.rubric?.map(point => "• " + point) ?? [])];
     case "branching-scenario": {
       const visited = visitedBranch(question, question.answer);
       return (visited ?? []).map(step => `Step ${step + 1}: ${question.steps[step].options[question.answer[step]]}`);

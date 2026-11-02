@@ -1,5 +1,44 @@
 # Release notes
 
+## 2.1.0
+
+Improve generation, answer checking and local data handling while preserving the current layout and saved preferences.
+
+### Generation and model connections
+
+- Generate larger quizzes in bounded batches. Keep validated questions after an interruption and continue only the missing counts when requested. Failed requests are never retried automatically.
+- Reject truncated JSON and invalid answer structures. Remove contradictory copies before selecting recovered questions; never guess or repair an answer.
+- Preserve Anthropic workspace IDs and compatible API protocol settings across model discovery and generation. Support keyless local compatible servers and retain manual model IDs when discovery is unavailable.
+- Use fresh model metadata for the exact connection and model. Distinguish input-only limits from shared context limits, cap reasoning output to available space, and show specific connection errors without exposing provider responses or credentials.
+
+### Grading and review
+
+- Add optional accepted blank answers, case rules and partial credit for multipart questions. Existing questions keep strict grading.
+- Add written-answer checklists for self-review. Written responses remain outside automatic objective scores.
+- Adapt flashcard review intervals to ratings and lapses. Keep Good and Easy ratings out of missed-answer lists and objective topic accuracy.
+- Show fractional scores consistently in full study, mini view, results and trends.
+
+### Data, performance and exports
+
+- Preserve newer library edits, saved revisions and review data when studying an older quiz note.
+- Accept valid multiline selections whose final column precedes their starting column.
+- Save provider keys through Obsidian Keychain when supported. Verify the write before replacing the plaintext setting, reuse verified references, and preserve compatibility with older hosts.
+- Reduce library redraws, repeated serialization and editor validation work. Group typing for undo, bound delayed answer writes and flush explicit session actions promptly.
+- Display attached local images in readable notes and older quiz blocks, with path, file-size and dimension checks. Retain concept-map connections and branching context in Anki previews.
+
+### Interface and compatibility
+
+- Make New quiz and Quick quiz open the same setup. Keep manual writing under Library tools → Write questions.
+- Fix narrow-screen CSS syntax and selected-tab contrast without redesigning the interface. Reject stylesheet syntax warnings during builds.
+
+### Updating
+
+Replace only `main.js`, `manifest.json` and `styles.css`, then reload Obsidian. Keep your local settings and study-data files to preserve quizzes, packs and preferences. Keychain references are device-local; another device may require its provider key again.
+
+### Validation
+
+668 tests, typecheck, official Obsidian lint, reproducible builds, source/release checks and the dependency audit pass. Public fixtures cover 27 native and 8 browser workflows; scoped General and Models accessibility checks have zero violations. Live provider-account permissions, physical devices, OS-level keychain encryption and external directory acceptance remain separate checks.
+
 ## 2.0.1
 
 Simplify the default screens around creating and answering a quiz.

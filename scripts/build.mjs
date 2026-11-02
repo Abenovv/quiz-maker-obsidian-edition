@@ -36,7 +36,8 @@ if (Object.values(result.metafile.outputs).some(output => output.imports.some(it
 }
 const cssSources = await Promise.all(["styles/base.css", "styles/components.css"].map(path => readFile(path, "utf8")));
 const css = cssSources.map(text => text.replace(/\r\n/g, "\n").trimEnd()).join("\n\n") + "\n";
-await transform(css, { loader: "css", minify: false, logLevel: "warning" });
+const cssCheck = await transform(css, { loader: "css", minify: false, logLevel: "silent" });
+if (cssCheck.warnings.length) throw new Error("Fix stylesheet syntax warnings before building: " + cssCheck.warnings.map(warning => warning.text).join("; "));
 const javascript = result.outputFiles.find(file => file.path.endsWith("main.js"));
 if (!javascript) throw new Error("The plugin build produced no JavaScript.");
 const manifestBytes = await readFile("manifest.json");
